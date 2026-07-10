@@ -1,4 +1,4 @@
-namespace DiscordClone.Server.Models;
+namespace Voiceover.Server.Models;
 
 public enum MemberRole
 {

@@ -1,8 +1,8 @@
-using DiscordClone.Server.Data;
-using DiscordClone.Server.Models;
+using Voiceover.Server.Data;
+using Voiceover.Server.Models;
 using Microsoft.EntityFrameworkCore;
 
-namespace DiscordClone.Server.Services;
+namespace Voiceover.Server.Services;
 
 public class PermissionService
 {

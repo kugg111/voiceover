@@ -1,9 +1,9 @@
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
-using DiscordClone.Client.Services;
+using Voiceover.Client.Services;
 
-namespace DiscordClone.Client.Views;
+namespace Voiceover.Client.Views;
 
 public partial class VoiceSettingsWindow : Window
 {

@@ -1,8 +1,8 @@
-using DiscordClone.Server.Dtos;
+using Voiceover.Server.Dtos;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
-namespace DiscordClone.Server.Controllers;
+namespace Voiceover.Server.Controllers;
 
 [ApiController]
 [Authorize]

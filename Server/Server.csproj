@@ -4,7 +4,7 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <UserSecretsId>discord-clone-server</UserSecretsId>
+    <UserSecretsId>voiceover-server</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>

@@ -1,11 +1,11 @@
-using DiscordClone.Server.Auth;
-using DiscordClone.Server.Data;
-using DiscordClone.Server.Dtos;
-using DiscordClone.Server.Models;
+using Voiceover.Server.Auth;
+using Voiceover.Server.Data;
+using Voiceover.Server.Dtos;
+using Voiceover.Server.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
-namespace DiscordClone.Server.Controllers;
+namespace Voiceover.Server.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]

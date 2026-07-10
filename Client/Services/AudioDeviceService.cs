@@ -1,6 +1,6 @@
 using NAudio.Wave;
 
-namespace DiscordClone.Client.Services;
+namespace Voiceover.Client.Services;
 
 // Index and display name of a Windows audio device, matching the index scheme
 // WindowsAudioEndPoint expects for its audioInDeviceIndex/audioOutDeviceIndex

@@ -2,11 +2,11 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Input;
-using DiscordClone.Client.Models;
-using DiscordClone.Client.Services;
+using Voiceover.Client.Models;
+using Voiceover.Client.Services;
 using Microsoft.Win32;
 
-namespace DiscordClone.Client.Views;
+namespace Voiceover.Client.Views;
 
 public class ServerListItem
 {

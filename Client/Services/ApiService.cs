@@ -2,9 +2,9 @@ using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using DiscordClone.Client.Models;
+using Voiceover.Client.Models;
 
-namespace DiscordClone.Client.Services;
+namespace Voiceover.Client.Services;
 
 public class ApiService
 {

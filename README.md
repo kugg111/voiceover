@@ -1,4 +1,4 @@
-# DiscordClone
+# Voiceover
 
 A Discord-style chat app in C#: an ASP.NET Core server (REST API + SignalR)
 and a WPF desktop client. Supports servers, roles, invites, text channels,
@@ -13,7 +13,7 @@ direct messages, file attachments, and mesh WebRTC voice chat.
 ## Project layout
 
 ```
-DiscordClone.sln
+Voiceover.sln
 Server/              ASP.NET Core Web API + SignalR
   Models/            EF Core entities (User, GuildServer, Channel, Message,
                       Membership, Invite, DirectMessage)
@@ -31,7 +31,7 @@ Client/              WPF desktop app
 
 ## Running it
 
-1. Open `DiscordClone.sln` in Visual Studio, or work from the CLI.
+1. Open `Voiceover.sln` in Visual Studio, or work from the CLI.
 2. **Restore packages**: `dotnet restore` at the solution root.
 3. **Run the server**:
    ```
@@ -39,7 +39,7 @@ Client/              WPF desktop app
    dotnet run
    ```
    Starts on `http://localhost:5220`, auto-creates a SQLite DB
-   (`discordclone.db`) on first run, and serves uploaded files from `/uploads`.
+   (`voiceover.db`) on first run, and serves uploaded files from `/uploads`.
 4. **Run the client** (separate terminal, or set as startup project in VS):
    ```
    cd Client
