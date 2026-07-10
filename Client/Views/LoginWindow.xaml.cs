@@ -1,3 +1,4 @@
+using System.Net.Http;
 using System.Windows;
 using DiscordClone.Client.Services;
 
@@ -25,32 +26,43 @@ public partial class LoginWindow : Window
     private async Task TryAuth(bool isRegister)
     {
         SetLoading(true);
-
-        var username = UsernameBox.Text.Trim();
-        var password = PasswordBox.Password;
-
-        if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
+        try
         {
-            ShowError("Please enter a username and password.");
+            var username = UsernameBox.Text.Trim();
+            var password = PasswordBox.Password;
+
+            if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
+            {
+                ShowError("Please enter a username and password.");
+                return;
+            }
+
+            bool success = isRegister
+                ? await _api.RegisterAsync(username, password)
+                : await _api.LoginAsync(username, password);
+
+            if (!success)
+            {
+                ShowError(isRegister ? "That username is already taken." : "Invalid username or password.");
+                return;
+            }
+
+            var main = new MainWindow(_api);
+            main.Show();
+            Close();
+        }
+        catch (HttpRequestException)
+        {
+            ShowError("Could not reach the server. Is it running?");
+        }
+        catch (TaskCanceledException)
+        {
+            ShowError("The request timed out. Is the server running?");
+        }
+        finally
+        {
             SetLoading(false);
-            return;
         }
-
-        bool success = isRegister
-            ? await _api.RegisterAsync(username, password)
-            : await _api.LoginAsync(username, password);
-
-        SetLoading(false);
-
-        if (!success)
-        {
-            ShowError(isRegister ? "That username is already taken." : "Invalid username or password.");
-            return;
-        }
-
-        var main = new MainWindow(_api);
-        main.Show();
-        Close();
     }
 
     private void ShowError(string message)
