@@ -105,6 +105,15 @@
     color: var(--text-muted);
   }
 
+  .download-secondary {
+    display: block;
+    margin-top: 10px;
+    font-size: 13px;
+    color: var(--text-muted);
+    text-decoration: underline;
+  }
+  .download-secondary:hover { color: var(--text-normal); }
+
   .screenshot-wrap {
     max-width: 980px;
     margin: 48px auto 0;
@@ -180,10 +189,11 @@
 <section class="hero">
   <h1>A Discord-style app,<br>built from scratch.</h1>
   <p class="tagline">Servers, text channels, direct messages, friends, and mesh voice chat — a lightweight desktop client for you and your friends.</p>
-  <a class="download-btn" href="/downloads/Voiceover-Client.zip" id="download-link">
+  <a class="download-btn" href="/downloads/Voiceover-Setup.exe" id="download-link">
     <span>⬇</span> Download for Windows
   </a>
-  <span class="platform-note">Windows 10/11 · No installer needed, just unzip and run</span>
+  <span class="platform-note">Windows 10/11 · Installer, no admin rights needed</span>
+  <a class="download-secondary" href="/downloads/Voiceover-Client.zip">Prefer a ZIP instead? Download without the installer</a>
 
   <div class="screenshot-wrap">
     <img src="/images/app-screenshot.png" alt="Voiceover app screenshot" onerror="this.replaceWith(Object.assign(document.createElement('div'), {className: 'screenshot-placeholder', textContent: 'Screenshot coming soon'}))">

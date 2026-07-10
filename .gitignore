@@ -10,4 +10,6 @@ Server/wwwroot/
 Server/appsettings.Development.json
 /publish/
 /Voiceover-Client.zip
+/installer-output/
 Server/Site/downloads/*.zip
+Server/Site/downloads/*.exe
