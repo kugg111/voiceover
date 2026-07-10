@@ -139,8 +139,15 @@ public class VoiceService
 
     private async Task CreatePeerConnectionAsync(int remoteUserId, int channelId, bool isInitiator)
     {
-        var audioEndPoint = new WindowsAudioEndPoint(new AudioEncoder(), OutputDeviceIndex ?? -1, InputDeviceIndex ?? -1);
-        audioEndPoint.RestrictFormats(f => f.Codec == SIPSorceryMedia.Abstractions.AudioCodecsEnum.PCMU);
+        // Opus (48kHz, adaptive bitrate, forward error correction) instead of the
+        // default PCMU (8kHz mono, fixed 64kbps "phone line" quality) - PCMU was
+        // the initial choice because it's the one format guaranteed to exist with
+        // zero setup, but it's a large step down from what Discord/Opus sounds
+        // like. Concentus (a pure C# Opus implementation) is already a transitive
+        // SIPSorcery dependency, so this needs no new package.
+        var encoder = new AudioEncoder(includeLinearFormats: false, includeOpus: true);
+        var audioEndPoint = new WindowsAudioEndPoint(encoder, OutputDeviceIndex ?? -1, InputDeviceIndex ?? -1);
+        audioEndPoint.RestrictFormats(f => f.Codec == SIPSorceryMedia.Abstractions.AudioCodecsEnum.OPUS);
 
         var pc = new RTCPeerConnection(IceConfig);
 
@@ -148,7 +155,7 @@ public class VoiceService
         pc.addTrack(audioTrack);
 
         // Negotiated format applies to both directions since we're using the
-        // same codec (PCMU) for send and receive.
+        // same codec (Opus) for send and receive.
         SIPSorceryMedia.Abstractions.AudioFormat? negotiatedFormat = null;
         pc.OnAudioFormatsNegotiated += formats =>
         {
@@ -160,14 +167,17 @@ public class VoiceService
         // Mic -> outgoing RTP.
         audioEndPoint.OnAudioSourceEncodedSample += pc.SendAudio;
 
-        // Mic -> local speaking-indicator detection. Decodes the mu-law encoded
-        // samples ourselves rather than using OnAudioSourceRawSample - that event
-        // is marked obsolete in this SIPSorceryMedia version with "the audio
-        // source only generates encoded samples", meaning it likely never fires
-        // at all. Every peer connection captures the mic independently (see the
-        // mesh note above), so this runs once per peer - harmless since the
-        // state machine below only raises LocalSpeakingChanged on transitions.
-        audioEndPoint.OnAudioSourceEncodedSample += (durationRtpUnits, sample) => OnLocalEncodedSample(sample);
+        // Mic -> local speaking-indicator detection. Decodes our own outgoing
+        // Opus frames back to PCM (via the same encoder instance) to measure
+        // volume, rather than using OnAudioSourceRawSample - that event is
+        // marked obsolete in this SIPSorceryMedia version with "the audio
+        // source only generates encoded samples", meaning it likely never
+        // fires at all. Every peer connection captures the mic independently
+        // (see the mesh note above), so this runs once per peer - harmless
+        // since the state machine below only raises LocalSpeakingChanged on
+        // transitions.
+        audioEndPoint.OnAudioSourceEncodedSample += (durationRtpUnits, sample) =>
+            OnLocalEncodedSample(encoder, negotiatedFormat, sample);
 
         // Incoming RTP -> speaker. GotAudioRtp is obsolete in this SIPSorceryMedia
         // version in favor of GotEncodedMediaFrame, which takes the decoded RTP
@@ -223,17 +233,24 @@ public class VoiceService
         }
     }
 
-    private void OnLocalEncodedSample(byte[] muLawEncoded)
+    private void OnLocalEncodedSample(AudioEncoder encoder, SIPSorceryMedia.Abstractions.AudioFormat? format, byte[] encoded)
     {
-        if (muLawEncoded.Length == 0) return;
+        if (format is null || encoded.Length == 0) return;
+
+        short[] pcm;
+        try
+        {
+            pcm = encoder.DecodeAudio(encoded, format.Value);
+        }
+        catch
+        {
+            return; // e.g. format negotiation hasn't completed yet
+        }
+        if (pcm.Length == 0) return;
 
         long sumSquares = 0;
-        foreach (var b in muLawEncoded)
-        {
-            var linear = MuLawToLinearSample(b);
-            sumSquares += (long)linear * linear;
-        }
-        var rms = Math.Sqrt(sumSquares / (double)muLawEncoded.Length);
+        foreach (var s in pcm) sumSquares += (long)s * s;
+        var rms = Math.Sqrt(sumSquares / (double)pcm.Length);
 
         var now = DateTime.UtcNow;
         if (rms > SpeakingRmsThreshold)
@@ -250,17 +267,6 @@ public class VoiceService
             _localIsSpeaking = false;
             LocalSpeakingChanged?.Invoke(false);
         }
-    }
-
-    // Standard G.711 mu-law -> 16-bit linear PCM decode (single byte -> one sample).
-    private static short MuLawToLinearSample(byte muLaw)
-    {
-        muLaw = (byte)~muLaw;
-        var sign = (muLaw & 0x80) != 0 ? -1 : 1;
-        var exponent = (muLaw >> 4) & 0x07;
-        var mantissa = muLaw & 0x0F;
-        var magnitude = (((mantissa << 3) + 0x84) << exponent) - 0x84;
-        return (short)(sign * magnitude);
     }
 
     private async Task ClosePeerAsync(int userId)
