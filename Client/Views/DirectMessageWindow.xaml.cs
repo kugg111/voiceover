@@ -4,6 +4,8 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using Voiceover.Client.Models;
 using Voiceover.Client.Services;
+using Wpf.Ui.Controls;
+using Button = System.Windows.Controls.Button;
 
 namespace Voiceover.Client.Views;
 
@@ -19,7 +21,7 @@ public class DmMessageListItem
     public string Content { get; set; } = string.Empty;
 }
 
-public partial class DirectMessageWindow : Window
+public partial class DirectMessageWindow : FluentWindow
 {
     private readonly ApiService _api;
     private readonly SignalRService _hub;

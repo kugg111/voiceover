@@ -1,13 +1,26 @@
 <Application x:Class="Voiceover.Client.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
              StartupUri="Views/LoginWindow.xaml">
     <Application.Resources>
-        <SolidColorBrush x:Key="BgDark" Color="#2B2D31"/>
-        <SolidColorBrush x:Key="BgDarker" Color="#1E1F22"/>
-        <SolidColorBrush x:Key="BgSidebar" Color="#232428"/>
-        <SolidColorBrush x:Key="AccentBlurple" Color="#5865F2"/>
-        <SolidColorBrush x:Key="TextNormal" Color="#DBDEE1"/>
-        <SolidColorBrush x:Key="TextMuted" Color="#949BA4"/>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- Restyles standard controls (Button, TextBox, ComboBox, etc.)
+                     to the Fluent look automatically - existing XAML doesn't need
+                     to switch to ui: control tags to pick this up. -->
+                <ui:ThemesDictionary Theme="Dark" />
+                <ui:ControlsDictionary />
+            </ResourceDictionary.MergedDictionaries>
+
+            <!-- Discord-accurate palette, kept as-is and layered on top of the
+                 Fluent control templates. -->
+            <SolidColorBrush x:Key="BgDark" Color="#2B2D31"/>
+            <SolidColorBrush x:Key="BgDarker" Color="#1E1F22"/>
+            <SolidColorBrush x:Key="BgSidebar" Color="#232428"/>
+            <SolidColorBrush x:Key="AccentBlurple" Color="#5865F2"/>
+            <SolidColorBrush x:Key="TextNormal" Color="#DBDEE1"/>
+            <SolidColorBrush x:Key="TextMuted" Color="#949BA4"/>
+        </ResourceDictionary>
     </Application.Resources>
 </Application>

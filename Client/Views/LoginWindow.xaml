@@ -1,11 +1,23 @@
-<Window x:Class="Voiceover.Client.Views.LoginWindow"
+<ui:FluentWindow x:Class="Voiceover.Client.Views.LoginWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
         Title="Voiceover - Login" Height="420" Width="360"
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource BgDark}"
-        ResizeMode="NoResize">
-    <Grid Margin="32">
+        ResizeMode="NoResize"
+        ExtendsContentIntoTitleBar="True"
+        WindowBackdropType="Mica"
+        WindowCornerPreference="Round">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <ui:TitleBar Title="Voiceover" Grid.Row="0" ShowMaximize="False"/>
+
+        <Grid Grid.Row="1" Margin="32">
         <StackPanel VerticalAlignment="Center">
             <TextBlock Text="Welcome back!" FontSize="22" FontWeight="Bold"
                        Foreground="{StaticResource TextNormal}" Margin="0,0,0,4"/>
@@ -36,5 +48,6 @@
                     Background="Transparent" Foreground="{StaticResource TextMuted}"
                     BorderThickness="0" Cursor="Hand" Click="RegisterButton_Click"/>
         </StackPanel>
+        </Grid>
     </Grid>
-</Window>
+</ui:FluentWindow>
