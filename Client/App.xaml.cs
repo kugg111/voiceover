@@ -5,9 +5,13 @@ namespace DiscordClone.Client;
 
 public partial class App : Application
 {
-    // Change this if your server runs on a different port (see Server/appsettings.json).
-    public const string ApiBaseUrl = "http://localhost:5220/";
-    public const string HubUrl = "http://localhost:5220/hubs/chat";
+    // Points at the deployed Railway server so friends can connect from their
+    // own PCs. Switch back to the localhost values below for local dev against
+    // `dotnet run` in Server/.
+    public const string ApiBaseUrl = "https://discord-clone-production-9f02.up.railway.app/";
+    public const string HubUrl = "https://discord-clone-production-9f02.up.railway.app/hubs/chat";
+    // public const string ApiBaseUrl = "http://localhost:5220/";
+    // public const string HubUrl = "http://localhost:5220/hubs/chat";
 
     public App()
     {
