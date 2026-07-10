@@ -13,6 +13,7 @@ public class SignalRService
     public event Action<int, string, int>? VoiceUserJoined;
     public event Action<int, string, int>? VoiceUserLeft;
     public event Action<int, int, string, string>? VoiceSignalReceived;
+    public event Action<int, int, bool>? UserSpeaking;
 
     // Connection lifecycle events, surfaced so the UI can show a status banner
     // instead of silently failing when the connection drops.
@@ -36,6 +37,7 @@ public class SignalRService
         _connection.On<int, string, int>("VoiceUserJoined", (userId, username, channelId) => VoiceUserJoined?.Invoke(userId, username, channelId));
         _connection.On<int, string, int>("VoiceUserLeft", (userId, username, channelId) => VoiceUserLeft?.Invoke(userId, username, channelId));
         _connection.On<int, int, string, string>("VoiceSignal", (fromUserId, channelId, signalType, payload) => VoiceSignalReceived?.Invoke(fromUserId, channelId, signalType, payload));
+        _connection.On<int, int, bool>("UserSpeaking", (userId, channelId, isSpeaking) => UserSpeaking?.Invoke(userId, channelId, isSpeaking));
 
         _connection.Reconnecting += _ => { Reconnecting?.Invoke(); return Task.CompletedTask; };
         _connection.Reconnected += _ => { Reconnected?.Invoke(); return Task.CompletedTask; };
@@ -54,6 +56,7 @@ public class SignalRService
     public Task LeaveVoiceChannelAsync(int channelId) => _connection!.InvokeAsync("LeaveVoiceChannel", channelId);
     public Task SendVoiceSignalAsync(int targetUserId, int channelId, string signalType, string payload)
         => _connection!.InvokeAsync("SendVoiceSignal", targetUserId, channelId, signalType, payload);
+    public Task SendSpeakingAsync(int channelId, bool isSpeaking) => _connection!.InvokeAsync("NotifySpeaking", channelId, isSpeaking);
 
     public bool IsConnected => _connection?.State == HubConnectionState.Connected;
 

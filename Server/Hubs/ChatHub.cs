@@ -115,6 +115,14 @@ public class ChatHub : Hub
             .SendAsync("VoiceSignal", CurrentUserId, channelId, signalType, payload);
     }
 
+    // Client-side voice-activity detection pushes state changes here (not raw
+    // audio levels) so this stays a cheap, infrequent broadcast rather than a
+    // per-frame one.
+    public async Task NotifySpeaking(int channelId, bool isSpeaking)
+    {
+        await Clients.OthersInGroup(VoiceGroupName(channelId)).SendAsync("UserSpeaking", CurrentUserId, channelId, isSpeaking);
+    }
+
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
         var left = _voicePresence.Leave(Context.ConnectionId);

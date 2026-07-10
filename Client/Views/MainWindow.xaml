@@ -96,8 +96,12 @@
                                     <ItemsControl ItemsSource="{Binding Members}" Margin="34,0,0,4" Focusable="False">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
-                                                <TextBlock Text="{Binding}" FontSize="12"
-                                                           Foreground="{StaticResource TextMuted}" Margin="0,2,0,2"/>
+                                                <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
+                                                    <TextBlock Text="🔊" FontSize="11" Margin="0,0,4,0"
+                                                               Visibility="{Binding SpeakingIndicatorVisibility}"/>
+                                                    <TextBlock Text="{Binding Username}" FontSize="12"
+                                                               Foreground="{StaticResource TextMuted}"/>
+                                                </StackPanel>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>

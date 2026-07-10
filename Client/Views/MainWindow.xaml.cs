@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Input;
 using DiscordClone.Client.Models;
@@ -13,13 +14,36 @@ public class ServerListItem
     public string Initial { get; set; } = "?";
 }
 
+public class VoiceMemberItem : INotifyPropertyChanged
+{
+    public int UserId { get; set; }
+    public string Username { get; set; } = string.Empty;
+
+    private bool _isSpeaking;
+    public bool IsSpeaking
+    {
+        get => _isSpeaking;
+        set
+        {
+            if (_isSpeaking == value) return;
+            _isSpeaking = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSpeaking)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SpeakingIndicatorVisibility)));
+        }
+    }
+
+    public Visibility SpeakingIndicatorVisibility => IsSpeaking ? Visibility.Visible : Visibility.Collapsed;
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+}
+
 public class ChannelListItem
 {
     public int Id { get; set; }
     public string DisplayName { get; set; } = string.Empty;
 
     // Only populated/shown for voice channels - who's currently connected.
-    public ObservableCollection<string> Members { get; } = new();
+    public ObservableCollection<VoiceMemberItem> Members { get; } = new();
 }
 
 public class MessageListItem
@@ -65,6 +89,7 @@ public partial class MainWindow : Window
         _hub.UserTyping += OnUserTyping;
         _hub.VoiceUserJoined += OnVoiceUserJoined;
         _hub.VoiceUserLeft += OnVoiceUserLeft;
+        _hub.UserSpeaking += OnUserSpeaking;
         _hub.Reconnecting += () => Dispatcher.Invoke(() => ConnectionStatusText.Text = "Reconnecting...");
         _hub.Reconnected += OnReconnected;
         _hub.ConnectionClosed += () => Dispatcher.Invoke(() => ConnectionStatusText.Text = "Disconnected");
@@ -86,6 +111,7 @@ public partial class MainWindow : Window
         _voice = new VoiceService(_hub, _api.CurrentUserId!.Value);
         _voice.PeerConnected += userId => Dispatcher.Invoke(() => ConnectionStatusText.Text = "Voice connected");
         _voice.PeerDisconnected += userId => Dispatcher.Invoke(() => ConnectionStatusText.Text = "");
+        _voice.LocalSpeakingChanged += isSpeaking => _ = OnLocalSpeakingChangedAsync(isSpeaking);
         await LoadServersAsync();
     }
 
@@ -164,9 +190,9 @@ public partial class MainWindow : Window
         {
             item.Members.Clear();
             foreach (var m in existingMembers)
-                item.Members.Add(m.Username);
-            if (_api.CurrentUsername is not null)
-                item.Members.Add(_api.CurrentUsername);
+                item.Members.Add(new VoiceMemberItem { UserId = m.UserId, Username = m.Username });
+            if (_api.CurrentUserId is not null && _api.CurrentUsername is not null)
+                item.Members.Add(new VoiceMemberItem { UserId = _api.CurrentUserId.Value, Username = _api.CurrentUsername });
         }
 
         ConnectionStatusText.Text = "Joined voice";
@@ -400,8 +426,8 @@ public partial class MainWindow : Window
         Dispatcher.Invoke(() =>
         {
             var item = FindVoiceChannelItem(channelId);
-            if (item is not null && !item.Members.Contains(username))
-                item.Members.Add(username);
+            if (item is not null && !item.Members.Any(m => m.UserId == userId))
+                item.Members.Add(new VoiceMemberItem { UserId = userId, Username = username });
         });
     }
 
@@ -409,7 +435,42 @@ public partial class MainWindow : Window
     {
         Dispatcher.Invoke(() =>
         {
-            FindVoiceChannelItem(channelId)?.Members.Remove(username);
+            var item = FindVoiceChannelItem(channelId);
+            var existing = item?.Members.FirstOrDefault(m => m.UserId == userId);
+            if (item is not null && existing is not null) item.Members.Remove(existing);
+        });
+    }
+
+    private void OnUserSpeaking(int userId, int channelId, bool isSpeaking)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            var item = FindVoiceChannelItem(channelId);
+            var member = item?.Members.FirstOrDefault(m => m.UserId == userId);
+            if (member is not null) member.IsSpeaking = isSpeaking;
+        });
+    }
+
+    // Fired from VoiceService's background audio-level detection, so this
+    // isn't on the UI thread yet.
+    private async Task OnLocalSpeakingChangedAsync(bool isSpeaking)
+    {
+        try
+        {
+            if (_currentVoiceChannelId.HasValue)
+                await _hub.SendSpeakingAsync(_currentVoiceChannelId.Value, isSpeaking);
+        }
+        catch
+        {
+            // Best-effort - a dropped speaking-state update isn't worth surfacing an error for.
+        }
+
+        Dispatcher.Invoke(() =>
+        {
+            if (!_currentVoiceChannelId.HasValue || _api.CurrentUserId is null) return;
+            var item = FindVoiceChannelItem(_currentVoiceChannelId.Value);
+            var me = item?.Members.FirstOrDefault(m => m.UserId == _api.CurrentUserId.Value);
+            if (me is not null) me.IsSpeaking = isSpeaking;
         });
     }
 
