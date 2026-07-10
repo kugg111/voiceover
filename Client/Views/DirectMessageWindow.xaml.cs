@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using DiscordClone.Client.Models;
 using DiscordClone.Client.Services;
@@ -59,7 +60,7 @@ public partial class DirectMessageWindow : Window
 
     private async void UserResult_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not FrameworkElement { Tag: int userId } button) return;
+        if (sender is not Button { Tag: int userId } button) return;
 
         _activeUserId = userId;
         _activeUsername = (button.Content as string) ?? "user";
