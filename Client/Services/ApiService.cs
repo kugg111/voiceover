@@ -40,6 +40,16 @@ public class ApiService
         return true;
     }
 
+    // Reconstitutes an authenticated session from a previously-saved token
+    // (see SessionStorage), without a fresh login/register round-trip.
+    public void RestoreSession(string token, int userId, string username)
+    {
+        Token = token;
+        CurrentUserId = userId;
+        CurrentUsername = username;
+        _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token);
+    }
+
     public async Task<List<GuildServerResponse>> GetMyServersAsync()
         => await _http.GetFromJsonAsync<List<GuildServerResponse>>("api/servers") ?? new();
 

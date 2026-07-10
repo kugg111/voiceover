@@ -48,6 +48,18 @@ public partial class LoginWindow : FluentWindow
                 return;
             }
 
+            if (RememberMeBox.IsChecked == true)
+            {
+                // Matches JwtTokenService.CreateToken's known 7-day expiry -
+                // approximated here rather than parsed out of the JWT itself,
+                // to avoid pulling in a JWT-decoding dependency for one field.
+                SessionStorage.Save(_api.Token!, _api.CurrentUserId!.Value, _api.CurrentUsername!, DateTime.UtcNow.AddDays(7));
+            }
+            else
+            {
+                SessionStorage.Clear();
+            }
+
             var main = new MainWindow(_api);
             main.Show();
             Close();

@@ -27,6 +27,9 @@
          etc. get the new look automatically once the theme dictionaries are
          merged in App.xaml - no need to change existing control tags). -->
     <PackageReference Include="WPF-UI" Version="4.3.0" />
+    <!-- DPAPI (ProtectedData) for encrypting the "remember me" session file
+         at rest - not part of the base BCL, needs this package explicitly. -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
   </ItemGroup>
 
 </Project>
