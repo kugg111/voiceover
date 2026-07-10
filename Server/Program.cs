@@ -4,14 +4,37 @@ using DiscordClone.Server.Hubs;
 using DiscordClone.Server.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Railway (and most PaaS hosts) inject the port to listen on via $PORT rather
+// than a fixed config value - override appsettings.json's Kestrel URL when
+// present so the same image works both locally and deployed.
+var port = Environment.GetEnvironmentVariable("PORT");
+if (!string.IsNullOrEmpty(port))
+    builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+
+// DATA_DIR points at a persistent volume in production (the SQLite db and
+// uploaded files both need to survive redeploys/restarts, unlike the rest of
+// the container filesystem). Falls back to the existing local-dev locations
+// when unset.
+var dataDir = Environment.GetEnvironmentVariable("DATA_DIR");
+var dbPath = dataDir is not null ? Path.Combine(dataDir, "discordclone.db") : "discordclone.db";
+var uploadsDir = dataDir is not null
+    ? Path.Combine(dataDir, "uploads")
+    : Path.Combine(builder.Environment.ContentRootPath, "wwwroot", "uploads");
+
+if (dataDir is not null)
+    Directory.CreateDirectory(dataDir);
+Directory.CreateDirectory(uploadsDir);
 
 // --- Services ---
 
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlite("Data Source=discordclone.db"));
+    options.UseSqlite($"Data Source={dbPath}"));
 
+builder.Services.AddSingleton(new UploadsPathOptions(uploadsDir));
 builder.Services.AddSingleton<JwtTokenService>();
 builder.Services.AddSingleton<VoicePresenceService>();
 builder.Services.AddScoped<PermissionService>();
@@ -63,7 +86,11 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.UseCors();
-app.UseStaticFiles(); // serves wwwroot/uploads/* at /uploads/*
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(uploadsDir),
+    RequestPath = "/uploads"
+});
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -71,3 +98,5 @@ app.MapControllers();
 app.MapHub<ChatHub>("/hubs/chat");
 
 app.Run();
+
+public record UploadsPathOptions(string Path);

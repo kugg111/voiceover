@@ -6,3 +6,4 @@ obj/
 *.user
 .vs/
 .claude/
+Server/wwwroot/

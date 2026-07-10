@@ -16,8 +16,8 @@ public class UploadController : ControllerBase
 
     private const long MaxFileSizeBytes = 15 * 1024 * 1024; // 15 MB
 
-    private readonly IWebHostEnvironment _env;
-    public UploadController(IWebHostEnvironment env) => _env = env;
+    private readonly UploadsPathOptions _uploadsPath;
+    public UploadController(UploadsPathOptions uploadsPath) => _uploadsPath = uploadsPath;
 
     [HttpPost]
     [RequestSizeLimit(MaxFileSizeBytes)]
@@ -29,12 +29,9 @@ public class UploadController : ControllerBase
         var ext = Path.GetExtension(file.FileName);
         if (!AllowedExtensions.Contains(ext)) return BadRequest("File type not allowed.");
 
-        var uploadsDir = Path.Combine(_env.ContentRootPath, "wwwroot", "uploads");
-        Directory.CreateDirectory(uploadsDir);
-
         // Random file name to avoid path traversal / collisions / leaking original names.
         var storedName = $"{Guid.NewGuid():N}{ext}";
-        var fullPath = Path.Combine(uploadsDir, storedName);
+        var fullPath = Path.Combine(_uploadsPath.Path, storedName);
 
         await using (var stream = System.IO.File.Create(fullPath))
         {
