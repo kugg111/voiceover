@@ -54,12 +54,12 @@ builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
-// Auto-create the SQLite DB on first run. Swap for real migrations once the
-// schema stabilizes (dotnet ef migrations add InitialCreate).
+// Apply any pending EF Core migrations on startup (creates the SQLite DB on
+// first run too, same as EnsureCreated() used to).
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    db.Database.EnsureCreated();
+    db.Database.Migrate();
 }
 
 app.UseCors();

@@ -1,7 +1,7 @@
 <Window x:Class="DiscordClone.Client.Views.MembersWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Server Members" Height="480" Width="360"
+        Title="Server Members" Height="600" Width="380"
         WindowStartupLocation="CenterOwner"
         Background="{StaticResource BgDark}">
     <DockPanel Margin="16">
@@ -20,6 +20,17 @@
                     Click="GenerateInviteButton_Click"/>
         </Grid>
 
+        <TextBlock DockPanel.Dock="Top" Text="Active Invites" FontWeight="Bold"
+                   Foreground="{StaticResource TextNormal}" Margin="0,0,0,8"/>
+        <ItemsControl DockPanel.Dock="Top" x:Name="InviteList" Margin="0,0,0,16">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <TextBlock Text="{Binding Display}" FontSize="12" TextWrapping="Wrap"
+                               Foreground="{StaticResource TextMuted}" Margin="0,2,0,2"/>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
         <TextBlock DockPanel.Dock="Top" Text="Members" FontWeight="Bold"
                    Foreground="{StaticResource TextNormal}" Margin="0,0,0,8"/>
 
@@ -32,11 +43,16 @@
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock Text="{Binding Username}" Foreground="{StaticResource TextNormal}" VerticalAlignment="Center"/>
                             <TextBlock Grid.Column="1" Text="{Binding Role}" Foreground="{StaticResource TextMuted}"
                                        FontSize="11" VerticalAlignment="Center" Margin="8,0,8,0"/>
-                            <Button Grid.Column="2" Content="Kick" Tag="{Binding UserId}" Click="KickButton_Click"
+                            <Button Grid.Column="2" Content="{Binding RoleButtonLabel}" Tag="{Binding UserId}"
+                                    Click="RoleButton_Click" Visibility="{Binding RoleButtonVisibility}"
+                                    Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
+                                    BorderThickness="0" Padding="8,2" Margin="0,0,8,0"/>
+                            <Button Grid.Column="3" Content="Kick" Tag="{Binding UserId}" Click="KickButton_Click"
                                     Background="#F23F42" Foreground="White" BorderThickness="0" Padding="8,2"/>
                         </Grid>
                     </DataTemplate>

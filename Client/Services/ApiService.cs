@@ -80,12 +80,24 @@ public class ApiService
         return (false, await response.Content.ReadAsStringAsync());
     }
 
+    public async Task<List<InviteResponse>> ListInvitesAsync(int serverId)
+        => await _http.GetFromJsonAsync<List<InviteResponse>>($"api/servers/{serverId}/invites") ?? new();
+
     // --- Members ---
     public async Task<List<MemberResponse>> GetMembersAsync(int serverId)
         => await _http.GetFromJsonAsync<List<MemberResponse>>($"api/servers/{serverId}/members") ?? new();
 
     public async Task<bool> KickMemberAsync(int serverId, int userId)
         => (await _http.DeleteAsync($"api/servers/{serverId}/members/{userId}")).IsSuccessStatusCode;
+
+    public async Task<bool> ChangeRoleAsync(int serverId, int userId, string role)
+    {
+        var response = await _http.PutAsJsonAsync($"api/servers/{serverId}/members/{userId}/role", new { Role = role });
+        return response.IsSuccessStatusCode;
+    }
+
+    public async Task<bool> DeleteChannelAsync(int serverId, int channelId)
+        => (await _http.DeleteAsync($"api/servers/{serverId}/channels/{channelId}")).IsSuccessStatusCode;
 
     // --- Direct messages ---
     public async Task<List<UserSummaryResponse>> SearchUsersAsync(string query)
