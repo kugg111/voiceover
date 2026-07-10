@@ -61,6 +61,9 @@ public class SignalRService
     public Task SendVoiceSignalAsync(int targetUserId, int channelId, string signalType, string payload)
         => _connection!.InvokeAsync("SendVoiceSignal", targetUserId, channelId, signalType, payload);
     public Task SendSpeakingAsync(int channelId, bool isSpeaking) => _connection!.InvokeAsync("NotifySpeaking", channelId, isSpeaking);
+    public Task JoinServerPresenceAsync(int serverId) => _connection!.InvokeAsync("JoinServerPresence", serverId);
+    public Task LeaveServerPresenceAsync(int serverId) => _connection!.InvokeAsync("LeaveServerPresence", serverId);
+    public Task<List<ChannelVoiceRoster>> GetVoiceRostersForServerAsync(int serverId) => _connection!.InvokeAsync<List<ChannelVoiceRoster>>("GetVoiceRostersForServer", serverId);
 
     public bool IsConnected => _connection?.State == HubConnectionState.Connected;
 

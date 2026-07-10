@@ -10,24 +10,32 @@ namespace Voiceover.Server.Services;
 // where LeaveVoiceChannel is never explicitly called.
 public class VoicePresenceService
 {
-    private record Entry(int ChannelId, int UserId, string Username);
+    // ServerId is stored alongside ChannelId so OnDisconnectedAsync - which only
+    // has the connectionId, no way to ask the disconnecting client which server
+    // it was viewing - can still know which server-presence group to notify.
+    private record Entry(int ChannelId, int ServerId, int UserId, string Username);
 
     private readonly ConcurrentDictionary<string, Entry> _connections = new();
 
     // Returns the roster that existed before this connection joined, then adds it.
-    public List<VoiceParticipant> Join(string connectionId, int channelId, int userId, string username)
+    public List<VoiceParticipant> Join(string connectionId, int channelId, int serverId, int userId, string username)
     {
         var existing = GetRoster(channelId);
-        _connections[connectionId] = new Entry(channelId, userId, username);
+        _connections[connectionId] = new Entry(channelId, serverId, userId, username);
         return existing;
     }
 
-    public (int ChannelId, int UserId, string Username)? Leave(string connectionId)
+    public (int ChannelId, int ServerId, int UserId, string Username)? Leave(string connectionId)
     {
         if (_connections.TryRemove(connectionId, out var entry))
-            return (entry.ChannelId, entry.UserId, entry.Username);
+            return (entry.ChannelId, entry.ServerId, entry.UserId, entry.Username);
         return null;
     }
+
+    // Looks up the server a still-connected connection is in, without removing
+    // it - used by NotifySpeaking, which doesn't leave the voice channel.
+    public int? GetServerId(string connectionId) =>
+        _connections.TryGetValue(connectionId, out var entry) ? entry.ServerId : null;
 
     public List<VoiceParticipant> GetRoster(int channelId) =>
         _connections.Values

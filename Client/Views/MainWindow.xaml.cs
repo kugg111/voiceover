@@ -195,13 +195,39 @@ public partial class MainWindow : FluentWindow
 
         ShowServerSidebar();
 
+        if (_currentServerId.HasValue && _currentServerId.Value != serverId)
+            await _hub.LeaveServerPresenceAsync(_currentServerId.Value);
+
         _currentServerId = serverId;
+        await _hub.JoinServerPresenceAsync(serverId);
 
         var servers = await _api.GetMyServersAsync();
         var server = servers.Find(s => s.Id == serverId);
         ServerNameText.Text = server?.Name ?? "Server";
 
         await RefreshChannelsAsync(serverId);
+        await LoadVoiceRostersAsync(serverId);
+    }
+
+    // Populates each voice channel's member list from a server-wide snapshot,
+    // so anyone who opens a server sees who's currently in voice without
+    // having joined anything themselves. Uses the same idempotent-add pattern
+    // as OnVoiceUserJoined below, so this doesn't fight with a live event
+    // arriving for the same person around the same time.
+    private async Task LoadVoiceRostersAsync(int serverId)
+    {
+        var rosters = await _hub.GetVoiceRostersForServerAsync(serverId);
+        foreach (var roster in rosters)
+        {
+            var item = FindVoiceChannelItem(roster.ChannelId);
+            if (item is null) continue;
+
+            foreach (var member in roster.Members)
+            {
+                if (!item.Members.Any(m => m.UserId == member.UserId))
+                    item.Members.Add(new VoiceMemberItem { UserId = member.UserId, Username = member.Username });
+            }
+        }
     }
 
     private async void ChannelButton_Click(object sender, RoutedEventArgs e)
@@ -456,6 +482,9 @@ public partial class MainWindow : FluentWindow
             await _hub.LeaveChannelAsync(_currentChannelId.Value);
             _currentChannelId = null;
         }
+
+        if (_currentServerId.HasValue)
+            await _hub.LeaveServerPresenceAsync(_currentServerId.Value);
     }
 
     private void ShowServerSidebar()
