@@ -5,6 +5,7 @@ using Voiceover.Server.Models;
 using Voiceover.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
 
 namespace Voiceover.Server.Hubs;
 
@@ -93,17 +94,30 @@ public class ChatHub : Hub
     // for future VoiceUserJoined events.
     public async Task<List<VoiceParticipant>> JoinVoiceChannel(int channelId)
     {
-        var existingMembers = _voicePresence.Join(Context.ConnectionId, channelId, CurrentUserId, CurrentUsername);
+        var channel = await _db.Channels.FirstOrDefaultAsync(c => c.Id == channelId);
+        if (channel is null) return new List<VoiceParticipant>();
+
+        var existingMembers = _voicePresence.Join(Context.ConnectionId, channelId, channel.GuildServerId, CurrentUserId, CurrentUsername);
         await Groups.AddToGroupAsync(Context.ConnectionId, VoiceGroupName(channelId));
         await Clients.OthersInGroup(VoiceGroupName(channelId)).SendAsync("VoiceUserJoined", CurrentUserId, CurrentUsername, channelId);
+
+        // Also notify anyone just viewing the server (not necessarily in this
+        // voice channel) so their sidebar roster updates live too. Someone in
+        // both groups gets this event twice - harmless, the client-side
+        // handler is idempotent (checks the member isn't already listed).
+        await Clients.OthersInGroup(ServerPresenceGroupName(channel.GuildServerId)).SendAsync("VoiceUserJoined", CurrentUserId, CurrentUsername, channelId);
+
         return existingMembers;
     }
 
     public async Task LeaveVoiceChannel(int channelId)
     {
-        _voicePresence.Leave(Context.ConnectionId);
+        var left = _voicePresence.Leave(Context.ConnectionId);
         await Groups.RemoveFromGroupAsync(Context.ConnectionId, VoiceGroupName(channelId));
         await Clients.Group(VoiceGroupName(channelId)).SendAsync("VoiceUserLeft", CurrentUserId, CurrentUsername, channelId);
+
+        if (left is not null)
+            await Clients.Group(ServerPresenceGroupName(left.Value.ServerId)).SendAsync("VoiceUserLeft", CurrentUserId, CurrentUsername, channelId);
     }
 
     // Relays WebRTC SDP offers/answers and ICE candidates between two specific
@@ -121,6 +135,38 @@ public class ChatHub : Hub
     public async Task NotifySpeaking(int channelId, bool isSpeaking)
     {
         await Clients.OthersInGroup(VoiceGroupName(channelId)).SendAsync("UserSpeaking", CurrentUserId, channelId, isSpeaking);
+
+        var serverId = _voicePresence.GetServerId(Context.ConnectionId);
+        if (serverId is not null)
+            await Clients.OthersInGroup(ServerPresenceGroupName(serverId.Value)).SendAsync("UserSpeaking", CurrentUserId, channelId, isSpeaking);
+    }
+
+    // --- Server presence (joined whenever a client selects a server in the
+    // UI, independent of the per-voice-channel group above) ---
+
+    public async Task JoinServerPresence(int serverId)
+    {
+        await Groups.AddToGroupAsync(Context.ConnectionId, ServerPresenceGroupName(serverId));
+    }
+
+    public async Task LeaveServerPresence(int serverId)
+    {
+        await Groups.RemoveFromGroupAsync(Context.ConnectionId, ServerPresenceGroupName(serverId));
+    }
+
+    // Lets a client that just opened a server (without joining any voice
+    // channel) populate its sidebar with who's currently in each voice
+    // channel, without joining anything itself.
+    public async Task<List<ChannelVoiceRoster>> GetVoiceRostersForServer(int serverId)
+    {
+        var voiceChannelIds = await _db.Channels
+            .Where(c => c.GuildServerId == serverId && c.Type == ChannelType.Voice)
+            .Select(c => c.Id)
+            .ToListAsync();
+
+        return voiceChannelIds
+            .Select(id => new ChannelVoiceRoster(id, _voicePresence.GetRoster(id)))
+            .ToList();
     }
 
     public override async Task OnDisconnectedAsync(Exception? exception)
@@ -128,8 +174,9 @@ public class ChatHub : Hub
         var left = _voicePresence.Leave(Context.ConnectionId);
         if (left is not null)
         {
-            var (channelId, userId, username) = left.Value;
+            var (channelId, serverId, userId, username) = left.Value;
             await Clients.Group(VoiceGroupName(channelId)).SendAsync("VoiceUserLeft", userId, username, channelId);
+            await Clients.Group(ServerPresenceGroupName(serverId)).SendAsync("VoiceUserLeft", userId, username, channelId);
         }
 
         await base.OnDisconnectedAsync(exception);
@@ -137,4 +184,5 @@ public class ChatHub : Hub
 
     private static string GroupName(int channelId) => $"channel-{channelId}";
     private static string VoiceGroupName(int channelId) => $"voice-{channelId}";
+    private static string ServerPresenceGroupName(int serverId) => $"server-presence-{serverId}";
 }
