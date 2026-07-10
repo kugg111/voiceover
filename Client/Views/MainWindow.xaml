@@ -33,9 +33,14 @@
                 <Button DockPanel.Dock="Bottom" Content="+" FontSize="20" Height="48" Width="48"
                         Margin="12,4,12,4" Background="{StaticResource BgSidebar}" Foreground="LightGreen"
                         BorderThickness="0" Click="AddServerButton_Click" ToolTip="Create or join a server"/>
-                <Button DockPanel.Dock="Top" x:Name="MessagesButton" Content="💬" FontSize="18" Height="48" Width="48"
-                        Margin="12,12,12,4" Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
-                        BorderThickness="0" Click="MessagesButton_Click" ToolTip="Messages"/>
+                <Grid DockPanel.Dock="Top" Margin="12,12,12,4">
+                    <Button x:Name="MessagesButton" Content="💬" FontSize="18" Height="48" Width="48"
+                            Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
+                            BorderThickness="0" Click="MessagesButton_Click" ToolTip="Messages"/>
+                    <Ellipse x:Name="MessagesUnreadDot" Width="10" Height="10" Fill="{StaticResource AccentBlurple}"
+                             HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-2,-2,0"
+                             Visibility="Collapsed" IsHitTestVisible="False"/>
+                </Grid>
                 <Button DockPanel.Dock="Top" x:Name="FriendsButton" Content="👥" FontSize="18" Height="48" Width="48"
                         Margin="12,0,12,8" Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
                         BorderThickness="0" Click="FriendsButton_Click" ToolTip="Friends"/>
@@ -84,12 +89,15 @@
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
                                     <Button Content="{Binding DisplayName}" Tag="{Binding Id}"
                                             Click="ChannelButton_Click" HorizontalContentAlignment="Left"
                                             Background="Transparent" Foreground="{StaticResource TextMuted}"
                                             BorderThickness="0" Padding="14,6" Height="32"/>
-                                    <Button Grid.Column="1" Content="✕" Tag="{Binding Id}"
+                                    <Ellipse Grid.Column="1" Width="8" Height="8" Margin="0,0,8,0" VerticalAlignment="Center"
+                                             Fill="{StaticResource AccentBlurple}" Visibility="{Binding UnreadDotVisibility}"/>
+                                    <Button Grid.Column="2" Content="✕" Tag="{Binding Id}"
                                             Click="DeleteChannelButton_Click" ToolTip="Delete channel"
                                             Width="24" Height="24" Margin="0,0,8,0"
                                             Background="Transparent" Foreground="{StaticResource TextMuted}"
@@ -124,12 +132,11 @@
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
                                                 <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
-                                                    <Border Width="20" Height="20" CornerRadius="10" Margin="0,0,6,0"
-                                                            BorderThickness="2" BorderBrush="{Binding SpeakingRingBrush}">
-                                                        <Image Source="/Assets/AppIcon.png" Width="14" Height="14"/>
-                                                    </Border>
                                                     <TextBlock Text="{Binding Username}" FontSize="12" VerticalAlignment="Center"
                                                                Foreground="{StaticResource TextMuted}"/>
+                                                    <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
+                                                             Fill="{StaticResource AccentBlurple}"
+                                                             Visibility="{Binding SpeakingDotVisibility}"/>
                                                 </StackPanel>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
@@ -168,13 +175,21 @@
                                 <Button Click="DmConversation_Click" Tag="{Binding OtherUserId}"
                                         HorizontalContentAlignment="Stretch" Background="Transparent"
                                         BorderThickness="0" Padding="14,8">
-                                    <StackPanel>
-                                        <TextBlock Text="{Binding OtherUsername}" FontWeight="Bold"
-                                                   Foreground="{StaticResource TextNormal}"/>
-                                        <TextBlock Text="{Binding PreviewDisplay}" FontSize="11"
-                                                   Foreground="{StaticResource TextMuted}"
-                                                   TextTrimming="CharacterEllipsis"/>
-                                    </StackPanel>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0">
+                                            <TextBlock Text="{Binding OtherUsername}" FontWeight="Bold"
+                                                       Foreground="{StaticResource TextNormal}"/>
+                                            <TextBlock Text="{Binding PreviewDisplay}" FontSize="11"
+                                                       Foreground="{StaticResource TextMuted}"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
+                                        <Ellipse Grid.Column="1" Width="8" Height="8" VerticalAlignment="Center" Margin="8,0,0,0"
+                                                 Fill="{StaticResource AccentBlurple}" Visibility="{Binding UnreadDotVisibility}"/>
+                                    </Grid>
                                 </Button>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
