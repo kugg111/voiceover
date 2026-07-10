@@ -2,7 +2,6 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Input;
-using System.Windows.Media;
 using Voiceover.Client.Models;
 using Voiceover.Client.Services;
 using Microsoft.Win32;
@@ -22,8 +21,6 @@ public class ServerListItem
 
 public class VoiceMemberItem : INotifyPropertyChanged
 {
-    private static readonly Brush SpeakingBrush = new SolidColorBrush(Color.FromRgb(0x58, 0x65, 0xF2));
-
     public int UserId { get; set; }
     public string Username { get; set; } = string.Empty;
 
@@ -36,25 +33,39 @@ public class VoiceMemberItem : INotifyPropertyChanged
             if (_isSpeaking == value) return;
             _isSpeaking = value;
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSpeaking)));
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SpeakingRingBrush)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SpeakingDotVisibility)));
         }
     }
 
-    // Transparent (no visible ring) at rest; lights up blue while speaking -
-    // avatar ring shown around the app-icon placeholder next to each name in
-    // a voice channel's member list.
-    public Brush SpeakingRingBrush => IsSpeaking ? SpeakingBrush : Brushes.Transparent;
+    public Visibility SpeakingDotVisibility => IsSpeaking ? Visibility.Visible : Visibility.Collapsed;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 }
 
-public class ChannelListItem
+public class ChannelListItem : INotifyPropertyChanged
 {
     public int Id { get; set; }
     public string DisplayName { get; set; } = string.Empty;
 
     // Only populated/shown for voice channels - who's currently connected.
     public ObservableCollection<VoiceMemberItem> Members { get; } = new();
+
+    private bool _hasUnread;
+    public bool HasUnread
+    {
+        get => _hasUnread;
+        set
+        {
+            if (_hasUnread == value) return;
+            _hasUnread = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasUnread)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(UnreadDotVisibility)));
+        }
+    }
+
+    public Visibility UnreadDotVisibility => HasUnread ? Visibility.Visible : Visibility.Collapsed;
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 }
 
 public class MessageListItem
@@ -75,7 +86,7 @@ public class UserSearchResultItem
     public string Username { get; set; } = string.Empty;
 }
 
-public class DmConversationListItem
+public class DmConversationListItem : INotifyPropertyChanged
 {
     public int OtherUserId { get; set; }
     public string OtherUsername { get; set; } = string.Empty;
@@ -83,6 +94,23 @@ public class DmConversationListItem
     public DateTime LastMessageAt { get; set; }
 
     public string PreviewDisplay => LastMessagePreview;
+
+    private bool _hasUnread;
+    public bool HasUnread
+    {
+        get => _hasUnread;
+        set
+        {
+            if (_hasUnread == value) return;
+            _hasUnread = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasUnread)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(UnreadDotVisibility)));
+        }
+    }
+
+    public Visibility UnreadDotVisibility => HasUnread ? Visibility.Visible : Visibility.Collapsed;
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 }
 
 public class FriendListItem
@@ -184,12 +212,22 @@ public partial class MainWindow : FluentWindow
 
     private async Task RefreshChannelsAsync(int serverId)
     {
+        // Rebuilding the lists from scratch (e.g. re-clicking the same server)
+        // would otherwise silently clear any unread dots nobody's actually
+        // read yet - carry that flag over by channel id.
+        var previouslyUnread = _textChannels.Where(c => c.HasUnread).Select(c => c.Id).ToHashSet();
+
         var channels = await _api.GetChannelsAsync(serverId);
         _textChannels.Clear();
         _voiceChannels.Clear();
         foreach (var c in channels)
         {
-            var item = new ChannelListItem { Id = c.Id, DisplayName = c.Type == "Text" ? $"# {c.Name}" : $"🔊 {c.Name}" };
+            var item = new ChannelListItem
+            {
+                Id = c.Id,
+                DisplayName = c.Type == "Text" ? $"# {c.Name}" : $"🔊 {c.Name}",
+                HasUnread = c.Type == "Text" && previouslyUnread.Contains(c.Id)
+            };
             if (c.Type == "Text") _textChannels.Add(item);
             else _voiceChannels.Add(item);
         }
@@ -245,6 +283,9 @@ public partial class MainWindow : FluentWindow
 
         _currentChannelId = channelId;
         await _hub.JoinChannelAsync(channelId);
+
+        var thisChannelItem = FindTextChannelItem(channelId);
+        if (thisChannelItem is not null) thisChannelItem.HasUnread = false;
 
         var channelItem = FindChannelDisplayName(channelId);
         ChannelNameText.Text = channelItem ?? "# channel";
@@ -457,10 +498,19 @@ public partial class MainWindow : FluentWindow
         DmSearchBox.Clear();
         _dmSearchResults.Clear();
 
+        // Re-clicking the Messages icon shouldn't silently clear unread dots
+        // nobody's actually read yet - carry them over by conversation partner.
+        var previouslyUnread = _dmConversations.Where(c => c.HasUnread).Select(c => c.OtherUserId).ToHashSet();
+
         var conversations = await _api.GetDmConversationsAsync();
         _dmConversations.Clear();
         foreach (var c in conversations.OrderByDescending(c => c.LastMessageAt))
-            _dmConversations.Add(ToDmConversationItem(c));
+        {
+            var item = ToDmConversationItem(c);
+            item.HasUnread = previouslyUnread.Contains(c.OtherUserId);
+            _dmConversations.Add(item);
+        }
+        UpdateMessagesUnreadBadge();
     }
 
     private async void FriendsButton_Click(object sender, RoutedEventArgs e)
@@ -561,6 +611,10 @@ public partial class MainWindow : FluentWindow
         _dmActiveUserId = userId;
         _dmActiveUsername = username;
         ChannelNameText.Text = $"@{username}";
+
+        var convo = _dmConversations.FirstOrDefault(c => c.OtherUserId == userId);
+        if (convo is not null) convo.HasUnread = false;
+        UpdateMessagesUnreadBadge();
 
         DmSearchBox.Clear();
         _dmSearchResults.Clear();
@@ -747,18 +801,28 @@ public partial class MainWindow : FluentWindow
 
     private void OnMessageReceived(MessageResponse msg)
     {
-        if (msg.ChannelId != _currentChannelId) return;
-
         Dispatcher.Invoke(() =>
         {
-            _messages.Add(ToListItem(msg));
-            ScrollToBottom();
+            if (msg.ChannelId == _currentChannelId)
+            {
+                _messages.Add(ToListItem(msg));
+                ScrollToBottom();
+                return;
+            }
+
+            // Someone else's message landed in a channel that isn't open right
+            // now - flag it with an unread dot rather than just dropping it.
+            if (msg.AuthorId == _api.CurrentUserId) return;
+
+            var item = FindTextChannelItem(msg.ChannelId);
+            if (item is not null) item.HasUnread = true;
         });
     }
 
     private void OnDirectMessageReceived(DirectMessageResponse dm)
     {
         var otherUserId = dm.SenderId == _api.CurrentUserId ? dm.RecipientId : dm.SenderId;
+        var isOwnMessage = dm.SenderId == _api.CurrentUserId;
 
         Dispatcher.Invoke(() =>
         {
@@ -766,20 +830,33 @@ public partial class MainWindow : FluentWindow
             // currently visible, so it's accurate next time Messages is opened.
             var existing = _dmConversations.FirstOrDefault(c => c.OtherUserId == otherUserId);
             if (existing is not null) _dmConversations.Remove(existing);
+
+            var isCurrentlyOpen = _dmActiveUserId == otherUserId;
             _dmConversations.Insert(0, new DmConversationListItem
             {
                 OtherUserId = otherUserId,
                 OtherUsername = existing?.OtherUsername ?? _dmActiveUsername ?? "user",
                 LastMessagePreview = dm.Content,
-                LastMessageAt = dm.SentAt
+                LastMessageAt = dm.SentAt,
+                HasUnread = !isOwnMessage && !isCurrentlyOpen
             });
 
-            if (_dmActiveUserId == otherUserId)
+            if (isCurrentlyOpen)
             {
                 _messages.Add(ToDmListItem(dm));
                 ScrollToBottom();
             }
+
+            UpdateMessagesUnreadBadge();
         });
+    }
+
+    // The Messages icon itself lights up while any conversation has an
+    // unread dot - cleared only once that specific conversation is opened
+    // (not just by visiting the Messages view), same as most chat apps.
+    private void UpdateMessagesUnreadBadge()
+    {
+        MessagesUnreadDot.Visibility = _dmConversations.Any(c => c.HasUnread) ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void OnUserTyping(string username, int channelId)
@@ -894,6 +971,12 @@ public partial class MainWindow : FluentWindow
     private ChannelListItem? FindVoiceChannelItem(int channelId)
     {
         foreach (var c in _voiceChannels) if (c.Id == channelId) return c;
+        return null;
+    }
+
+    private ChannelListItem? FindTextChannelItem(int channelId)
+    {
+        foreach (var c in _textChannels) if (c.Id == channelId) return c;
         return null;
     }
 
