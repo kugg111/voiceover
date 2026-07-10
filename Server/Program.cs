@@ -9,11 +9,12 @@ using Microsoft.Extensions.FileProviders;
 var builder = WebApplication.CreateBuilder(args);
 
 // Railway (and most PaaS hosts) inject the port to listen on via $PORT rather
-// than a fixed config value - override appsettings.json's Kestrel URL when
-// present so the same image works both locally and deployed.
-var port = Environment.GetEnvironmentVariable("PORT");
-if (!string.IsNullOrEmpty(port))
-    builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+// than a fixed config value. Note: appsettings.json's Kestrel:Endpoints config
+// (if present) takes priority over UseUrls() - do NOT leave a Kestrel section
+// there, or this gets silently overridden back to localhost, which Railway's
+// proxy can't reach.
+var port = Environment.GetEnvironmentVariable("PORT") ?? "5220";
+builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 
 // DATA_DIR points at a persistent volume in production (the SQLite db and
 // uploaded files both need to survive redeploys/restarts, unlike the rest of
