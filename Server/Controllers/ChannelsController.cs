@@ -47,7 +47,7 @@ public class ChannelsController : ControllerBase
         if (!await _permissions.CanManageServerAsync(CurrentUserId, serverId))
             return Forbid();
 
-        var type = req.Type.Equals("Voice", StringComparison.OrdinalIgnoreCase) ? ChannelType.Voice : ChannelType.Text;
+        var type = string.Equals(req.Type, "Voice", StringComparison.OrdinalIgnoreCase) ? ChannelType.Voice : ChannelType.Text;
         var maxPosition = await _db.Channels.Where(c => c.GuildServerId == serverId)
             .Select(c => (int?)c.Position).MaxAsync() ?? -1;
 
