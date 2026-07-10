@@ -5,6 +5,7 @@ using Voiceover.Server.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
+using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -16,19 +17,12 @@ var builder = WebApplication.CreateBuilder(args);
 var port = Environment.GetEnvironmentVariable("PORT") ?? "5220";
 builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 
-// DATA_DIR points at a persistent volume in production (the SQLite db and
-// uploaded files both need to survive redeploys/restarts, unlike the rest of
-// the container filesystem). Falls back to the existing local-dev locations
-// when unset.
-//
-// The db filename itself intentionally keeps its original "discordclone.db"
-// name rather than being renamed along with everything else - it's an
-// internal storage detail nobody sees, and the production volume already has
-// real user data under that name. Renaming it would silently point the app
-// at a fresh empty database instead (this happened once during the rename;
-// caught it by noticing userId reset to 1 on the next registration).
+// DATA_DIR points at a persistent volume in production (uploaded files need
+// to survive redeploys/restarts, unlike the rest of the container
+// filesystem). Falls back to the existing local-dev location when unset.
+// The database itself lives in a separate managed Postgres service (see
+// below), not on this volume.
 var dataDir = Environment.GetEnvironmentVariable("DATA_DIR");
-var dbPath = dataDir is not null ? Path.Combine(dataDir, "discordclone.db") : "discordclone.db";
 var uploadsDir = dataDir is not null
     ? Path.Combine(dataDir, "uploads")
     : Path.Combine(builder.Environment.ContentRootPath, "wwwroot", "uploads");
@@ -39,8 +33,19 @@ Directory.CreateDirectory(uploadsDir);
 
 // --- Services ---
 
+// DATABASE_URL is a standard Postgres URI (postgresql://user:pass@host:port/db) -
+// the format Railway (and most PaaS hosts) inject for their managed Postgres
+// add-ons. ASP.NET Core's configuration picks up the env var automatically;
+// for local dev, set the same key via `dotnet user-secrets set DATABASE_URL
+// "..."` (see DEPLOYMENT.txt for the actual connection string - it's a live
+// credential, so it's not committed to the repo).
+var databaseUrl = builder.Configuration["DATABASE_URL"]
+    ?? throw new InvalidOperationException(
+        "DATABASE_URL is not configured. Set it as an env var (Railway) or via " +
+        "`dotnet user-secrets set DATABASE_URL \"...\"` for local dev - see DEPLOYMENT.txt.");
+
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlite($"Data Source={dbPath}"));
+    options.UseNpgsql(BuildNpgsqlConnectionString(databaseUrl)));
 
 builder.Services.AddSingleton(new UploadsPathOptions(uploadsDir));
 builder.Services.AddSingleton<JwtTokenService>();
@@ -85,8 +90,8 @@ builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
-// Apply any pending EF Core migrations on startup (creates the SQLite DB on
-// first run too, same as EnsureCreated() used to).
+// Apply any pending EF Core migrations on startup (creates the schema on a
+// fresh Postgres database too, same as EnsureCreated() used to).
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -106,5 +111,23 @@ app.MapControllers();
 app.MapHub<ChatHub>("/hubs/chat");
 
 app.Run();
+
+// Converts a postgres:// URI (the format PaaS hosts inject) into the
+// Host=...;Port=...;... form Npgsql's connection string actually expects -
+// it doesn't parse the URI scheme directly.
+static string BuildNpgsqlConnectionString(string databaseUrl)
+{
+    var uri = new Uri(databaseUrl);
+    var userInfo = uri.UserInfo.Split(':', 2);
+    return new NpgsqlConnectionStringBuilder
+    {
+        Host = uri.Host,
+        Port = uri.Port,
+        Database = uri.AbsolutePath.TrimStart('/'),
+        Username = userInfo[0],
+        Password = userInfo[1],
+        SslMode = SslMode.Prefer
+    }.ConnectionString;
+}
 
 public record UploadsPathOptions(string Path);
