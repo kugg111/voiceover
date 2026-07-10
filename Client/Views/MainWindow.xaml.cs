@@ -195,6 +195,7 @@ public partial class MainWindow : Window
                 item.Members.Add(new VoiceMemberItem { UserId = _api.CurrentUserId.Value, Username = _api.CurrentUsername });
         }
 
+        LeaveVoiceButton.Visibility = Visibility.Visible;
         ConnectionStatusText.Text = "Joined voice";
     }
 
@@ -277,6 +278,7 @@ public partial class MainWindow : Window
             await _hub.LeaveVoiceChannelAsync(_currentVoiceChannelId.Value);
             await _voice.LeaveAllAsync();
             _currentVoiceChannelId = null;
+            LeaveVoiceButton.Visibility = Visibility.Collapsed;
             ConnectionStatusText.Text = "";
         }
 
@@ -291,7 +293,16 @@ public partial class MainWindow : Window
         await _voice.LeaveAllAsync();
         FindVoiceChannelItem(_currentVoiceChannelId.Value)?.Members.Clear();
         _currentVoiceChannelId = null;
+        LeaveVoiceButton.Visibility = Visibility.Collapsed;
         ConnectionStatusText.Text = "";
+    }
+
+    private void LogOutButton_Click(object sender, RoutedEventArgs e)
+    {
+        // MainWindow_Closed already handles leaving voice / disconnecting the hub.
+        var login = new LoginWindow();
+        login.Show();
+        Close();
     }
 
     private async void MembersButton_Click(object sender, RoutedEventArgs e)
