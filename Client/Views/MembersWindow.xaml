@@ -5,6 +5,7 @@
         Title="Server Members" Height="600" Width="380"
         WindowStartupLocation="CenterOwner"
         Background="{StaticResource BgDark}"
+        Icon="/Assets/AppIcon.png"
         ExtendsContentIntoTitleBar="True"
         WindowBackdropType="Mica"
         WindowCornerPreference="Round">

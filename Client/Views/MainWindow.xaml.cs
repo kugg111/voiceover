@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
 using Voiceover.Client.Models;
 using Voiceover.Client.Services;
 using Microsoft.Win32;
@@ -21,6 +22,8 @@ public class ServerListItem
 
 public class VoiceMemberItem : INotifyPropertyChanged
 {
+    private static readonly Brush SpeakingBrush = new SolidColorBrush(Color.FromRgb(0x58, 0x65, 0xF2));
+
     public int UserId { get; set; }
     public string Username { get; set; } = string.Empty;
 
@@ -33,11 +36,14 @@ public class VoiceMemberItem : INotifyPropertyChanged
             if (_isSpeaking == value) return;
             _isSpeaking = value;
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSpeaking)));
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SpeakingIndicatorVisibility)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SpeakingRingBrush)));
         }
     }
 
-    public Visibility SpeakingIndicatorVisibility => IsSpeaking ? Visibility.Visible : Visibility.Collapsed;
+    // Transparent (no visible ring) at rest; lights up blue while speaking -
+    // avatar ring shown around the app-icon placeholder next to each name in
+    // a voice channel's member list.
+    public Brush SpeakingRingBrush => IsSpeaking ? SpeakingBrush : Brushes.Transparent;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 }
