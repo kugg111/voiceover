@@ -31,6 +31,10 @@ if (dataDir is not null)
     Directory.CreateDirectory(dataDir);
 Directory.CreateDirectory(uploadsDir);
 
+// Public landing page + client download, bundled with the app (see the
+// app.UseStaticFiles calls below).
+var sitePath = Path.Combine(builder.Environment.ContentRootPath, "Site");
+
 // --- Services ---
 
 // DATABASE_URL is a standard Postgres URI (postgresql://user:pass@host:port/db) -
@@ -99,6 +103,13 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.UseCors();
+
+// Public landing page (Server/Site/) - a static download page for the
+// client build, served at the root path. Unlike wwwroot/uploads above,
+// this is committed to source control (it's app content, not user data).
+app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = new PhysicalFileProvider(sitePath) });
+app.UseStaticFiles(new StaticFileOptions { FileProvider = new PhysicalFileProvider(sitePath) });
+
 app.UseStaticFiles(new StaticFileOptions
 {
     FileProvider = new PhysicalFileProvider(uploadsDir),

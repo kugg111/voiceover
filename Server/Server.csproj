@@ -18,4 +18,12 @@
     <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- wwwroot gets this treatment automatically from the Web SDK; Site/
+         (the public landing page) doesn't, so it needs an explicit content
+         item to actually ship in `dotnet publish` output (and therefore the
+         Docker image - see Dockerfile, which only copies the publish dir). -->
+    <Content Include="Site\**" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
