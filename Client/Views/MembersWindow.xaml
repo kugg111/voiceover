@@ -1,0 +1,47 @@
+<Window x:Class="DiscordClone.Client.Views.MembersWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Server Members" Height="480" Width="360"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource BgDark}">
+    <DockPanel Margin="16">
+        <TextBlock DockPanel.Dock="Top" Text="Invite people" FontWeight="Bold"
+                   Foreground="{StaticResource TextNormal}" Margin="0,0,0,8"/>
+
+        <Grid DockPanel.Dock="Top" Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBox x:Name="InviteCodeBox" IsReadOnly="True" Height="32" Padding="8,6"
+                     Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}" BorderThickness="0"/>
+            <Button Grid.Column="1" Content="Generate" Margin="8,0,0,0" Width="90" Height="32"
+                    Background="{StaticResource AccentBlurple}" Foreground="White" BorderThickness="0"
+                    Click="GenerateInviteButton_Click"/>
+        </Grid>
+
+        <TextBlock DockPanel.Dock="Top" Text="Members" FontWeight="Bold"
+                   Foreground="{StaticResource TextNormal}" Margin="0,0,0,8"/>
+
+        <ScrollViewer>
+            <ItemsControl x:Name="MemberList">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Grid Margin="0,4,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="{Binding Username}" Foreground="{StaticResource TextNormal}" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1" Text="{Binding Role}" Foreground="{StaticResource TextMuted}"
+                                       FontSize="11" VerticalAlignment="Center" Margin="8,0,8,0"/>
+                            <Button Grid.Column="2" Content="Kick" Tag="{Binding UserId}" Click="KickButton_Click"
+                                    Background="#F23F42" Foreground="White" BorderThickness="0" Padding="8,2"/>
+                        </Grid>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

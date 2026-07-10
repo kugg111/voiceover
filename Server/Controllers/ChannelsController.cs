@@ -1,0 +1,81 @@
+using System.Security.Claims;
+using DiscordClone.Server.Data;
+using DiscordClone.Server.Dtos;
+using DiscordClone.Server.Models;
+using DiscordClone.Server.Services;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+
+namespace DiscordClone.Server.Controllers;
+
+[ApiController]
+[Authorize]
+[Route("api/servers/{serverId}/[controller]")]
+public class ChannelsController : ControllerBase
+{
+    private readonly AppDbContext _db;
+    private readonly PermissionService _permissions;
+
+    public ChannelsController(AppDbContext db, PermissionService permissions)
+    {
+        _db = db;
+        _permissions = permissions;
+    }
+
+    private int CurrentUserId => int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+
+    [HttpGet]
+    public async Task<ActionResult<List<ChannelResponse>>> GetChannels(int serverId)
+    {
+        if (!await _permissions.IsMemberAsync(CurrentUserId, serverId))
+            return Forbid();
+
+        var channels = await _db.Channels
+            .Where(c => c.GuildServerId == serverId)
+            .OrderBy(c => c.Position)
+            .Select(c => new ChannelResponse(c.Id, c.Name, c.Type.ToString(), c.GuildServerId, c.Position))
+            .ToListAsync();
+
+        return Ok(channels);
+    }
+
+    [HttpPost]
+    public async Task<ActionResult<ChannelResponse>> Create(int serverId, CreateChannelRequest req)
+    {
+        // Only owners/moderators can create channels.
+        if (!await _permissions.CanManageServerAsync(CurrentUserId, serverId))
+            return Forbid();
+
+        var type = req.Type.Equals("Voice", StringComparison.OrdinalIgnoreCase) ? ChannelType.Voice : ChannelType.Text;
+        var maxPosition = await _db.Channels.Where(c => c.GuildServerId == serverId)
+            .Select(c => (int?)c.Position).MaxAsync() ?? -1;
+
+        var channel = new Channel
+        {
+            Name = req.Name,
+            Type = type,
+            GuildServerId = serverId,
+            Position = maxPosition + 1
+        };
+
+        _db.Channels.Add(channel);
+        await _db.SaveChangesAsync();
+
+        return Ok(new ChannelResponse(channel.Id, channel.Name, channel.Type.ToString(), channel.GuildServerId, channel.Position));
+    }
+
+    [HttpDelete("{channelId}")]
+    public async Task<ActionResult> Delete(int serverId, int channelId)
+    {
+        if (!await _permissions.CanManageServerAsync(CurrentUserId, serverId))
+            return Forbid();
+
+        var channel = await _db.Channels.FirstOrDefaultAsync(c => c.Id == channelId && c.GuildServerId == serverId);
+        if (channel is null) return NotFound();
+
+        _db.Channels.Remove(channel);
+        await _db.SaveChangesAsync();
+        return Ok();
+    }
+}

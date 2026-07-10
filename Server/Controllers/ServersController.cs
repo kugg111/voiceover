@@ -1,0 +1,129 @@
+using System.Security.Claims;
+using DiscordClone.Server.Data;
+using DiscordClone.Server.Dtos;
+using DiscordClone.Server.Models;
+using DiscordClone.Server.Services;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+
+namespace DiscordClone.Server.Controllers;
+
+public record MemberResponse(int UserId, string Username, string Role);
+public record ChangeRoleRequest(string Role); // "Member" or "Moderator"
+
+[ApiController]
+[Authorize]
+[Route("api/[controller]")]
+public class ServersController : ControllerBase
+{
+    private readonly AppDbContext _db;
+    private readonly PermissionService _permissions;
+
+    public ServersController(AppDbContext db, PermissionService permissions)
+    {
+        _db = db;
+        _permissions = permissions;
+    }
+
+    private int CurrentUserId => int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+
+    // GET /api/servers  -> all servers the current user belongs to
+    [HttpGet]
+    public async Task<ActionResult<List<GuildServerResponse>>> GetMyServers()
+    {
+        var servers = await _db.Memberships
+            .Where(m => m.UserId == CurrentUserId)
+            .Select(m => m.GuildServer!)
+            .Select(s => new GuildServerResponse(s.Id, s.Name, s.IconUrl, s.OwnerId))
+            .ToListAsync();
+
+        return Ok(servers);
+    }
+
+    [HttpPost]
+    public async Task<ActionResult<GuildServerResponse>> Create(CreateServerRequest req)
+    {
+        var server = new GuildServer { Name = req.Name, OwnerId = CurrentUserId };
+        _db.GuildServers.Add(server);
+        await _db.SaveChangesAsync();
+
+        _db.Memberships.Add(new Membership
+        {
+            UserId = CurrentUserId,
+            GuildServerId = server.Id,
+            Role = MemberRole.Owner
+        });
+
+        _db.Channels.Add(new Channel { Name = "general", Type = ChannelType.Text, GuildServerId = server.Id, Position = 0 });
+        _db.Channels.Add(new Channel { Name = "General Voice", Type = ChannelType.Voice, GuildServerId = server.Id, Position = 1 });
+
+        await _db.SaveChangesAsync();
+
+        return Ok(new GuildServerResponse(server.Id, server.Name, server.IconUrl, server.OwnerId));
+    }
+
+    // Direct join by server id is kept for convenience/dev use; in practice
+    // most people will join via POST /api/invites/{code}/join instead.
+    [HttpPost("{serverId}/join")]
+    public async Task<ActionResult> Join(int serverId)
+    {
+        var exists = await _db.GuildServers.AnyAsync(s => s.Id == serverId);
+        if (!exists) return NotFound();
+
+        var already = await _db.Memberships.AnyAsync(m => m.UserId == CurrentUserId && m.GuildServerId == serverId);
+        if (already) return Ok();
+
+        _db.Memberships.Add(new Membership { UserId = CurrentUserId, GuildServerId = serverId });
+        await _db.SaveChangesAsync();
+        return Ok();
+    }
+
+    [HttpGet("{serverId}/members")]
+    public async Task<ActionResult<List<MemberResponse>>> GetMembers(int serverId)
+    {
+        if (!await _permissions.IsMemberAsync(CurrentUserId, serverId))
+            return Forbid();
+
+        var members = await _db.Memberships
+            .Where(m => m.GuildServerId == serverId)
+            .Select(m => new MemberResponse(m.UserId, m.User!.Username, m.Role.ToString()))
+            .ToListAsync();
+
+        return Ok(members);
+    }
+
+    [HttpDelete("{serverId}/members/{userId}")]
+    public async Task<ActionResult> KickMember(int serverId, int userId)
+    {
+        if (!await _permissions.CanManageServerAsync(CurrentUserId, serverId))
+            return Forbid();
+
+        var target = await _db.Memberships.FirstOrDefaultAsync(m => m.UserId == userId && m.GuildServerId == serverId);
+        if (target is null) return NotFound();
+        if (target.Role == MemberRole.Owner) return BadRequest("Cannot kick the server owner.");
+
+        _db.Memberships.Remove(target);
+        await _db.SaveChangesAsync();
+        return Ok();
+    }
+
+    [HttpPut("{serverId}/members/{userId}/role")]
+    public async Task<ActionResult> ChangeRole(int serverId, int userId, ChangeRoleRequest req)
+    {
+        // Only the owner can promote/demote moderators.
+        if (!await _permissions.IsOwnerAsync(CurrentUserId, serverId))
+            return Forbid();
+
+        var target = await _db.Memberships.FirstOrDefaultAsync(m => m.UserId == userId && m.GuildServerId == serverId);
+        if (target is null) return NotFound();
+        if (target.Role == MemberRole.Owner) return BadRequest("Cannot change the owner's role.");
+
+        target.Role = req.Role.Equals("Moderator", StringComparison.OrdinalIgnoreCase)
+            ? MemberRole.Moderator
+            : MemberRole.Member;
+
+        await _db.SaveChangesAsync();
+        return Ok();
+    }
+}

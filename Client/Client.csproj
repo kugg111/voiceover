@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>DiscordClone.Client</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="8.0.10" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
+    <!-- Voice chat: WebRTC engine + Windows mic/speaker access.
+         Pinned to the 8.0.x line, which is the last one that supports net8.0-windows -
+         the 10.x releases require the .NET 10 SDK. If you install .NET 10 and want the
+         newer packages instead, bump both to 10.0.x and retarget the TFM to net10.0-windows10.0.17763.0. -->
+    <PackageReference Include="SIPSorcery" Version="8.0.23" />
+    <PackageReference Include="SIPSorceryMedia.Windows" Version="8.0.14" />
+  </ItemGroup>
+
+</Project>
