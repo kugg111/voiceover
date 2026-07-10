@@ -3,6 +3,11 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using Voiceover.Client.Services;
+using Wpf.Ui.Controls;
+using MessageBox = System.Windows.MessageBox;
+using MessageBoxButton = System.Windows.MessageBoxButton;
+using MessageBoxResult = System.Windows.MessageBoxResult;
+using Button = System.Windows.Controls.Button;
 
 namespace Voiceover.Client.Views;
 
@@ -24,7 +29,7 @@ public class InviteListItem
     public string Display { get; set; } = string.Empty;
 }
 
-public partial class MembersWindow : Window
+public partial class MembersWindow : FluentWindow
 {
     private readonly ApiService _api;
     private readonly int _serverId;

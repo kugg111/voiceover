@@ -5,6 +5,10 @@ using System.Windows.Input;
 using Voiceover.Client.Models;
 using Voiceover.Client.Services;
 using Microsoft.Win32;
+using Wpf.Ui.Controls;
+using MessageBox = System.Windows.MessageBox;
+using MessageBoxButton = System.Windows.MessageBoxButton;
+using MessageBoxResult = System.Windows.MessageBoxResult;
 
 namespace Voiceover.Client.Views;
 
@@ -58,7 +62,7 @@ public class MessageListItem
     public Visibility AttachmentVisibility => AttachmentUrl is null ? Visibility.Collapsed : Visibility.Visible;
 }
 
-public partial class MainWindow : Window
+public partial class MainWindow : FluentWindow
 {
     private readonly ApiService _api;
     private readonly SignalRService _hub = new();
@@ -518,7 +522,8 @@ public partial class MainWindow : Window
             Height = 140,
             WindowStartupLocation = WindowStartupLocation.CenterScreen,
             Title = label,
-            ResizeMode = ResizeMode.NoResize
+            ResizeMode = ResizeMode.NoResize,
+            Background = (System.Windows.Media.Brush)System.Windows.Application.Current.Resources["BgDark"]
         };
 
         var stack = new System.Windows.Controls.StackPanel { Margin = new Thickness(16) };
@@ -528,7 +533,12 @@ public partial class MainWindow : Window
         string? result = null;
         okButton.Click += (_, _) => { result = textBox.Text; window.Close(); };
 
-        stack.Children.Add(new System.Windows.Controls.TextBlock { Text = label });
+        stack.Children.Add(new System.Windows.Controls.TextBlock
+        {
+            Text = label,
+            Foreground = (System.Windows.Media.Brush)System.Windows.Application.Current.Resources["TextNormal"],
+            Margin = new Thickness(0, 0, 0, 4)
+        });
         stack.Children.Add(textBox);
         stack.Children.Add(okButton);
         window.Content = stack;

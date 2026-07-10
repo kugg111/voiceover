@@ -2,10 +2,11 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using Voiceover.Client.Services;
+using Wpf.Ui.Controls;
 
 namespace Voiceover.Client.Views;
 
-public partial class VoiceSettingsWindow : Window
+public partial class VoiceSettingsWindow : FluentWindow
 {
     private readonly VoiceService _voice;
     private bool _loaded;

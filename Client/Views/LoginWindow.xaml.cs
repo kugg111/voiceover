@@ -1,10 +1,11 @@
 using System.Net.Http;
 using System.Windows;
 using Voiceover.Client.Services;
+using Wpf.Ui.Controls;
 
 namespace Voiceover.Client.Views;
 
-public partial class LoginWindow : Window
+public partial class LoginWindow : FluentWindow
 {
     private readonly ApiService _api = new(App.ApiBaseUrl);
 

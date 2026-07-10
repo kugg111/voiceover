@@ -22,6 +22,11 @@
          explicitly since VoiceService/AudioDeviceService reference NAudio's
          device-enumeration APIs directly for mic/speaker selection. -->
     <PackageReference Include="NAudio" Version="2.2.1" />
+    <!-- Fluent Design controls/theming for a modern, Discord-like look -
+         rounded window chrome, restyled standard controls (Button, TextBox,
+         etc. get the new look automatically once the theme dictionaries are
+         merged in App.xaml - no need to change existing control tags). -->
+    <PackageReference Include="WPF-UI" Version="4.3.0" />
   </ItemGroup>
 
 </Project>

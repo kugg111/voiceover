@@ -1,11 +1,23 @@
-<Window x:Class="Voiceover.Client.Views.VoiceSettingsWindow"
+<ui:FluentWindow x:Class="Voiceover.Client.Views.VoiceSettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
         Title="Voice Settings" Height="260" Width="380"
         WindowStartupLocation="CenterOwner"
         Background="{StaticResource BgDark}"
-        ResizeMode="NoResize">
-    <StackPanel Margin="16">
+        ResizeMode="NoResize"
+        ExtendsContentIntoTitleBar="True"
+        WindowBackdropType="Mica"
+        WindowCornerPreference="Round">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <ui:TitleBar Title="Voice Settings" Grid.Row="0" ShowMaximize="False"/>
+
+        <StackPanel Grid.Row="1" Margin="16">
         <TextBlock Text="Input Device (Microphone)" FontWeight="Bold"
                    Foreground="{StaticResource TextNormal}" Margin="0,0,0,6"/>
         <ComboBox x:Name="InputDeviceCombo" Height="32" Margin="0,0,0,16"
@@ -18,5 +30,6 @@
 
         <TextBlock Text="Changes take effect the next time you join a voice channel."
                    FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}"/>
-    </StackPanel>
-</Window>
+        </StackPanel>
+    </Grid>
+</ui:FluentWindow>
