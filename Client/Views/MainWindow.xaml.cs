@@ -384,6 +384,7 @@ public partial class MainWindow : Window
             await _hub.JoinVoiceChannelAsync(_currentVoiceChannelId.Value);
 
         Dispatcher.Invoke(() => ConnectionStatusText.Text = "");
+    }
 
     private void OnVoiceUserJoined(int userId, string username, int channelId)
     {
@@ -401,7 +402,6 @@ public partial class MainWindow : Window
         {
             FindVoiceChannelItem(channelId)?.Members.Remove(username);
         });
-
     }
 
     private static MessageListItem ToListItem(MessageResponse m) => new()
