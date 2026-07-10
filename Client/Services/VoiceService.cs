@@ -34,6 +34,16 @@ public class VoiceService
     public event Action<int>? PeerConnected;
     public event Action<int>? PeerDisconnected;
 
+    // Fires when local mic volume crosses the speaking threshold in either
+    // direction, so the UI can show a "you're speaking" indicator and relay
+    // it to other participants (see MainWindow's use of SendSpeakingAsync).
+    public event Action<bool>? LocalSpeakingChanged;
+
+    private volatile bool _localIsSpeaking;
+    private DateTime _lastLoudSampleUtc = DateTime.MinValue;
+    private static readonly TimeSpan SpeakingHangover = TimeSpan.FromMilliseconds(400);
+    private const int SpeakingRmsThreshold = 800; // empirical threshold for 16-bit PCM RMS
+
     // Device indices from AudioDeviceService (null/-1 = system default). Applied
     // when a peer connection is created, so a change here takes effect on the
     // next channel join/new peer rather than hot-swapping an active call.
@@ -57,6 +67,12 @@ public class VoiceService
         _activeChannelId = null;
         foreach (var userId in _peerConnections.Keys.ToList())
             await ClosePeerAsync(userId);
+
+        if (_localIsSpeaking)
+        {
+            _localIsSpeaking = false;
+            LocalSpeakingChanged?.Invoke(false);
+        }
     }
 
     // Called when someone (including a peer already in the channel when we
@@ -144,6 +160,15 @@ public class VoiceService
         // Mic -> outgoing RTP.
         audioEndPoint.OnAudioSourceEncodedSample += pc.SendAudio;
 
+        // Mic -> local speaking-indicator detection. Decodes the mu-law encoded
+        // samples ourselves rather than using OnAudioSourceRawSample - that event
+        // is marked obsolete in this SIPSorceryMedia version with "the audio
+        // source only generates encoded samples", meaning it likely never fires
+        // at all. Every peer connection captures the mic independently (see the
+        // mesh note above), so this runs once per peer - harmless since the
+        // state machine below only raises LocalSpeakingChanged on transitions.
+        audioEndPoint.OnAudioSourceEncodedSample += (durationRtpUnits, sample) => OnLocalEncodedSample(sample);
+
         // Incoming RTP -> speaker. GotAudioRtp is obsolete in this SIPSorceryMedia
         // version in favor of GotEncodedMediaFrame, which takes the decoded RTP
         // fields pre-packaged instead of the raw header.
@@ -166,18 +191,23 @@ public class VoiceService
 
         pc.onconnectionstatechange += async state =>
         {
-            // NOTE: StartAudio()/CloseAudio() are the combined IAudioEndPoint
-            // methods as of SIPSorceryMedia.Windows ~10.x. If these don't exist
-            // on your installed version, check IntelliSense for StartAudioSink()/
-            // StartAudioSource() (older API split them) and call both instead.
+            // WindowsAudioEndPoint implements IAudioSource (mic) and IAudioSink
+            // (speaker) as two independent lifecycles - StartAudio()/CloseAudio()
+            // only starts/stops the microphone capture, and StartAudioSink()/
+            // CloseAudioSink() only starts/stops speaker playback. Both are
+            // required; calling only StartAudio() (as this used to) means the
+            // mic captures and sends fine but nothing ever plays back - RTP
+            // flows correctly in both directions with no errors, just silence.
             if (state == RTCPeerConnectionState.connected)
             {
                 await audioEndPoint.StartAudio();
+                await audioEndPoint.StartAudioSink();
                 PeerConnected?.Invoke(remoteUserId);
             }
             else if (state is RTCPeerConnectionState.closed or RTCPeerConnectionState.failed or RTCPeerConnectionState.disconnected)
             {
                 await audioEndPoint.CloseAudio();
+                await audioEndPoint.CloseAudioSink();
                 PeerDisconnected?.Invoke(remoteUserId);
             }
         };
@@ -193,13 +223,56 @@ public class VoiceService
         }
     }
 
+    private void OnLocalEncodedSample(byte[] muLawEncoded)
+    {
+        if (muLawEncoded.Length == 0) return;
+
+        long sumSquares = 0;
+        foreach (var b in muLawEncoded)
+        {
+            var linear = MuLawToLinearSample(b);
+            sumSquares += (long)linear * linear;
+        }
+        var rms = Math.Sqrt(sumSquares / (double)muLawEncoded.Length);
+
+        var now = DateTime.UtcNow;
+        if (rms > SpeakingRmsThreshold)
+        {
+            _lastLoudSampleUtc = now;
+            if (!_localIsSpeaking)
+            {
+                _localIsSpeaking = true;
+                LocalSpeakingChanged?.Invoke(true);
+            }
+        }
+        else if (_localIsSpeaking && now - _lastLoudSampleUtc > SpeakingHangover)
+        {
+            _localIsSpeaking = false;
+            LocalSpeakingChanged?.Invoke(false);
+        }
+    }
+
+    // Standard G.711 mu-law -> 16-bit linear PCM decode (single byte -> one sample).
+    private static short MuLawToLinearSample(byte muLaw)
+    {
+        muLaw = (byte)~muLaw;
+        var sign = (muLaw & 0x80) != 0 ? -1 : 1;
+        var exponent = (muLaw >> 4) & 0x07;
+        var mantissa = muLaw & 0x0F;
+        var magnitude = (((mantissa << 3) + 0x84) << exponent) - 0x84;
+        return (short)(sign * magnitude);
+    }
+
     private async Task ClosePeerAsync(int userId)
     {
         if (_peerConnections.TryRemove(userId, out var pc))
             pc.close();
 
         if (_audioEndPoints.TryRemove(userId, out var audioEndPoint))
+        {
             await audioEndPoint.CloseAudio();
+            await audioEndPoint.CloseAudioSink();
+        }
 
         PeerDisconnected?.Invoke(userId);
     }
