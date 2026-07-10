@@ -1,4 +1,4 @@
-namespace DiscordClone.Client.Models;
+namespace Voiceover.Client.Models;
 
 public record AuthResponse(string Token, int UserId, string Username);
 public record GuildServerResponse(int Id, string Name, string? IconUrl, int OwnerId);

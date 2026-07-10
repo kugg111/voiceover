@@ -1,12 +1,12 @@
 using System.Security.Claims;
-using DiscordClone.Server.Data;
-using DiscordClone.Server.Dtos;
-using DiscordClone.Server.Models;
-using DiscordClone.Server.Services;
+using Voiceover.Server.Data;
+using Voiceover.Server.Dtos;
+using Voiceover.Server.Models;
+using Voiceover.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 
-namespace DiscordClone.Server.Hubs;
+namespace Voiceover.Server.Hubs;
 
 [Authorize]
 public class ChatHub : Hub

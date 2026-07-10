@@ -1,4 +1,4 @@
-namespace DiscordClone.Server.Models;
+namespace Voiceover.Server.Models;
 
 // Named "GuildServer" (Discord internally calls servers "guilds") to avoid
 // any naming collision with ASP.NET Core's own "Server" concepts.

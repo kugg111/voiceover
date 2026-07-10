@@ -5,7 +5,7 @@ using SIPSorcery.Media;
 using SIPSorcery.Net;
 using SIPSorceryMedia.Windows;
 
-namespace DiscordClone.Client.Services;
+namespace Voiceover.Client.Services;
 
 // Simple JSON payloads exchanged over the SignalR "VoiceSignal" relay.
 internal record IceCandidatePayload(string Candidate, string? SdpMid, int? SdpMLineIndex);

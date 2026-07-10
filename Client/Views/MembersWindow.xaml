@@ -1,4 +1,4 @@
-<Window x:Class="DiscordClone.Client.Views.MembersWindow"
+<Window x:Class="Voiceover.Client.Views.MembersWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Server Members" Height="600" Width="380"

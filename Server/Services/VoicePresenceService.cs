@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
-using DiscordClone.Server.Dtos;
+using Voiceover.Server.Dtos;
 
-namespace DiscordClone.Server.Services;
+namespace Voiceover.Server.Services;
 
 // Tracks which SignalR connection is currently in which voice channel, in memory.
 // A connection is in at most one voice channel at a time (the client always leaves

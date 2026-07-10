@@ -3,7 +3,7 @@ using System.Security.Claims;
 using System.Text;
 using Microsoft.IdentityModel.Tokens;
 
-namespace DiscordClone.Server.Auth;
+namespace Voiceover.Server.Auth;
 
 public class JwtTokenService
 {
@@ -15,7 +15,7 @@ public class JwtTokenService
         // In production, put this in user-secrets or environment variables,
         // never commit a real signing key to source control.
         _key = config["Jwt:Key"] ?? "dev-only-signing-key-change-me-please-1234567890";
-        _issuer = config["Jwt:Issuer"] ?? "DiscordCloneServer";
+        _issuer = config["Jwt:Issuer"] ?? "VoiceoverServer";
     }
 
     public string CreateToken(int userId, string username)

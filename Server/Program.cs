@@ -1,7 +1,7 @@
-using DiscordClone.Server.Auth;
-using DiscordClone.Server.Data;
-using DiscordClone.Server.Hubs;
-using DiscordClone.Server.Services;
+using Voiceover.Server.Auth;
+using Voiceover.Server.Data;
+using Voiceover.Server.Hubs;
+using Voiceover.Server.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
@@ -20,6 +20,13 @@ builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 // uploaded files both need to survive redeploys/restarts, unlike the rest of
 // the container filesystem). Falls back to the existing local-dev locations
 // when unset.
+//
+// The db filename itself intentionally keeps its original "discordclone.db"
+// name rather than being renamed along with everything else - it's an
+// internal storage detail nobody sees, and the production volume already has
+// real user data under that name. Renaming it would silently point the app
+// at a fresh empty database instead (this happened once during the rename;
+// caught it by noticing userId reset to 1 on the next registration).
 var dataDir = Environment.GetEnvironmentVariable("DATA_DIR");
 var dbPath = dataDir is not null ? Path.Combine(dataDir, "discordclone.db") : "discordclone.db";
 var uploadsDir = dataDir is not null

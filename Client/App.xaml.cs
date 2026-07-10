@@ -1,15 +1,15 @@
 using System.Windows;
 using System.Windows.Threading;
 
-namespace DiscordClone.Client;
+namespace Voiceover.Client;
 
 public partial class App : Application
 {
     // Points at the deployed Railway server so friends can connect from their
     // own PCs. Switch back to the localhost values below for local dev against
     // `dotnet run` in Server/.
-    public const string ApiBaseUrl = "https://discord-clone-production-9f02.up.railway.app/";
-    public const string HubUrl = "https://discord-clone-production-9f02.up.railway.app/hubs/chat";
+    public const string ApiBaseUrl = "https://voiceover-production-c32a.up.railway.app/";
+    public const string HubUrl = "https://voiceover-production-c32a.up.railway.app/hubs/chat";
     // public const string ApiBaseUrl = "http://localhost:5220/";
     // public const string HubUrl = "http://localhost:5220/hubs/chat";
 

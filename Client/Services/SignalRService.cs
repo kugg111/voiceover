@@ -1,7 +1,7 @@
-using DiscordClone.Client.Models;
+using Voiceover.Client.Models;
 using Microsoft.AspNetCore.SignalR.Client;
 
-namespace DiscordClone.Client.Services;
+namespace Voiceover.Client.Services;
 
 public class SignalRService
 {

@@ -1,7 +1,7 @@
-using DiscordClone.Server.Models;
+using Voiceover.Server.Models;
 using Microsoft.EntityFrameworkCore;
 
-namespace DiscordClone.Server.Data;
+namespace Voiceover.Server.Data;
 
 public class AppDbContext : DbContext
 {
