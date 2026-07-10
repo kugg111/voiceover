@@ -66,10 +66,20 @@
                     <ItemsControl x:Name="VoiceChannelList">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Button Content="{Binding DisplayName}" Tag="{Binding Id}"
-                                        Click="VoiceChannelButton_Click" HorizontalContentAlignment="Left"
-                                        Background="Transparent" Foreground="{StaticResource TextMuted}"
-                                        BorderThickness="0" Padding="14,6" Height="32"/>
+                                <StackPanel>
+                                    <Button Content="{Binding DisplayName}" Tag="{Binding Id}"
+                                            Click="VoiceChannelButton_Click" HorizontalContentAlignment="Left"
+                                            Background="Transparent" Foreground="{StaticResource TextMuted}"
+                                            BorderThickness="0" Padding="14,6" Height="32"/>
+                                    <ItemsControl ItemsSource="{Binding Members}" Margin="34,0,0,4" Focusable="False">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding}" FontSize="12"
+                                                           Foreground="{StaticResource TextMuted}" Margin="0,2,0,2"/>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>

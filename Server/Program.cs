@@ -13,6 +13,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlite("Data Source=discordclone.db"));
 
 builder.Services.AddSingleton<JwtTokenService>();
+builder.Services.AddSingleton<VoicePresenceService>();
 builder.Services.AddScoped<PermissionService>();
 
 builder.Services.AddControllers();

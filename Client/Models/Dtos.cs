@@ -9,3 +9,4 @@ public record UserSummaryResponse(int Id, string Username);
 public record InviteResponse(string Code, DateTime? ExpiresAt, int? MaxUses, int UseCount);
 public record MemberResponse(int UserId, string Username, string Role);
 public record UploadResponse(string Url);
+public record VoiceParticipant(int UserId, string Username);
