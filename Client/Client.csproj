@@ -18,6 +18,10 @@
          newer packages instead, bump both to 10.0.x and retarget the TFM to net10.0-windows10.0.17763.0. -->
     <PackageReference Include="SIPSorcery" Version="8.0.23" />
     <PackageReference Include="SIPSorceryMedia.Windows" Version="8.0.14" />
+    <!-- Already pulled in transitively by SIPSorceryMedia.Windows; pinned
+         explicitly since VoiceService/AudioDeviceService reference NAudio's
+         device-enumeration APIs directly for mic/speaker selection. -->
+    <PackageReference Include="NAudio" Version="2.2.1" />
   </ItemGroup>
 
 </Project>

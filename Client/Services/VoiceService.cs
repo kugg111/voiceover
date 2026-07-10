@@ -34,6 +34,12 @@ public class VoiceService
     public event Action<int>? PeerConnected;
     public event Action<int>? PeerDisconnected;
 
+    // Device indices from AudioDeviceService (null/-1 = system default). Applied
+    // when a peer connection is created, so a change here takes effect on the
+    // next channel join/new peer rather than hot-swapping an active call.
+    public int? InputDeviceIndex { get; set; }
+    public int? OutputDeviceIndex { get; set; }
+
     public VoiceService(SignalRService hub, int selfUserId)
     {
         _hub = hub;
@@ -117,7 +123,7 @@ public class VoiceService
 
     private async Task CreatePeerConnectionAsync(int remoteUserId, int channelId, bool isInitiator)
     {
-        var audioEndPoint = new WindowsAudioEndPoint(new AudioEncoder());
+        var audioEndPoint = new WindowsAudioEndPoint(new AudioEncoder(), OutputDeviceIndex ?? -1, InputDeviceIndex ?? -1);
         audioEndPoint.RestrictFormats(f => f.Codec == SIPSorceryMedia.Abstractions.AudioCodecsEnum.PCMU);
 
         var pc = new RTCPeerConnection(IceConfig);
