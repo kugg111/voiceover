@@ -5,6 +5,7 @@
         Title="Voiceover" Height="700" Width="1100"
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource BgDark}"
+        Icon="/Assets/AppIcon.png"
         ExtendsContentIntoTitleBar="True"
         WindowBackdropType="Mica"
         WindowCornerPreference="Round">
@@ -123,9 +124,11 @@
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
                                                 <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
-                                                    <TextBlock Text="🔊" FontSize="11" Margin="0,0,4,0"
-                                                               Visibility="{Binding SpeakingIndicatorVisibility}"/>
-                                                    <TextBlock Text="{Binding Username}" FontSize="12"
+                                                    <Border Width="20" Height="20" CornerRadius="10" Margin="0,0,6,0"
+                                                            BorderThickness="2" BorderBrush="{Binding SpeakingRingBrush}">
+                                                        <Image Source="/Assets/AppIcon.png" Width="14" Height="14"/>
+                                                    </Border>
+                                                    <TextBlock Text="{Binding Username}" FontSize="12" VerticalAlignment="Center"
                                                                Foreground="{StaticResource TextMuted}"/>
                                                 </StackPanel>
                                             </DataTemplate>

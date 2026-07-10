@@ -6,6 +6,7 @@
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource BgDark}"
         ResizeMode="NoResize"
+        Icon="/Assets/AppIcon.png"
         ExtendsContentIntoTitleBar="True"
         WindowBackdropType="Mica"
         WindowCornerPreference="Round">
