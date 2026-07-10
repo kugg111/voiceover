@@ -281,6 +281,15 @@ public partial class MainWindow : Window
         window.ShowDialog();
     }
 
+    private void VoiceSettingsButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_voice is null) return;
+
+        var window = new VoiceSettingsWindow(_voice);
+        window.Owner = this;
+        window.ShowDialog();
+    }
+
     private void DirectMessagesButton_Click(object sender, RoutedEventArgs e)
     {
         var window = new DirectMessageWindow(_api, _hub);

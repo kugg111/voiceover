@@ -123,6 +123,8 @@
                                Foreground="#F0B232" FontSize="12" VerticalAlignment="Center" Margin="0,0,12,0"/>
                     <Button DockPanel.Dock="Right" Content="Leave Voice" Click="LeaveVoiceButton_Click"
                             Background="Transparent" Foreground="#F23F42" BorderThickness="0" Margin="0,0,8,0"/>
+                    <Button DockPanel.Dock="Right" Content="Voice Settings" Click="VoiceSettingsButton_Click"
+                            Background="Transparent" Foreground="{StaticResource TextMuted}" BorderThickness="0" Margin="0,0,8,0"/>
                     <Button DockPanel.Dock="Right" Content="Members" Click="MembersButton_Click"
                             Background="Transparent" Foreground="{StaticResource TextMuted}" BorderThickness="0" Margin="0,0,8,0"/>
                     <TextBlock x:Name="ChannelNameText" Text="# select-a-channel"
