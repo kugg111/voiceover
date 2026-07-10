@@ -1,5 +1,7 @@
 using System.Windows;
 using System.Windows.Threading;
+using Voiceover.Client.Services;
+using Voiceover.Client.Views;
 
 namespace Voiceover.Client;
 
@@ -21,6 +23,23 @@ public partial class App : Application
         // otherwise crash the whole process. This is a last-resort safety net so a
         // transient failure shows an error dialog instead of taking the app down.
         DispatcherUnhandledException += OnDispatcherUnhandledException;
+    }
+
+    protected override void OnStartup(StartupEventArgs e)
+    {
+        base.OnStartup(e);
+
+        var session = SessionStorage.Load();
+        if (session is not null)
+        {
+            var api = new ApiService(ApiBaseUrl);
+            api.RestoreSession(session.Token, session.UserId, session.Username);
+            new MainWindow(api).Show();
+        }
+        else
+        {
+            new LoginWindow().Show();
+        }
     }
 
     private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)

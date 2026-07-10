@@ -304,6 +304,7 @@ public partial class MainWindow : FluentWindow
     private void LogOutButton_Click(object sender, RoutedEventArgs e)
     {
         // MainWindow_Closed already handles leaving voice / disconnecting the hub.
+        SessionStorage.Clear();
         var login = new LoginWindow();
         login.Show();
         Close();
