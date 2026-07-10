@@ -152,6 +152,13 @@ public partial class MainWindow : FluentWindow
     private readonly ObservableCollection<FriendRequestListItem> _friendRequests = new();
     private readonly ObservableCollection<UserSearchResultItem> _friendSearchResults = new();
 
+    // Source of truth for text-channel unread state, kept independent of
+    // _textChannels - a message can arrive for a channel before that
+    // channel's server has ever been opened (so no ChannelListItem exists
+    // yet to mark), unlike DM conversations, which get created fresh on
+    // arrival regardless of prior UI state.
+    private readonly HashSet<int> _unreadTextChannelIds = new();
+
     private DateTime _lastTypingNotify = DateTime.MinValue;
 
     public MainWindow(ApiService api)
@@ -208,15 +215,25 @@ public partial class MainWindow : FluentWindow
         _servers.Clear();
         foreach (var s in servers)
             _servers.Add(new ServerListItem { Id = s.Id, Initial = s.Name.Length > 0 ? s.Name[0].ToString().ToUpper() : "?" });
+
+        // Join every text channel's SignalR group across every server the
+        // user belongs to - not just whichever one happens to be open right
+        // now. ReceiveMessage only reaches clients that are in a channel's
+        // own group, so without this, unread dots could only ever work while
+        // browsing the exact server a message landed in - unlike DMs, which
+        // reach you regardless of what you're looking at (Clients.User, not
+        // a group). A handful of servers/channels for a small friends app,
+        // so the extra join calls up front are cheap.
+        foreach (var server in servers)
+        {
+            var channels = await _api.GetChannelsAsync(server.Id);
+            foreach (var c in channels.Where(c => c.Type == "Text"))
+                await _hub.JoinChannelAsync(c.Id);
+        }
     }
 
     private async Task RefreshChannelsAsync(int serverId)
     {
-        // Rebuilding the lists from scratch (e.g. re-clicking the same server)
-        // would otherwise silently clear any unread dots nobody's actually
-        // read yet - carry that flag over by channel id.
-        var previouslyUnread = _textChannels.Where(c => c.HasUnread).Select(c => c.Id).ToHashSet();
-
         var channels = await _api.GetChannelsAsync(serverId);
         _textChannels.Clear();
         _voiceChannels.Clear();
@@ -226,11 +243,17 @@ public partial class MainWindow : FluentWindow
             {
                 Id = c.Id,
                 DisplayName = c.Type == "Text" ? $"# {c.Name}" : $"🔊 {c.Name}",
-                HasUnread = c.Type == "Text" && previouslyUnread.Contains(c.Id)
+                HasUnread = c.Type == "Text" && _unreadTextChannelIds.Contains(c.Id)
             };
             if (c.Type == "Text") _textChannels.Add(item);
             else _voiceChannels.Add(item);
         }
+
+        // Safety net for channels created after the initial LoadServersAsync
+        // sweep (e.g. someone else added one) - harmless/idempotent if
+        // already joined.
+        foreach (var c in _textChannels)
+            await _hub.JoinChannelAsync(c.Id);
     }
 
     private async void ServerButton_Click(object sender, RoutedEventArgs e)
@@ -239,6 +262,10 @@ public partial class MainWindow : FluentWindow
 
         ShowServerSidebar();
 
+        // Note: text channel SignalR groups are deliberately NOT left here -
+        // the app stays joined to every text channel across every server (see
+        // LoadServersAsync) so unread dots keep working no matter which
+        // server or view is currently open, same as DMs already do.
         if (_currentServerId.HasValue && _currentServerId.Value != serverId)
             await _hub.LeaveServerPresenceAsync(_currentServerId.Value);
 
@@ -278,12 +305,13 @@ public partial class MainWindow : FluentWindow
     {
         if (sender is not FrameworkElement { Tag: int channelId }) return;
 
-        if (_currentChannelId.HasValue)
-            await _hub.LeaveChannelAsync(_currentChannelId.Value);
-
+        // Deliberately doesn't leave the previous channel's group - all text
+        // channels in the open server stay joined (see RefreshChannelsAsync)
+        // so unread dots keep working for channels you switch away from too.
         _currentChannelId = channelId;
         await _hub.JoinChannelAsync(channelId);
 
+        _unreadTextChannelIds.Remove(channelId);
         var thisChannelItem = FindTextChannelItem(channelId);
         if (thisChannelItem is not null) thisChannelItem.HasUnread = false;
 
@@ -370,7 +398,13 @@ public partial class MainWindow : FluentWindow
         var isVoice = MessageBox.Show("Make this a voice channel?", "Channel Type",
             MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
 
-        await _api.CreateChannelAsync(serverId, name, isVoice ? "Voice" : "Text");
+        var created = await _api.CreateChannelAsync(serverId, name, isVoice ? "Voice" : "Text");
+
+        // Join the new channel's group regardless of which server is open -
+        // otherwise it wouldn't get unread dots until the next full
+        // LoadServersAsync (e.g. next login).
+        if (created is not null && !isVoice)
+            await _hub.JoinChannelAsync(created.Id);
 
         // Only the currently-open server's channel list is visible - refresh
         // it if that's the one a channel was just added to.
@@ -529,15 +563,13 @@ public partial class MainWindow : FluentWindow
         await LoadFriendRequestsAsync();
     }
 
-    // Stops receiving messages for whatever channel was open - called when
-    // leaving the server view entirely (Messages/Friends button clicked).
+    // Called when leaving the server view entirely (Messages/Friends button
+    // clicked). Deliberately does NOT leave text channel SignalR groups - the
+    // app stays joined to all of them everywhere (see LoadServersAsync) so
+    // unread dots keep working while browsing Messages/Friends, same as DMs.
     private async Task LeaveServerContentAsync()
     {
-        if (_currentChannelId.HasValue)
-        {
-            await _hub.LeaveChannelAsync(_currentChannelId.Value);
-            _currentChannelId = null;
-        }
+        _currentChannelId = null;
 
         if (_currentServerId.HasValue)
             await _hub.LeaveServerPresenceAsync(_currentServerId.Value);
@@ -812,8 +844,13 @@ public partial class MainWindow : FluentWindow
 
             // Someone else's message landed in a channel that isn't open right
             // now - flag it with an unread dot rather than just dropping it.
+            // _unreadTextChannelIds is the source of truth (survives even if
+            // that channel's server has never been opened, so there's no
+            // ChannelListItem yet to mark); also update the item directly if
+            // it happens to already be loaded, for an instant UI update.
             if (msg.AuthorId == _api.CurrentUserId) return;
 
+            _unreadTextChannelIds.Add(msg.ChannelId);
             var item = FindTextChannelItem(msg.ChannelId);
             if (item is not null) item.HasUnread = true;
         });
