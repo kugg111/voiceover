@@ -61,7 +61,7 @@ public partial class MainWindow : Window
         _hub.MessageReceived += OnMessageReceived;
         _hub.UserTyping += OnUserTyping;
         _hub.Reconnecting += () => Dispatcher.Invoke(() => ConnectionStatusText.Text = "Reconnecting...");
-        _hub.Reconnected += () => Dispatcher.Invoke(() => ConnectionStatusText.Text = "");
+        _hub.Reconnected += OnReconnected;
         _hub.ConnectionClosed += () => Dispatcher.Invoke(() => ConnectionStatusText.Text = "Disconnected");
 
         Loaded += MainWindow_Loaded;
@@ -206,6 +206,41 @@ public partial class MainWindow : Window
         await RefreshChannelsAsync(_currentServerId.Value);
     }
 
+    private async void DeleteChannelButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: int channelId } || _currentServerId is null) return;
+
+        var confirm = MessageBox.Show("Delete this channel? This cannot be undone.", "Confirm Delete",
+            MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (confirm != MessageBoxResult.Yes) return;
+
+        var success = await _api.DeleteChannelAsync(_currentServerId.Value, channelId);
+        if (!success)
+        {
+            MessageBox.Show("Could not delete this channel (you may lack permission).", "Error",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        if (channelId == _currentChannelId)
+        {
+            await _hub.LeaveChannelAsync(_currentChannelId.Value);
+            _currentChannelId = null;
+            _messages.Clear();
+            ChannelNameText.Text = "# select-a-channel";
+        }
+
+        if (_voice is not null && channelId == _currentVoiceChannelId)
+        {
+            await _hub.LeaveVoiceChannelAsync(_currentVoiceChannelId.Value);
+            await _voice.LeaveAllAsync();
+            _currentVoiceChannelId = null;
+            ConnectionStatusText.Text = "";
+        }
+
+        await RefreshChannelsAsync(_currentServerId.Value);
+    }
+
     private async void LeaveVoiceButton_Click(object sender, RoutedEventArgs e)
     {
         if (_currentVoiceChannelId is null || _voice is null) return;
@@ -316,6 +351,21 @@ public partial class MainWindow : Window
         {
             ChannelNameText.Text = $"{FindChannelDisplayName(channelId)}   ({username} is typing...)";
         });
+    }
+
+    // SignalR's automatic reconnect gives us a fresh connection with no group
+    // memberships, so whatever channel/voice channel the user had open needs
+    // to be re-joined explicitly - otherwise messages/voice presence silently
+    // stop arriving until the user manually switches channels.
+    private async void OnReconnected()
+    {
+        if (_currentChannelId.HasValue)
+            await _hub.JoinChannelAsync(_currentChannelId.Value);
+
+        if (_currentVoiceChannelId.HasValue)
+            await _hub.JoinVoiceChannelAsync(_currentVoiceChannelId.Value);
+
+        Dispatcher.Invoke(() => ConnectionStatusText.Text = "");
     }
 
     private static MessageListItem ToListItem(MessageResponse m) => new()
