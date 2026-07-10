@@ -7,5 +7,6 @@ obj/
 .vs/
 .claude/
 Server/wwwroot/
+Server/appsettings.Development.json
 /publish/
 /Voiceover-Client.zip

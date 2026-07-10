@@ -14,6 +14,8 @@ public class SignalRService
     public event Action<int, string, int>? VoiceUserLeft;
     public event Action<int, int, string, string>? VoiceSignalReceived;
     public event Action<int, int, bool>? UserSpeaking;
+    public event Action<int, int, string>? FriendRequestReceived;
+    public event Action<int, int>? FriendRequestAccepted;
 
     // Connection lifecycle events, surfaced so the UI can show a status banner
     // instead of silently failing when the connection drops.
@@ -38,6 +40,8 @@ public class SignalRService
         _connection.On<int, string, int>("VoiceUserLeft", (userId, username, channelId) => VoiceUserLeft?.Invoke(userId, username, channelId));
         _connection.On<int, int, string, string>("VoiceSignal", (fromUserId, channelId, signalType, payload) => VoiceSignalReceived?.Invoke(fromUserId, channelId, signalType, payload));
         _connection.On<int, int, bool>("UserSpeaking", (userId, channelId, isSpeaking) => UserSpeaking?.Invoke(userId, channelId, isSpeaking));
+        _connection.On<int, int, string>("FriendRequestReceived", (friendshipId, requesterId, requesterUsername) => FriendRequestReceived?.Invoke(friendshipId, requesterId, requesterUsername));
+        _connection.On<int, int>("FriendRequestAccepted", (friendshipId, accepterId) => FriendRequestAccepted?.Invoke(friendshipId, accepterId));
 
         _connection.Reconnecting += _ => { Reconnecting?.Invoke(); return Task.CompletedTask; };
         _connection.Reconnected += _ => { Reconnected?.Invoke(); return Task.CompletedTask; };

@@ -14,6 +14,7 @@ public class AppDbContext : DbContext
     public DbSet<Membership> Memberships => Set<Membership>();
     public DbSet<Invite> Invites => Set<Invite>();
     public DbSet<DirectMessage> DirectMessages => Set<DirectMessage>();
+    public DbSet<Friendship> Friendships => Set<Friendship>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -63,5 +64,11 @@ public class AppDbContext : DbContext
         // two conflicting relationships); look up participants by id instead.
         modelBuilder.Entity<DirectMessage>()
             .HasIndex(dm => new { dm.SenderId, dm.RecipientId, dm.SentAt });
+
+        // Same reasoning as DirectMessage above - no FK navigation on User,
+        // look participants up by id.
+        modelBuilder.Entity<Friendship>()
+            .HasIndex(f => new { f.RequesterId, f.AddresseeId })
+            .IsUnique();
     }
 }

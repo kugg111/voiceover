@@ -9,6 +9,7 @@ using Wpf.Ui.Controls;
 using MessageBox = System.Windows.MessageBox;
 using MessageBoxButton = System.Windows.MessageBoxButton;
 using MessageBoxResult = System.Windows.MessageBoxResult;
+using Button = System.Windows.Controls.Button;
 
 namespace Voiceover.Client.Views;
 
@@ -62,6 +63,39 @@ public class MessageListItem
     public Visibility AttachmentVisibility => AttachmentUrl is null ? Visibility.Collapsed : Visibility.Visible;
 }
 
+public class UserSearchResultItem
+{
+    public int Id { get; set; }
+    public string Username { get; set; } = string.Empty;
+}
+
+public class DmConversationListItem
+{
+    public int OtherUserId { get; set; }
+    public string OtherUsername { get; set; } = string.Empty;
+    public string LastMessagePreview { get; set; } = string.Empty;
+    public DateTime LastMessageAt { get; set; }
+
+    public string PreviewDisplay => LastMessagePreview;
+}
+
+public class FriendListItem
+{
+    public int UserId { get; set; }
+    public string Username { get; set; } = string.Empty;
+}
+
+public class FriendRequestListItem
+{
+    public int Id { get; set; }
+    public int UserId { get; set; }
+    public string Username { get; set; } = string.Empty;
+    public string Direction { get; set; } = string.Empty; // "Incoming" or "Outgoing"
+
+    public Visibility AcceptButtonVisibility => Direction == "Incoming" ? Visibility.Visible : Visibility.Collapsed;
+    public string SecondaryActionLabel => Direction == "Incoming" ? "Decline" : "Cancel";
+}
+
 public partial class MainWindow : FluentWindow
 {
     private readonly ApiService _api;
@@ -71,11 +105,18 @@ public partial class MainWindow : FluentWindow
     private int? _currentServerId;
     private int? _currentChannelId;
     private int? _currentVoiceChannelId;
+    private int? _dmActiveUserId;
+    private string? _dmActiveUsername;
 
     private readonly ObservableCollection<ServerListItem> _servers = new();
     private readonly ObservableCollection<ChannelListItem> _textChannels = new();
     private readonly ObservableCollection<ChannelListItem> _voiceChannels = new();
     private readonly ObservableCollection<MessageListItem> _messages = new();
+    private readonly ObservableCollection<DmConversationListItem> _dmConversations = new();
+    private readonly ObservableCollection<UserSearchResultItem> _dmSearchResults = new();
+    private readonly ObservableCollection<FriendListItem> _friends = new();
+    private readonly ObservableCollection<FriendRequestListItem> _friendRequests = new();
+    private readonly ObservableCollection<UserSearchResultItem> _friendSearchResults = new();
 
     private DateTime _lastTypingNotify = DateTime.MinValue;
 
@@ -88,12 +129,20 @@ public partial class MainWindow : FluentWindow
         TextChannelList.ItemsSource = _textChannels;
         VoiceChannelList.ItemsSource = _voiceChannels;
         MessageList.ItemsSource = _messages;
+        DmConversationList.ItemsSource = _dmConversations;
+        DmSearchResultsList.ItemsSource = _dmSearchResults;
+        FriendList.ItemsSource = _friends;
+        FriendRequestList.ItemsSource = _friendRequests;
+        FriendSearchResultsList.ItemsSource = _friendSearchResults;
 
         _hub.MessageReceived += OnMessageReceived;
+        _hub.DirectMessageReceived += OnDirectMessageReceived;
         _hub.UserTyping += OnUserTyping;
         _hub.VoiceUserJoined += OnVoiceUserJoined;
         _hub.VoiceUserLeft += OnVoiceUserLeft;
         _hub.UserSpeaking += OnUserSpeaking;
+        _hub.FriendRequestReceived += OnFriendRequestReceived;
+        _hub.FriendRequestAccepted += OnFriendRequestAccepted;
         _hub.Reconnecting += () => Dispatcher.Invoke(() => ConnectionStatusText.Text = "Reconnecting...");
         _hub.Reconnected += OnReconnected;
         _hub.ConnectionClosed += () => Dispatcher.Invoke(() => ConnectionStatusText.Text = "Disconnected");
@@ -143,6 +192,9 @@ public partial class MainWindow : FluentWindow
     private async void ServerButton_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not FrameworkElement { Tag: int serverId }) return;
+
+        ShowServerSidebar();
+
         _currentServerId = serverId;
 
         var servers = await _api.GetMyServersAsync();
@@ -235,13 +287,9 @@ public partial class MainWindow : FluentWindow
         }
     }
 
-    private async void AddChannelButton_Click(object sender, RoutedEventArgs e)
+    private async void AddChannelMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (_currentServerId is null)
-        {
-            MessageBox.Show("Select a server first.");
-            return;
-        }
+        if (sender is not System.Windows.Controls.MenuItem { Tag: int serverId }) return;
 
         var name = PromptForText("Channel name:");
         if (string.IsNullOrWhiteSpace(name)) return;
@@ -249,8 +297,41 @@ public partial class MainWindow : FluentWindow
         var isVoice = MessageBox.Show("Make this a voice channel?", "Channel Type",
             MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
 
-        await _api.CreateChannelAsync(_currentServerId.Value, name, isVoice ? "Voice" : "Text");
-        await RefreshChannelsAsync(_currentServerId.Value);
+        await _api.CreateChannelAsync(serverId, name, isVoice ? "Voice" : "Text");
+
+        // Only the currently-open server's channel list is visible - refresh
+        // it if that's the one a channel was just added to.
+        if (serverId == _currentServerId)
+            await RefreshChannelsAsync(serverId);
+    }
+
+    private async void LeaveServerMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.MenuItem { Tag: int serverId }) return;
+
+        var confirm = MessageBox.Show("Leave this server?", "Confirm Leave",
+            MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (confirm != MessageBoxResult.Yes) return;
+
+        var (success, error) = await _api.LeaveServerAsync(serverId);
+        if (!success)
+        {
+            MessageBox.Show(error ?? "Could not leave this server.", "Error",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        if (serverId == _currentServerId)
+        {
+            _currentServerId = null;
+            _textChannels.Clear();
+            _voiceChannels.Clear();
+            ServerNameText.Text = "Select a server";
+            ChannelNameText.Text = "# select-a-channel";
+            _messages.Clear();
+        }
+
+        await LoadServersAsync();
     }
 
     private async void DeleteChannelButton_Click(object sender, RoutedEventArgs e)
@@ -332,15 +413,235 @@ public partial class MainWindow : FluentWindow
         window.ShowDialog();
     }
 
-    private void DirectMessagesButton_Click(object sender, RoutedEventArgs e)
+    private async void MessagesButton_Click(object sender, RoutedEventArgs e)
     {
-        var window = new DirectMessageWindow(_api, _hub);
-        window.Owner = this;
-        window.Show();
+        await LeaveServerContentAsync();
+        ShowMessagesSidebar();
+
+        _dmActiveUserId = null;
+        _dmActiveUsername = null;
+        _messages.Clear();
+        ChannelNameText.Text = "Select a conversation";
+        DmSearchBox.Clear();
+        _dmSearchResults.Clear();
+
+        var conversations = await _api.GetDmConversationsAsync();
+        _dmConversations.Clear();
+        foreach (var c in conversations.OrderByDescending(c => c.LastMessageAt))
+            _dmConversations.Add(ToDmConversationItem(c));
+    }
+
+    private async void FriendsButton_Click(object sender, RoutedEventArgs e)
+    {
+        await LeaveServerContentAsync();
+        ShowFriendsSidebar();
+
+        _dmActiveUserId = null;
+        _dmActiveUsername = null;
+        _messages.Clear();
+        ChannelNameText.Text = "Select a conversation";
+        FriendSearchBox.Clear();
+        _friendSearchResults.Clear();
+
+        await LoadFriendsAsync();
+        await LoadFriendRequestsAsync();
+    }
+
+    // Stops receiving messages for whatever channel was open - called when
+    // leaving the server view entirely (Messages/Friends button clicked).
+    private async Task LeaveServerContentAsync()
+    {
+        if (_currentChannelId.HasValue)
+        {
+            await _hub.LeaveChannelAsync(_currentChannelId.Value);
+            _currentChannelId = null;
+        }
+    }
+
+    private void ShowServerSidebar()
+    {
+        ServerSidebarPanel.Visibility = Visibility.Visible;
+        MessagesSidebarPanel.Visibility = Visibility.Collapsed;
+        FriendsSidebarPanel.Visibility = Visibility.Collapsed;
+        MembersNavButton.Visibility = Visibility.Visible;
+        VoiceSettingsNavButton.Visibility = Visibility.Visible;
+
+        if (_dmActiveUserId.HasValue || ChannelNameText.Text != "# select-a-channel")
+        {
+            _dmActiveUserId = null;
+            _dmActiveUsername = null;
+            _messages.Clear();
+            ChannelNameText.Text = "# select-a-channel";
+        }
+    }
+
+    private void ShowMessagesSidebar()
+    {
+        ServerSidebarPanel.Visibility = Visibility.Collapsed;
+        MessagesSidebarPanel.Visibility = Visibility.Visible;
+        FriendsSidebarPanel.Visibility = Visibility.Collapsed;
+        MembersNavButton.Visibility = Visibility.Collapsed;
+        VoiceSettingsNavButton.Visibility = Visibility.Collapsed;
+    }
+
+    private void ShowFriendsSidebar()
+    {
+        ServerSidebarPanel.Visibility = Visibility.Collapsed;
+        MessagesSidebarPanel.Visibility = Visibility.Collapsed;
+        FriendsSidebarPanel.Visibility = Visibility.Visible;
+        MembersNavButton.Visibility = Visibility.Collapsed;
+        VoiceSettingsNavButton.Visibility = Visibility.Collapsed;
+    }
+
+    private async void DmSearchBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+    {
+        var query = DmSearchBox.Text.Trim();
+        if (query.Length < 2)
+        {
+            _dmSearchResults.Clear();
+            return;
+        }
+
+        var results = await _api.SearchUsersAsync(query);
+        _dmSearchResults.Clear();
+        foreach (var r in results.Where(r => r.Id != _api.CurrentUserId))
+            _dmSearchResults.Add(new UserSearchResultItem { Id = r.Id, Username = r.Username });
+    }
+
+    private async void DmSearchResult_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: int userId } button) return;
+        await OpenDmConversation(userId, (button.Content as string) ?? "user");
+    }
+
+    private async void DmConversation_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: int userId }) return;
+        var convo = _dmConversations.FirstOrDefault(c => c.OtherUserId == userId);
+        await OpenDmConversation(userId, convo?.OtherUsername ?? "user");
+    }
+
+    private async Task OpenDmConversation(int userId, string username)
+    {
+        _dmActiveUserId = userId;
+        _dmActiveUsername = username;
+        ChannelNameText.Text = $"@{username}";
+
+        DmSearchBox.Clear();
+        _dmSearchResults.Clear();
+
+        var history = await _api.GetDmHistoryAsync(userId);
+        _messages.Clear();
+        foreach (var m in history)
+            _messages.Add(ToDmListItem(m));
+
+        ScrollToBottom();
+    }
+
+    private async Task LoadFriendsAsync()
+    {
+        var friends = await _api.GetFriendsAsync();
+        _friends.Clear();
+        foreach (var f in friends)
+            _friends.Add(new FriendListItem { UserId = f.UserId, Username = f.Username });
+    }
+
+    private async Task LoadFriendRequestsAsync()
+    {
+        var requests = await _api.GetFriendRequestsAsync();
+        _friendRequests.Clear();
+        foreach (var r in requests)
+            _friendRequests.Add(new FriendRequestListItem { Id = r.Id, UserId = r.UserId, Username = r.Username, Direction = r.Direction });
+    }
+
+    private async void FriendSearchBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+    {
+        var query = FriendSearchBox.Text.Trim();
+        if (query.Length < 2)
+        {
+            _friendSearchResults.Clear();
+            return;
+        }
+
+        var results = await _api.SearchUsersAsync(query);
+        var existingIds = _friends.Select(f => f.UserId)
+            .Concat(_friendRequests.Select(r => r.UserId))
+            .ToHashSet();
+
+        _friendSearchResults.Clear();
+        foreach (var r in results.Where(r => r.Id != _api.CurrentUserId && !existingIds.Contains(r.Id)))
+            _friendSearchResults.Add(new UserSearchResultItem { Id = r.Id, Username = r.Username });
+    }
+
+    private async void AddFriendButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: int userId }) return;
+
+        var (success, error) = await _api.SendFriendRequestAsync(userId);
+        if (!success)
+        {
+            MessageBox.Show(error ?? "Could not send friend request.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        FriendSearchBox.Clear();
+        _friendSearchResults.Clear();
+        await LoadFriendsAsync();
+        await LoadFriendRequestsAsync();
+    }
+
+    private async void FriendRequestAcceptButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: int friendshipId }) return;
+
+        await _api.AcceptFriendRequestAsync(friendshipId);
+        await LoadFriendsAsync();
+        await LoadFriendRequestsAsync();
+    }
+
+    private async void FriendRequestRemoveButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: int friendshipId }) return;
+
+        await _api.RemoveFriendshipAsync(friendshipId);
+        await LoadFriendRequestsAsync();
+    }
+
+    private async void FriendListItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: int userId } button) return;
+        await OpenDmConversation(userId, (button.Content as string) ?? "user");
+    }
+
+    private void OnFriendRequestReceived(int friendshipId, int requesterId, string requesterUsername)
+    {
+        Dispatcher.Invoke(async () =>
+        {
+            if (FriendsSidebarPanel.Visibility == Visibility.Visible)
+                await LoadFriendRequestsAsync();
+        });
+    }
+
+    private void OnFriendRequestAccepted(int friendshipId, int accepterId)
+    {
+        Dispatcher.Invoke(async () =>
+        {
+            if (FriendsSidebarPanel.Visibility == Visibility.Visible)
+            {
+                await LoadFriendsAsync();
+                await LoadFriendRequestsAsync();
+            }
+        });
     }
 
     private async void AttachButton_Click(object sender, RoutedEventArgs e)
     {
+        if (_dmActiveUserId.HasValue)
+        {
+            MessageBox.Show("Attachments aren't supported in direct messages yet.");
+            return;
+        }
+
         if (_currentChannelId is null)
         {
             MessageBox.Show("Select a channel first.");
@@ -394,7 +695,16 @@ public partial class MainWindow : FluentWindow
 
     private async Task SendCurrentMessage()
     {
-        if (_currentChannelId is null || string.IsNullOrWhiteSpace(MessageInput.Text)) return;
+        if (string.IsNullOrWhiteSpace(MessageInput.Text)) return;
+
+        if (_dmActiveUserId.HasValue)
+        {
+            await _hub.SendDirectMessageAsync(_dmActiveUserId.Value, MessageInput.Text.Trim());
+            MessageInput.Clear();
+            return;
+        }
+
+        if (_currentChannelId is null) return;
 
         await _hub.SendMessageAsync(_currentChannelId.Value, MessageInput.Text.Trim());
         MessageInput.Clear();
@@ -408,6 +718,32 @@ public partial class MainWindow : FluentWindow
         {
             _messages.Add(ToListItem(msg));
             ScrollToBottom();
+        });
+    }
+
+    private void OnDirectMessageReceived(DirectMessageResponse dm)
+    {
+        var otherUserId = dm.SenderId == _api.CurrentUserId ? dm.RecipientId : dm.SenderId;
+
+        Dispatcher.Invoke(() =>
+        {
+            // Bump/update the conversation list regardless of whether it's
+            // currently visible, so it's accurate next time Messages is opened.
+            var existing = _dmConversations.FirstOrDefault(c => c.OtherUserId == otherUserId);
+            if (existing is not null) _dmConversations.Remove(existing);
+            _dmConversations.Insert(0, new DmConversationListItem
+            {
+                OtherUserId = otherUserId,
+                OtherUsername = existing?.OtherUsername ?? _dmActiveUsername ?? "user",
+                LastMessagePreview = dm.Content,
+                LastMessageAt = dm.SentAt
+            });
+
+            if (_dmActiveUserId == otherUserId)
+            {
+                _messages.Add(ToDmListItem(dm));
+                ScrollToBottom();
+            }
         });
     }
 
@@ -496,6 +832,21 @@ public partial class MainWindow : FluentWindow
         Content = m.Content,
         TimeDisplay = m.SentAt.ToLocalTime().ToString("t"),
         AttachmentUrl = m.AttachmentUrl
+    };
+
+    private MessageListItem ToDmListItem(DirectMessageResponse dm) => new()
+    {
+        AuthorUsername = dm.SenderId == _api.CurrentUserId ? "You" : (_dmActiveUsername ?? "them"),
+        Content = dm.Content,
+        TimeDisplay = dm.SentAt.ToLocalTime().ToString("t")
+    };
+
+    private static DmConversationListItem ToDmConversationItem(DmConversationResponse c) => new()
+    {
+        OtherUserId = c.OtherUserId,
+        OtherUsername = c.OtherUsername,
+        LastMessagePreview = c.LastMessagePreview,
+        LastMessageAt = c.LastMessageAt
     };
 
     private string? FindChannelDisplayName(int channelId)
