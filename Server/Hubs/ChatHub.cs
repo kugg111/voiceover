@@ -2,6 +2,7 @@ using System.Security.Claims;
 using DiscordClone.Server.Data;
 using DiscordClone.Server.Dtos;
 using DiscordClone.Server.Models;
+using DiscordClone.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 
@@ -11,8 +12,13 @@ namespace DiscordClone.Server.Hubs;
 public class ChatHub : Hub
 {
     private readonly AppDbContext _db;
+    private readonly VoicePresenceService _voicePresence;
 
-    public ChatHub(AppDbContext db) => _db = db;
+    public ChatHub(AppDbContext db, VoicePresenceService voicePresence)
+    {
+        _db = db;
+        _voicePresence = voicePresence;
+    }
 
     private int CurrentUserId => int.Parse(Context.User!.FindFirstValue(ClaimTypes.NameIdentifier)!);
     private string CurrentUsername => Context.User!.FindFirstValue(ClaimTypes.Name)!;
@@ -82,14 +88,20 @@ public class ChatHub : Hub
     // --- Voice channel presence (signaling only; audio itself is handled
     // separately, see notes on SIPSorcery/WebRTC integration) ---
 
-    public async Task JoinVoiceChannel(int channelId)
+    // Returns the roster of who was already in the channel, so the joining
+    // client can display the full member list immediately instead of waiting
+    // for future VoiceUserJoined events.
+    public async Task<List<VoiceParticipant>> JoinVoiceChannel(int channelId)
     {
+        var existingMembers = _voicePresence.Join(Context.ConnectionId, channelId, CurrentUserId, CurrentUsername);
         await Groups.AddToGroupAsync(Context.ConnectionId, VoiceGroupName(channelId));
-        await Clients.Group(VoiceGroupName(channelId)).SendAsync("VoiceUserJoined", CurrentUserId, CurrentUsername, channelId);
+        await Clients.OthersInGroup(VoiceGroupName(channelId)).SendAsync("VoiceUserJoined", CurrentUserId, CurrentUsername, channelId);
+        return existingMembers;
     }
 
     public async Task LeaveVoiceChannel(int channelId)
     {
+        _voicePresence.Leave(Context.ConnectionId);
         await Groups.RemoveFromGroupAsync(Context.ConnectionId, VoiceGroupName(channelId));
         await Clients.Group(VoiceGroupName(channelId)).SendAsync("VoiceUserLeft", CurrentUserId, CurrentUsername, channelId);
     }
@@ -105,9 +117,13 @@ public class ChatHub : Hub
 
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
-        // In a fuller implementation, track which channels/voice channels
-        // this connection was in (e.g. in a static ConcurrentDictionary or
-        // Redis) so you can broadcast VoiceUserLeft / presence-offline here.
+        var left = _voicePresence.Leave(Context.ConnectionId);
+        if (left is not null)
+        {
+            var (channelId, userId, username) = left.Value;
+            await Clients.Group(VoiceGroupName(channelId)).SendAsync("VoiceUserLeft", userId, username, channelId);
+        }
+
         await base.OnDisconnectedAsync(exception);
     }
 

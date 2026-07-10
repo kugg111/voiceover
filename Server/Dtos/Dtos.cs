@@ -16,3 +16,4 @@ public record UploadResponse(string Url);
 
 public record DirectMessageResponse(int Id, string Content, int SenderId, int RecipientId, DateTime SentAt);
 public record UserSummaryResponse(int Id, string Username);
+public record VoiceParticipant(int UserId, string Username);

@@ -127,28 +127,27 @@ public class VoiceService
 
         // Negotiated format applies to both directions since we're using the
         // same codec (PCMU) for send and receive.
+        SIPSorceryMedia.Abstractions.AudioFormat? negotiatedFormat = null;
         pc.OnAudioFormatsNegotiated += formats =>
         {
-            audioEndPoint.SetAudioSourceFormat(formats.First());
-            audioEndPoint.SetAudioSinkFormat(formats.First());
+            negotiatedFormat = formats.First();
+            audioEndPoint.SetAudioSourceFormat(negotiatedFormat.Value);
+            audioEndPoint.SetAudioSinkFormat(negotiatedFormat.Value);
         };
 
         // Mic -> outgoing RTP.
         audioEndPoint.OnAudioSourceEncodedSample += pc.SendAudio;
 
-        // Incoming RTP -> speaker.
+        // Incoming RTP -> speaker. GotAudioRtp is obsolete in this SIPSorceryMedia
+        // version in favor of GotEncodedMediaFrame, which takes the decoded RTP
+        // fields pre-packaged instead of the raw header.
         pc.OnRtpPacketReceived += (remoteEndPoint, mediaType, rtpPkt) =>
         {
-            if (mediaType == SDPMediaTypesEnum.audio)
+            if (mediaType == SDPMediaTypesEnum.audio && negotiatedFormat is not null)
             {
-                audioEndPoint.GotAudioRtp(
-                    remoteEndPoint,
-                    rtpPkt.Header.SyncSource,
-                    rtpPkt.Header.SequenceNumber,
-                    rtpPkt.Header.Timestamp,
-                    rtpPkt.Header.PayloadType,
-                    rtpPkt.Header.MarkerBit == 1,
-                    rtpPkt.Payload);
+                var frame = new SIPSorceryMedia.Abstractions.EncodedAudioFrame(
+                    0, negotiatedFormat.Value, rtpPkt.Header.Timestamp, rtpPkt.Payload);
+                audioEndPoint.GotEncodedMediaFrame(frame);
             }
         };
 

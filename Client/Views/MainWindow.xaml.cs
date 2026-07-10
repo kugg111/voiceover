@@ -17,6 +17,9 @@ public class ChannelListItem
 {
     public int Id { get; set; }
     public string DisplayName { get; set; } = string.Empty;
+
+    // Only populated/shown for voice channels - who's currently connected.
+    public ObservableCollection<string> Members { get; } = new();
 }
 
 public class MessageListItem
@@ -60,6 +63,8 @@ public partial class MainWindow : Window
 
         _hub.MessageReceived += OnMessageReceived;
         _hub.UserTyping += OnUserTyping;
+        _hub.VoiceUserJoined += OnVoiceUserJoined;
+        _hub.VoiceUserLeft += OnVoiceUserLeft;
         _hub.Reconnecting += () => Dispatcher.Invoke(() => ConnectionStatusText.Text = "Reconnecting...");
         _hub.Reconnected += OnReconnected;
         _hub.ConnectionClosed += () => Dispatcher.Invoke(() => ConnectionStatusText.Text = "Disconnected");
@@ -147,11 +152,22 @@ public partial class MainWindow : Window
         {
             await _hub.LeaveVoiceChannelAsync(_currentVoiceChannelId.Value);
             await _voice.LeaveAllAsync();
+            FindVoiceChannelItem(_currentVoiceChannelId.Value)?.Members.Clear();
         }
 
         _currentVoiceChannelId = channelId;
         _voice.SetActiveChannel(channelId);
-        await _hub.JoinVoiceChannelAsync(channelId);
+        var existingMembers = await _hub.JoinVoiceChannelAsync(channelId);
+
+        var item = FindVoiceChannelItem(channelId);
+        if (item is not null)
+        {
+            item.Members.Clear();
+            foreach (var m in existingMembers)
+                item.Members.Add(m.Username);
+            if (_api.CurrentUsername is not null)
+                item.Members.Add(_api.CurrentUsername);
+        }
 
         ConnectionStatusText.Text = "Joined voice";
     }
@@ -247,6 +263,7 @@ public partial class MainWindow : Window
 
         await _hub.LeaveVoiceChannelAsync(_currentVoiceChannelId.Value);
         await _voice.LeaveAllAsync();
+        FindVoiceChannelItem(_currentVoiceChannelId.Value)?.Members.Clear();
         _currentVoiceChannelId = null;
         ConnectionStatusText.Text = "";
     }
@@ -353,6 +370,7 @@ public partial class MainWindow : Window
         });
     }
 
+
     // SignalR's automatic reconnect gives us a fresh connection with no group
     // memberships, so whatever channel/voice channel the user had open needs
     // to be re-joined explicitly - otherwise messages/voice presence silently
@@ -366,6 +384,24 @@ public partial class MainWindow : Window
             await _hub.JoinVoiceChannelAsync(_currentVoiceChannelId.Value);
 
         Dispatcher.Invoke(() => ConnectionStatusText.Text = "");
+
+    private void OnVoiceUserJoined(int userId, string username, int channelId)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            var item = FindVoiceChannelItem(channelId);
+            if (item is not null && !item.Members.Contains(username))
+                item.Members.Add(username);
+        });
+    }
+
+    private void OnVoiceUserLeft(int userId, string username, int channelId)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            FindVoiceChannelItem(channelId)?.Members.Remove(username);
+        });
+
     }
 
     private static MessageListItem ToListItem(MessageResponse m) => new()
@@ -380,6 +416,12 @@ public partial class MainWindow : Window
     {
         foreach (var c in _textChannels) if (c.Id == channelId) return c.DisplayName;
         foreach (var c in _voiceChannels) if (c.Id == channelId) return c.DisplayName;
+        return null;
+    }
+
+    private ChannelListItem? FindVoiceChannelItem(int channelId)
+    {
+        foreach (var c in _voiceChannels) if (c.Id == channelId) return c;
         return null;
     }
 

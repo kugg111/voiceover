@@ -50,7 +50,7 @@ public class SignalRService
         => _connection!.InvokeAsync("SendMessage", channelId, content, attachmentUrl);
     public Task NotifyTypingAsync(int channelId) => _connection!.InvokeAsync("NotifyTyping", channelId);
     public Task SendDirectMessageAsync(int recipientId, string content) => _connection!.InvokeAsync("SendDirectMessage", recipientId, content);
-    public Task JoinVoiceChannelAsync(int channelId) => _connection!.InvokeAsync("JoinVoiceChannel", channelId);
+    public Task<List<VoiceParticipant>> JoinVoiceChannelAsync(int channelId) => _connection!.InvokeAsync<List<VoiceParticipant>>("JoinVoiceChannel", channelId);
     public Task LeaveVoiceChannelAsync(int channelId) => _connection!.InvokeAsync("LeaveVoiceChannel", channelId);
     public Task SendVoiceSignalAsync(int targetUserId, int channelId, string signalType, string payload)
         => _connection!.InvokeAsync("SendVoiceSignal", targetUserId, channelId, signalType, payload);
