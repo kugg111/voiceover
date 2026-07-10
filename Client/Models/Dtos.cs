@@ -5,6 +5,7 @@ public record GuildServerResponse(int Id, string Name, string? IconUrl, int Owne
 public record ChannelResponse(int Id, string Name, string Type, int GuildServerId, int Position);
 public record MessageResponse(int Id, string Content, int ChannelId, int AuthorId, string AuthorUsername, DateTime SentAt, string? AttachmentUrl = null);
 public record DirectMessageResponse(int Id, string Content, int SenderId, int RecipientId, DateTime SentAt);
+public record DmConversationResponse(int OtherUserId, string OtherUsername, string LastMessagePreview, DateTime LastMessageAt);
 public record UserSummaryResponse(int Id, string Username);
 public record InviteResponse(string Code, DateTime? ExpiresAt, int? MaxUses, int UseCount);
 public record MemberResponse(int UserId, string Username, string Role);

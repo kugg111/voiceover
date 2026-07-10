@@ -17,8 +17,42 @@ public class DirectMessagesController : ControllerBase
 
     private int CurrentUserId => int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
+    // GET /api/dm/conversations -> one row per person the current user has
+    // exchanged DMs with, most recent conversation first. Grouping is done
+    // in-memory after fetching (small scale, avoids fighting EF's SQL
+    // translation for "latest row per group").
+    [HttpGet("conversations")]
+    public async Task<ActionResult<List<DmConversationResponse>>> GetConversations()
+    {
+        var messages = await _db.DirectMessages
+            .Where(m => m.SenderId == CurrentUserId || m.RecipientId == CurrentUserId)
+            .OrderByDescending(m => m.SentAt)
+            .ToListAsync();
+
+        var latestPerOtherUser = messages
+            .GroupBy(m => m.SenderId == CurrentUserId ? m.RecipientId : m.SenderId)
+            .Select(g => new { OtherUserId = g.Key, Last = g.First() })
+            .ToList();
+
+        var otherUserIds = latestPerOtherUser.Select(c => c.OtherUserId).ToList();
+        var usernames = await _db.Users
+            .Where(u => otherUserIds.Contains(u.Id))
+            .ToDictionaryAsync(u => u.Id, u => u.Username);
+
+        var result = latestPerOtherUser
+            .Select(c => new DmConversationResponse(
+                c.OtherUserId,
+                usernames.GetValueOrDefault(c.OtherUserId, "Unknown"),
+                c.Last.Content,
+                c.Last.SentAt))
+            .OrderByDescending(c => c.LastMessageAt)
+            .ToList();
+
+        return Ok(result);
+    }
+
     // GET /api/dm/5  -> history between the current user and user 5, oldest first
-    [HttpGet("{otherUserId}")]
+    [HttpGet("{otherUserId:int}")]
     public async Task<ActionResult<List<DirectMessageResponse>>> GetHistory(int otherUserId, int take = 50)
     {
         var messages = await _db.DirectMessages

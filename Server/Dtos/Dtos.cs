@@ -15,5 +15,6 @@ public record MessageResponse(int Id, string Content, int ChannelId, int AuthorI
 public record UploadResponse(string Url);
 
 public record DirectMessageResponse(int Id, string Content, int SenderId, int RecipientId, DateTime SentAt);
+public record DmConversationResponse(int OtherUserId, string OtherUsername, string LastMessagePreview, DateTime LastMessageAt);
 public record UserSummaryResponse(int Id, string Username);
 public record VoiceParticipant(int UserId, string Username);

@@ -116,6 +116,9 @@ public class ApiService
     public async Task<List<DirectMessageResponse>> GetDmHistoryAsync(int otherUserId)
         => await _http.GetFromJsonAsync<List<DirectMessageResponse>>($"api/dm/{otherUserId}") ?? new();
 
+    public async Task<List<DmConversationResponse>> GetDmConversationsAsync()
+        => await _http.GetFromJsonAsync<List<DmConversationResponse>>("api/dm/conversations") ?? new();
+
     // --- File upload ---
     public async Task<UploadResponse?> UploadFileAsync(string filePath)
     {

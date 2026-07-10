@@ -32,9 +32,10 @@
                 <Button DockPanel.Dock="Bottom" Content="+" FontSize="20" Height="48" Width="48"
                         Margin="12,4,12,4" Background="{StaticResource BgSidebar}" Foreground="LightGreen"
                         BorderThickness="0" Click="AddServerButton_Click" ToolTip="Create or join a server"/>
-                <Button DockPanel.Dock="Bottom" Content="DM" FontSize="12" Height="40" Width="48"
-                        Margin="12,4,12,0" Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
-                        BorderThickness="0" Click="DirectMessagesButton_Click" ToolTip="Direct Messages"/>
+                <Button DockPanel.Dock="Top" x:Name="MessagesButton" Content="💬" FontSize="18" Height="48" Width="48"
+                        Margin="12,12,12,8" Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
+                        BorderThickness="0" Click="MessagesButton_Click" ToolTip="Messages"/>
+                <Border DockPanel.Dock="Top" Height="1" Background="{StaticResource BgSidebar}" Margin="16,0,16,8"/>
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <ItemsControl x:Name="ServerList">
                         <ItemsControl.ItemTemplate>
@@ -52,7 +53,7 @@
         </Border>
 
         <!-- CHANNEL SIDEBAR -->
-        <Border Grid.Column="1" Background="{StaticResource BgSidebar}">
+        <Border x:Name="ServerSidebarPanel" Grid.Column="1" Background="{StaticResource BgSidebar}">
             <DockPanel>
                 <TextBlock DockPanel.Dock="Top" x:Name="ServerNameText" Text="Select a server"
                            FontWeight="Bold" FontSize="15" Foreground="{StaticResource TextNormal}"
@@ -132,6 +133,47 @@
             </DockPanel>
         </Border>
 
+        <!-- MESSAGES SIDEBAR (conversation list) -->
+        <Border x:Name="MessagesSidebarPanel" Grid.Column="1" Background="{StaticResource BgSidebar}" Visibility="Collapsed">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="Direct Messages"
+                           FontWeight="Bold" FontSize="15" Foreground="{StaticResource TextNormal}"
+                           Padding="14,14,0,10"/>
+                <TextBox DockPanel.Dock="Top" x:Name="DmSearchBox" Height="34" Margin="10,0,10,8" Padding="8,6"
+                         Background="{StaticResource BgDarker}" Foreground="{StaticResource TextNormal}"
+                         BorderThickness="0" TextChanged="DmSearchBox_TextChanged"/>
+                <ItemsControl DockPanel.Dock="Top" x:Name="DmSearchResultsList">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Button Content="{Binding Username}" Tag="{Binding Id}" Click="DmSearchResult_Click"
+                                    HorizontalContentAlignment="Left" Background="Transparent"
+                                    Foreground="{StaticResource TextNormal}" BorderThickness="0" Padding="14,8"/>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <ScrollViewer>
+                    <ItemsControl x:Name="DmConversationList">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Button Click="DmConversation_Click" Tag="{Binding OtherUserId}"
+                                        HorizontalContentAlignment="Stretch" Background="Transparent"
+                                        BorderThickness="0" Padding="14,8">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding OtherUsername}" FontWeight="Bold"
+                                                   Foreground="{StaticResource TextNormal}"/>
+                                        <TextBlock Text="{Binding PreviewDisplay}" FontSize="11"
+                                                   Foreground="{StaticResource TextMuted}"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                    </StackPanel>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
+
         <!-- MESSAGE AREA -->
         <Grid Grid.Column="2" Background="{StaticResource BgDark}">
             <Grid.RowDefinitions>
@@ -144,9 +186,9 @@
                 <DockPanel>
                     <TextBlock x:Name="ConnectionStatusText" DockPanel.Dock="Right" Text=""
                                Foreground="#F0B232" FontSize="12" VerticalAlignment="Center" Margin="0,0,12,0"/>
-                    <Button DockPanel.Dock="Right" Content="Voice Settings" Click="VoiceSettingsButton_Click"
+                    <Button DockPanel.Dock="Right" x:Name="VoiceSettingsNavButton" Content="Voice Settings" Click="VoiceSettingsButton_Click"
                             Background="Transparent" Foreground="{StaticResource TextMuted}" BorderThickness="0" Margin="0,0,8,0"/>
-                    <Button DockPanel.Dock="Right" Content="Members" Click="MembersButton_Click"
+                    <Button DockPanel.Dock="Right" x:Name="MembersNavButton" Content="Members" Click="MembersButton_Click"
                             Background="Transparent" Foreground="{StaticResource TextMuted}" BorderThickness="0" Margin="0,0,8,0"/>
                     <TextBlock x:Name="ChannelNameText" Text="# select-a-channel"
                                Foreground="{StaticResource TextNormal}" FontWeight="Bold"
