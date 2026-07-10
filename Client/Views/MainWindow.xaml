@@ -33,8 +33,11 @@
                         Margin="12,4,12,4" Background="{StaticResource BgSidebar}" Foreground="LightGreen"
                         BorderThickness="0" Click="AddServerButton_Click" ToolTip="Create or join a server"/>
                 <Button DockPanel.Dock="Top" x:Name="MessagesButton" Content="💬" FontSize="18" Height="48" Width="48"
-                        Margin="12,12,12,8" Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
+                        Margin="12,12,12,4" Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
                         BorderThickness="0" Click="MessagesButton_Click" ToolTip="Messages"/>
+                <Button DockPanel.Dock="Top" x:Name="FriendsButton" Content="👥" FontSize="18" Height="48" Width="48"
+                        Margin="12,0,12,8" Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
+                        BorderThickness="0" Click="FriendsButton_Click" ToolTip="Friends"/>
                 <Border DockPanel.Dock="Top" Height="1" Background="{StaticResource BgSidebar}" Margin="16,0,16,8"/>
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <ItemsControl x:Name="ServerList">
@@ -44,7 +47,14 @@
                                         Background="{StaticResource BgSidebar}"
                                         Foreground="{StaticResource TextNormal}"
                                         BorderThickness="0" Content="{Binding Initial}"
-                                        Click="ServerButton_Click" Tag="{Binding Id}"/>
+                                        Click="ServerButton_Click" Tag="{Binding Id}">
+                                    <Button.ContextMenu>
+                                        <ContextMenu>
+                                            <MenuItem Header="Add Channel" Tag="{Binding Id}" Click="AddChannelMenuItem_Click"/>
+                                            <MenuItem Header="Leave Server" Tag="{Binding Id}" Click="LeaveServerMenuItem_Click"/>
+                                        </ContextMenu>
+                                    </Button.ContextMenu>
+                                </Button>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
@@ -62,10 +72,6 @@
                         Background="Transparent" Foreground="#F23F42"
                         BorderThickness="0" HorizontalContentAlignment="Left" Visibility="Collapsed"
                         Click="LeaveVoiceButton_Click"/>
-                <Button DockPanel.Dock="Bottom" Content="+ Add Channel" Margin="10,10,10,0"
-                        Background="Transparent" Foreground="{StaticResource TextMuted}"
-                        BorderThickness="0" HorizontalContentAlignment="Left"
-                        Click="AddChannelButton_Click"/>
 
                 <StackPanel DockPanel.Dock="Top">
                     <TextBlock Text="TEXT CHANNELS" FontSize="11" FontWeight="Bold"
@@ -170,6 +176,77 @@
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
+
+        <!-- FRIENDS SIDEBAR -->
+        <Border x:Name="FriendsSidebarPanel" Grid.Column="1" Background="{StaticResource BgSidebar}" Visibility="Collapsed">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="Friends"
+                           FontWeight="Bold" FontSize="15" Foreground="{StaticResource TextNormal}"
+                           Padding="14,14,0,10"/>
+                <TextBox DockPanel.Dock="Top" x:Name="FriendSearchBox" Height="34" Margin="10,0,10,8" Padding="8,6"
+                         Background="{StaticResource BgDarker}" Foreground="{StaticResource TextNormal}"
+                         BorderThickness="0" TextChanged="FriendSearchBox_TextChanged"/>
+                <ItemsControl DockPanel.Dock="Top" x:Name="FriendSearchResultsList" Margin="0,0,0,4">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="{Binding Username}" Foreground="{StaticResource TextNormal}"
+                                           VerticalAlignment="Center" Padding="14,8"/>
+                                <Button Grid.Column="1" Content="Add" Tag="{Binding Id}" Click="AddFriendButton_Click"
+                                        Background="{StaticResource AccentBlurple}" Foreground="White"
+                                        BorderThickness="0" Padding="8,2" Margin="0,0,10,0"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <ScrollViewer>
+                    <StackPanel>
+                        <TextBlock Text="PENDING REQUESTS" FontSize="11" FontWeight="Bold"
+                                   Foreground="{StaticResource TextMuted}" Margin="14,10,0,4"/>
+                        <ItemsControl x:Name="FriendRequestList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,2,0,2">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{Binding Username}" Foreground="{StaticResource TextNormal}"
+                                                   VerticalAlignment="Center" Padding="14,6"/>
+                                        <Button Grid.Column="1" Content="Accept" Tag="{Binding Id}"
+                                                Click="FriendRequestAcceptButton_Click" Visibility="{Binding AcceptButtonVisibility}"
+                                                Background="{StaticResource AccentBlurple}" Foreground="White"
+                                                BorderThickness="0" Padding="8,2" Margin="0,0,4,0"/>
+                                        <Button Grid.Column="2" Content="{Binding SecondaryActionLabel}" Tag="{Binding Id}"
+                                                Click="FriendRequestRemoveButton_Click"
+                                                Background="{StaticResource BgDarker}" Foreground="{StaticResource TextMuted}"
+                                                BorderThickness="0" Padding="8,2" Margin="0,0,10,0"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <TextBlock Text="ALL FRIENDS" FontSize="11" FontWeight="Bold"
+                                   Foreground="{StaticResource TextMuted}" Margin="14,14,0,4"/>
+                        <ItemsControl x:Name="FriendList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Button Content="{Binding Username}" Tag="{Binding UserId}" Click="FriendListItem_Click"
+                                            HorizontalContentAlignment="Left" Background="Transparent"
+                                            Foreground="{StaticResource TextNormal}" BorderThickness="0" Padding="14,8"/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
                 </ScrollViewer>
             </DockPanel>
         </Border>

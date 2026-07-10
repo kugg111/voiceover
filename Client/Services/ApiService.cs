@@ -53,6 +53,13 @@ public class ApiService
     public async Task<List<GuildServerResponse>> GetMyServersAsync()
         => await _http.GetFromJsonAsync<List<GuildServerResponse>>("api/servers") ?? new();
 
+    public async Task<(bool Success, string? Error)> LeaveServerAsync(int serverId)
+    {
+        var response = await _http.DeleteAsync($"api/servers/{serverId}/leave");
+        if (response.IsSuccessStatusCode) return (true, null);
+        return (false, await response.Content.ReadAsStringAsync());
+    }
+
     public async Task<GuildServerResponse?> CreateServerAsync(string name)
     {
         var response = await _http.PostAsJsonAsync("api/servers", new { Name = name });
@@ -118,6 +125,26 @@ public class ApiService
 
     public async Task<List<DmConversationResponse>> GetDmConversationsAsync()
         => await _http.GetFromJsonAsync<List<DmConversationResponse>>("api/dm/conversations") ?? new();
+
+    // --- Friends ---
+    public async Task<List<FriendResponse>> GetFriendsAsync()
+        => await _http.GetFromJsonAsync<List<FriendResponse>>("api/friends") ?? new();
+
+    public async Task<List<FriendRequestResponse>> GetFriendRequestsAsync()
+        => await _http.GetFromJsonAsync<List<FriendRequestResponse>>("api/friends/requests") ?? new();
+
+    public async Task<(bool Success, string? Error)> SendFriendRequestAsync(int userId)
+    {
+        var response = await _http.PostAsync($"api/friends/request/{userId}", null);
+        if (response.IsSuccessStatusCode) return (true, null);
+        return (false, await response.Content.ReadAsStringAsync());
+    }
+
+    public async Task<bool> AcceptFriendRequestAsync(int friendshipId)
+        => (await _http.PostAsync($"api/friends/{friendshipId}/accept", null)).IsSuccessStatusCode;
+
+    public async Task<bool> RemoveFriendshipAsync(int friendshipId)
+        => (await _http.DeleteAsync($"api/friends/{friendshipId}")).IsSuccessStatusCode;
 
     // --- File upload ---
     public async Task<UploadResponse?> UploadFileAsync(string filePath)

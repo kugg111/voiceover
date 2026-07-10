@@ -93,6 +93,21 @@ public class ServersController : ControllerBase
         return Ok(members);
     }
 
+    // Self-removal, distinct from KickMember below (which targets someone
+    // else and requires manage permission). Owners can't leave since there's
+    // no ownership-transfer mechanism - they'd have to delete the server.
+    [HttpDelete("{serverId}/leave")]
+    public async Task<ActionResult> Leave(int serverId)
+    {
+        var membership = await _db.Memberships.FirstOrDefaultAsync(m => m.UserId == CurrentUserId && m.GuildServerId == serverId);
+        if (membership is null) return NotFound();
+        if (membership.Role == MemberRole.Owner) return BadRequest("Owners can't leave their own server.");
+
+        _db.Memberships.Remove(membership);
+        await _db.SaveChangesAsync();
+        return Ok();
+    }
+
     [HttpDelete("{serverId}/members/{userId}")]
     public async Task<ActionResult> KickMember(int serverId, int userId)
     {

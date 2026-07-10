@@ -11,3 +11,5 @@ public record InviteResponse(string Code, DateTime? ExpiresAt, int? MaxUses, int
 public record MemberResponse(int UserId, string Username, string Role);
 public record UploadResponse(string Url);
 public record VoiceParticipant(int UserId, string Username);
+public record FriendResponse(int UserId, string Username);
+public record FriendRequestResponse(int Id, int UserId, string Username, string Direction);
