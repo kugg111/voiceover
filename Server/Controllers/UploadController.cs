@@ -14,7 +14,7 @@ public class UploadController : ControllerBase
         ".png", ".jpg", ".jpeg", ".gif", ".webp", ".pdf", ".txt", ".zip"
     };
 
-    private const long MaxFileSizeBytes = 15 * 1024 * 1024; // 15 MB
+    private const long MaxFileSizeBytes = 8 * 1024 * 1024; // 8 MB
 
     private readonly UploadsPathOptions _uploadsPath;
     public UploadController(UploadsPathOptions uploadsPath) => _uploadsPath = uploadsPath;
@@ -24,7 +24,7 @@ public class UploadController : ControllerBase
     public async Task<ActionResult<UploadResponse>> Upload(IFormFile file)
     {
         if (file.Length == 0) return BadRequest("Empty file.");
-        if (file.Length > MaxFileSizeBytes) return BadRequest("File too large (15 MB max).");
+        if (file.Length > MaxFileSizeBytes) return BadRequest("File too large (8 MB max).");
 
         var ext = Path.GetExtension(file.FileName);
         if (!AllowedExtensions.Contains(ext)) return BadRequest("File type not allowed.");

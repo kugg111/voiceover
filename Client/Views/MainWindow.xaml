@@ -2,6 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+        xmlns:local="clr-namespace:Voiceover.Client.Views"
         Title="Voiceover" Height="700" Width="1100"
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource BgDark}"
@@ -34,6 +35,9 @@
                 <Button DockPanel.Dock="Bottom" Content="⎋" FontSize="18" Height="32" Width="48"
                         Margin="12,0,12,12" Background="Transparent" Foreground="{StaticResource TextMuted}"
                         BorderThickness="0" Click="LogOutButton_Click" ToolTip="Log out"/>
+                <Border DockPanel.Dock="Bottom" Height="48" Width="48" Margin="12,0,12,4">
+                    <local:AvatarView x:Name="MyAvatarView" Size="44"/>
+                </Border>
                 <Button DockPanel.Dock="Bottom" Content="+" FontSize="20" Height="48" Width="48"
                         Margin="12,4,12,4" Background="{StaticResource BgSidebar}" Foreground="LightGreen"
                         BorderThickness="0" Click="AddServerButton_Click" ToolTip="Create or join a server"/>
@@ -53,11 +57,11 @@
                     <ItemsControl x:Name="ServerList">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Button Height="48" Width="48" Margin="12,8,12,0"
-                                        Background="{StaticResource BgSidebar}"
-                                        Foreground="{StaticResource TextNormal}"
-                                        BorderThickness="0" Content="{Binding Initial}"
+                                <Button Height="48" Width="48" Margin="12,8,12,0" Padding="0"
+                                        Background="Transparent"
+                                        BorderThickness="0"
                                         Click="ServerButton_Click" Tag="{Binding Id}">
+                                    <local:AvatarView Size="48" DisplayName="{Binding Name}" ImageUrl="{Binding IconUrl}"/>
                                     <Button.ContextMenu>
                                         <ContextMenu>
                                             <MenuItem Header="Add Channel" Tag="{Binding Id}" Click="AddChannelMenuItem_Click"/>
@@ -144,6 +148,7 @@
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
                                                 <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
+                                                    <local:AvatarView Size="16" DisplayName="{Binding Username}" ImageUrl="{Binding AvatarUrl}" Margin="0,0,4,0"/>
                                                     <TextBlock Text="🔇" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0"
                                                                Visibility="{Binding MutedIconVisibility}" ToolTip="Muted"/>
                                                     <TextBlock Text="🎧" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0"
@@ -192,9 +197,14 @@
                 <ItemsControl DockPanel.Dock="Top" x:Name="DmSearchResultsList">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Button Content="{Binding Username}" Tag="{Binding Id}" Click="DmSearchResult_Click"
+                            <Button Tag="{Binding Id}" Click="DmSearchResult_Click"
                                     HorizontalContentAlignment="Left" Background="Transparent"
-                                    Foreground="{StaticResource TextNormal}" BorderThickness="0" Padding="14,8"/>
+                                    Foreground="{StaticResource TextNormal}" BorderThickness="0" Padding="14,8">
+                                <StackPanel Orientation="Horizontal">
+                                    <local:AvatarView Size="24" DisplayName="{Binding Username}" ImageUrl="{Binding AvatarUrl}" Margin="0,0,8,0"/>
+                                    <TextBlock Text="{Binding Username}" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
@@ -208,17 +218,20 @@
                                         BorderThickness="0" Padding="14,8">
                                     <Grid>
                                         <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
-                                        <StackPanel Grid.Column="0">
+                                        <local:AvatarView Grid.Column="0" Size="32" DisplayName="{Binding OtherUsername}"
+                                                           ImageUrl="{Binding OtherUserAvatarUrl}" Margin="0,0,8,0"/>
+                                        <StackPanel Grid.Column="1">
                                             <TextBlock Text="{Binding OtherUsername}" FontWeight="Bold"
                                                        Foreground="{StaticResource TextNormal}"/>
                                             <TextBlock Text="{Binding PreviewDisplay}" FontSize="11"
                                                        Foreground="{StaticResource TextMuted}"
                                                        TextTrimming="CharacterEllipsis"/>
                                         </StackPanel>
-                                        <Ellipse Grid.Column="1" Width="8" Height="8" VerticalAlignment="Center" Margin="8,0,0,0"
+                                        <Ellipse Grid.Column="2" Width="8" Height="8" VerticalAlignment="Center" Margin="8,0,0,0"
                                                  Fill="{StaticResource AccentBlurple}" Visibility="{Binding UnreadDotVisibility}"/>
                                     </Grid>
                                 </Button>
@@ -243,12 +256,15 @@
                         <DataTemplate>
                             <Grid>
                                 <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Text="{Binding Username}" Foreground="{StaticResource TextNormal}"
-                                           VerticalAlignment="Center" Padding="14,8"/>
-                                <Button Grid.Column="1" Content="Add" Tag="{Binding Id}" Click="AddFriendButton_Click"
+                                <local:AvatarView Grid.Column="0" Size="24" DisplayName="{Binding Username}"
+                                                   ImageUrl="{Binding AvatarUrl}" Margin="14,0,8,0"/>
+                                <TextBlock Grid.Column="1" Text="{Binding Username}" Foreground="{StaticResource TextNormal}"
+                                           VerticalAlignment="Center" Padding="0,8"/>
+                                <Button Grid.Column="2" Content="Add" Tag="{Binding Id}" Click="AddFriendButton_Click"
                                         Background="{StaticResource AccentBlurple}" Foreground="White"
                                         BorderThickness="0" Padding="8,2" Margin="0,0,10,0"/>
                             </Grid>
@@ -265,17 +281,20 @@
                                 <DataTemplate>
                                     <Grid Margin="0,2,0,2">
                                         <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="Auto"/>
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Text="{Binding Username}" Foreground="{StaticResource TextNormal}"
-                                                   VerticalAlignment="Center" Padding="14,6"/>
-                                        <Button Grid.Column="1" Content="Accept" Tag="{Binding Id}"
+                                        <local:AvatarView Grid.Column="0" Size="24" DisplayName="{Binding Username}"
+                                                           ImageUrl="{Binding AvatarUrl}" Margin="14,0,8,0"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Username}" Foreground="{StaticResource TextNormal}"
+                                                   VerticalAlignment="Center" Padding="0,6"/>
+                                        <Button Grid.Column="2" Content="Accept" Tag="{Binding Id}"
                                                 Click="FriendRequestAcceptButton_Click" Visibility="{Binding AcceptButtonVisibility}"
                                                 Background="{StaticResource AccentBlurple}" Foreground="White"
                                                 BorderThickness="0" Padding="8,2" Margin="0,0,4,0"/>
-                                        <Button Grid.Column="2" Content="{Binding SecondaryActionLabel}" Tag="{Binding Id}"
+                                        <Button Grid.Column="3" Content="{Binding SecondaryActionLabel}" Tag="{Binding Id}"
                                                 Click="FriendRequestRemoveButton_Click"
                                                 Background="{StaticResource BgDarker}" Foreground="{StaticResource TextMuted}"
                                                 BorderThickness="0" Padding="8,2" Margin="0,0,10,0"/>
@@ -289,9 +308,14 @@
                         <ItemsControl x:Name="FriendList">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Button Content="{Binding Username}" Tag="{Binding UserId}" Click="FriendListItem_Click"
+                                    <Button Tag="{Binding UserId}" Click="FriendListItem_Click"
                                             HorizontalContentAlignment="Left" Background="Transparent"
-                                            Foreground="{StaticResource TextNormal}" BorderThickness="0" Padding="14,8"/>
+                                            Foreground="{StaticResource TextNormal}" BorderThickness="0" Padding="14,8">
+                                        <StackPanel Orientation="Horizontal">
+                                            <local:AvatarView Size="24" DisplayName="{Binding Username}" ImageUrl="{Binding AvatarUrl}" Margin="0,0,8,0"/>
+                                            <TextBlock Text="{Binding Username}" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
@@ -326,21 +350,29 @@
                 <ItemsControl x:Name="MessageList">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <StackPanel Margin="0,6,0,6">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="{Binding AuthorUsername}" FontWeight="Bold"
-                                               Foreground="{StaticResource AccentBlurple}" Margin="0,0,8,0"/>
-                                    <TextBlock Text="{Binding TimeDisplay}" FontSize="11"
-                                               Foreground="{StaticResource TextMuted}" VerticalAlignment="Center"/>
+                            <Grid Margin="0,6,0,6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <local:AvatarView Grid.Column="0" Size="36" DisplayName="{Binding AuthorUsername}"
+                                                   ImageUrl="{Binding AuthorAvatarUrl}" Margin="0,2,10,0" VerticalAlignment="Top"/>
+                                <StackPanel Grid.Column="1">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="{Binding AuthorUsername}" FontWeight="Bold"
+                                                   Foreground="{StaticResource AccentBlurple}" Margin="0,0,8,0"/>
+                                        <TextBlock Text="{Binding TimeDisplay}" FontSize="11"
+                                                   Foreground="{StaticResource TextMuted}" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <TextBlock Text="{Binding Content}" Foreground="{StaticResource TextNormal}"
+                                               TextWrapping="Wrap" Visibility="{Binding ContentVisibility}"/>
+                                    <TextBlock Text="{Binding AttachmentDisplay}" Foreground="{StaticResource AccentBlurple}"
+                                               TextDecorations="Underline" Cursor="Hand"
+                                               Visibility="{Binding AttachmentVisibility}"
+                                               MouseLeftButtonUp="AttachmentLink_MouseLeftButtonUp"
+                                               Tag="{Binding AttachmentUrl}"/>
                                 </StackPanel>
-                                <TextBlock Text="{Binding Content}" Foreground="{StaticResource TextNormal}"
-                                           TextWrapping="Wrap" Visibility="{Binding ContentVisibility}"/>
-                                <TextBlock Text="{Binding AttachmentDisplay}" Foreground="{StaticResource AccentBlurple}"
-                                           TextDecorations="Underline" Cursor="Hand"
-                                           Visibility="{Binding AttachmentVisibility}"
-                                           MouseLeftButtonUp="AttachmentLink_MouseLeftButtonUp"
-                                           Tag="{Binding AttachmentUrl}"/>
-                            </StackPanel>
+                            </Grid>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>

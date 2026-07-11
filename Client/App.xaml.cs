@@ -15,6 +15,13 @@ public partial class App : Application
     // public const string ApiBaseUrl = "http://localhost:5220/";
     // public const string HubUrl = "http://localhost:5220/hubs/chat";
 
+    // Avatar/icon/attachment URLs come back from the server as relative
+    // paths ("/uploads/xxx.png") - same resolution AttachmentLink already
+    // did inline before this existed, centralized here since avatars need
+    // it in a lot more places.
+    public static string? ResolveUploadUrl(string? relativeOrNull) =>
+        string.IsNullOrEmpty(relativeOrNull) ? null : ApiBaseUrl.TrimEnd('/') + relativeOrNull;
+
     public App()
     {
         // Most event handlers in this app are `async void` (WPF's Click/etc. signatures
@@ -33,7 +40,7 @@ public partial class App : Application
         if (session is not null)
         {
             var api = new ApiService(ApiBaseUrl);
-            api.RestoreSession(session.Token, session.UserId, session.Username);
+            api.RestoreSession(session.Token, session.UserId, session.Username, session.AvatarUrl);
             new MainWindow(api).Show();
         }
         else

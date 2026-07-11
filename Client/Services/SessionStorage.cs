@@ -5,7 +5,7 @@ using System.Text.Json;
 
 namespace Voiceover.Client.Services;
 
-public record SavedSession(string Token, int UserId, string Username, DateTime ExpiresAtUtc);
+public record SavedSession(string Token, int UserId, string Username, DateTime ExpiresAtUtc, string? AvatarUrl = null);
 
 // Persists a "remember me" session to disk, encrypted with DPAPI so the file
 // is unreadable outside this Windows account. Tradeoff worth noting: this is
@@ -18,9 +18,9 @@ public static class SessionStorage
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "Voiceover", "session.dat");
 
-    public static void Save(string token, int userId, string username, DateTime expiresAtUtc)
+    public static void Save(string token, int userId, string username, DateTime expiresAtUtc, string? avatarUrl = null)
     {
-        var json = JsonSerializer.Serialize(new SavedSession(token, userId, username, expiresAtUtc));
+        var json = JsonSerializer.Serialize(new SavedSession(token, userId, username, expiresAtUtc, avatarUrl));
         var plainBytes = Encoding.UTF8.GetBytes(json);
         var protectedBytes = ProtectedData.Protect(plainBytes, optionalEntropy: null, DataProtectionScope.CurrentUser);
 

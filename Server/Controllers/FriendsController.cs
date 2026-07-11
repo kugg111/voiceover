@@ -39,12 +39,16 @@ public class FriendsController : ControllerBase
             .Select(f => f.RequesterId == CurrentUserId ? f.AddresseeId : f.RequesterId)
             .ToList();
 
-        var usernames = await _db.Users
+        var userInfo = await _db.Users
             .Where(u => otherUserIds.Contains(u.Id))
-            .ToDictionaryAsync(u => u.Id, u => u.Username);
+            .ToDictionaryAsync(u => u.Id, u => new { u.Username, u.AvatarUrl });
 
         var result = otherUserIds
-            .Select(id => new FriendResponse(id, usernames.GetValueOrDefault(id, "Unknown")))
+            .Select(id =>
+            {
+                var info = userInfo.GetValueOrDefault(id);
+                return new FriendResponse(id, info?.Username ?? "Unknown", info?.AvatarUrl);
+            })
             .ToList();
 
         return Ok(result);
@@ -63,16 +67,17 @@ public class FriendsController : ControllerBase
             .Select(f => f.RequesterId == CurrentUserId ? f.AddresseeId : f.RequesterId)
             .ToList();
 
-        var usernames = await _db.Users
+        var userInfo = await _db.Users
             .Where(u => otherUserIds.Contains(u.Id))
-            .ToDictionaryAsync(u => u.Id, u => u.Username);
+            .ToDictionaryAsync(u => u.Id, u => new { u.Username, u.AvatarUrl });
 
         var result = pending
             .Select(f =>
             {
                 var otherUserId = f.RequesterId == CurrentUserId ? f.AddresseeId : f.RequesterId;
                 var direction = f.RequesterId == CurrentUserId ? "Outgoing" : "Incoming";
-                return new FriendRequestResponse(f.Id, otherUserId, usernames.GetValueOrDefault(otherUserId, "Unknown"), direction);
+                var info = userInfo.GetValueOrDefault(otherUserId);
+                return new FriendRequestResponse(f.Id, otherUserId, info?.Username ?? "Unknown", direction, info?.AvatarUrl);
             })
             .ToList();
 

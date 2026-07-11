@@ -39,7 +39,7 @@ public class AuthController : ControllerBase
         await _db.SaveChangesAsync();
 
         var token = _jwt.CreateToken(user.Id, user.Username);
-        return Ok(new AuthResponse(token, user.Id, user.Username));
+        return Ok(new AuthResponse(token, user.Id, user.Username, user.AvatarUrl));
     }
 
     [HttpPost("login")]
@@ -50,6 +50,6 @@ public class AuthController : ControllerBase
             return Unauthorized("Invalid username or password.");
 
         var token = _jwt.CreateToken(user.Id, user.Username);
-        return Ok(new AuthResponse(token, user.Id, user.Username));
+        return Ok(new AuthResponse(token, user.Id, user.Username, user.AvatarUrl));
     }
 }

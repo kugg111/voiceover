@@ -3,6 +3,7 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Voiceover.Client.Models;
+using Voiceover.Client;
 
 namespace Voiceover.Client.Services;
 
@@ -13,6 +14,7 @@ public class ApiService
     public string? Token { get; private set; }
     public int? CurrentUserId { get; private set; }
     public string? CurrentUsername { get; private set; }
+    public string? CurrentUserAvatarUrl { get; set; }
 
     public ApiService(string baseUrl)
     {
@@ -36,17 +38,22 @@ public class ApiService
         Token = auth.Token;
         CurrentUserId = auth.UserId;
         CurrentUsername = auth.Username;
+        CurrentUserAvatarUrl = App.ResolveUploadUrl(auth.AvatarUrl);
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token);
         return true;
     }
 
     // Reconstitutes an authenticated session from a previously-saved token
     // (see SessionStorage), without a fresh login/register round-trip.
-    public void RestoreSession(string token, int userId, string username)
+    // avatarUrl here is already a fully-resolved URL (SessionStorage just
+    // round-trips whatever AuthenticateAsync last put in
+    // CurrentUserAvatarUrl) - unlike everywhere else, don't resolve it again.
+    public void RestoreSession(string token, int userId, string username, string? avatarUrl = null)
     {
         Token = token;
         CurrentUserId = userId;
         CurrentUsername = username;
+        CurrentUserAvatarUrl = avatarUrl;
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token);
     }
 
@@ -63,6 +70,16 @@ public class ApiService
     public async Task<GuildServerResponse?> CreateServerAsync(string name)
     {
         var response = await _http.PostAsJsonAsync("api/servers", new { Name = name });
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<GuildServerResponse>()
+            : null;
+    }
+
+    // Owner-only server-side (see ServersController.SetIcon) - url is a
+    // relative /uploads/... path already returned by UploadFileAsync.
+    public async Task<GuildServerResponse?> SetServerIconAsync(int serverId, string url)
+    {
+        var response = await _http.PutAsJsonAsync($"api/servers/{serverId}/icon", new SetIconRequest(url));
         return response.IsSuccessStatusCode
             ? await response.Content.ReadFromJsonAsync<GuildServerResponse>()
             : null;
@@ -146,15 +163,30 @@ public class ApiService
     public async Task<bool> RemoveFriendshipAsync(int friendshipId)
         => (await _http.DeleteAsync($"api/friends/{friendshipId}")).IsSuccessStatusCode;
 
+    // url is a relative /uploads/... path already returned by UploadFileAsync.
+    public async Task<bool> SetMyAvatarAsync(string url)
+        => (await _http.PutAsJsonAsync("api/users/me/avatar", new SetAvatarRequest(url))).IsSuccessStatusCode;
+
     // --- File upload ---
-    public async Task<UploadResponse?> UploadFileAsync(string filePath)
+    private const long MaxUploadSizeBytes = 8 * 1024 * 1024; // matches UploadController server-side
+
+    public async Task<(UploadResponse? Result, string? Error)> UploadFileAsync(string filePath)
     {
+        // Fails fast client-side instead of uploading a doomed multi-MB
+        // request only to have the server reject it with the same limit.
+        if (new FileInfo(filePath).Length > MaxUploadSizeBytes)
+            return (null, "File too large (8 MB max).");
+
         await using var stream = File.OpenRead(filePath);
         using var content = new MultipartFormDataContent();
         using var fileContent = new StreamContent(stream);
         content.Add(fileContent, "file", Path.GetFileName(filePath));
 
         var response = await _http.PostAsync("api/upload", content);
-        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<UploadResponse>() : null;
+        if (response.IsSuccessStatusCode)
+            return (await response.Content.ReadFromJsonAsync<UploadResponse>(), null);
+
+        var error = (await response.Content.ReadAsStringAsync()).Trim('"');
+        return (null, string.IsNullOrWhiteSpace(error) ? "Upload failed." : error);
     }
 }

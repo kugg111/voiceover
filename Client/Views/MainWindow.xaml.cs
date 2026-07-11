@@ -16,13 +16,15 @@ namespace Voiceover.Client.Views;
 public class ServerListItem
 {
     public int Id { get; set; }
-    public string Initial { get; set; } = "?";
+    public string Name { get; set; } = string.Empty;
+    public string? IconUrl { get; set; }
 }
 
 public class VoiceMemberItem : INotifyPropertyChanged
 {
     public int UserId { get; set; }
     public string Username { get; set; } = string.Empty;
+    public string? AvatarUrl { get; set; }
 
     // A volume slider only makes sense for someone else's audio, not your
     // own - set once at construction (see everywhere Members.Add happens).
@@ -111,6 +113,7 @@ public class ChannelListItem : INotifyPropertyChanged
 public class MessageListItem
 {
     public string AuthorUsername { get; set; } = string.Empty;
+    public string? AuthorAvatarUrl { get; set; }
     public string Content { get; set; } = string.Empty;
     public string TimeDisplay { get; set; } = string.Empty;
     public string? AttachmentUrl { get; set; }
@@ -124,12 +127,14 @@ public class UserSearchResultItem
 {
     public int Id { get; set; }
     public string Username { get; set; } = string.Empty;
+    public string? AvatarUrl { get; set; }
 }
 
 public class DmConversationListItem : INotifyPropertyChanged
 {
     public int OtherUserId { get; set; }
     public string OtherUsername { get; set; } = string.Empty;
+    public string? OtherUserAvatarUrl { get; set; }
     public string LastMessagePreview { get; set; } = string.Empty;
     public DateTime LastMessageAt { get; set; }
 
@@ -157,6 +162,7 @@ public class FriendListItem
 {
     public int UserId { get; set; }
     public string Username { get; set; } = string.Empty;
+    public string? AvatarUrl { get; set; }
 }
 
 public class FriendRequestListItem
@@ -164,6 +170,7 @@ public class FriendRequestListItem
     public int Id { get; set; }
     public int UserId { get; set; }
     public string Username { get; set; } = string.Empty;
+    public string? AvatarUrl { get; set; }
     public string Direction { get; set; } = string.Empty; // "Incoming" or "Outgoing"
 
     public Visibility AcceptButtonVisibility => Direction == "Incoming" ? Visibility.Visible : Visibility.Collapsed;
@@ -205,6 +212,9 @@ public partial class MainWindow : FluentWindow
     {
         InitializeComponent();
         _api = api;
+
+        MyAvatarView.DisplayName = _api.CurrentUsername ?? "?";
+        MyAvatarView.ImageUrl = _api.CurrentUserAvatarUrl;
 
         ServerList.ItemsSource = _servers;
         TextChannelList.ItemsSource = _textChannels;
@@ -269,7 +279,7 @@ public partial class MainWindow : FluentWindow
         var servers = await _api.GetMyServersAsync();
         _servers.Clear();
         foreach (var s in servers)
-            _servers.Add(new ServerListItem { Id = s.Id, Initial = s.Name.Length > 0 ? s.Name[0].ToString().ToUpper() : "?" });
+            _servers.Add(new ServerListItem { Id = s.Id, Name = s.Name, IconUrl = App.ResolveUploadUrl(s.IconUrl) });
 
         // Join every text channel's SignalR group across every server the
         // user belongs to - not just whichever one happens to be open right
@@ -351,7 +361,7 @@ public partial class MainWindow : FluentWindow
             foreach (var member in roster.Members)
             {
                 if (!item.Members.Any(m => m.UserId == member.UserId))
-                    item.Members.Add(new VoiceMemberItem { UserId = member.UserId, Username = member.Username, IsSelf = member.UserId == _api.CurrentUserId });
+                    item.Members.Add(new VoiceMemberItem { UserId = member.UserId, Username = member.Username, AvatarUrl = App.ResolveUploadUrl(member.AvatarUrl), IsSelf = member.UserId == _api.CurrentUserId });
             }
         }
     }
@@ -386,25 +396,39 @@ public partial class MainWindow : FluentWindow
         if (sender is not FrameworkElement { Tag: int channelId }) return;
         if (_voice is null) return;
 
+        // Re-clicking the channel you're already in used to tear down and
+        // re-establish the whole voice connection for no reason - harmless
+        // most of the time, but a rapid double-click could land the leave
+        // and the rejoin close enough together to leave the audio endpoint
+        // (and everyone else's view of this connection) in a half-torn-down
+        // state, breaking capture/playback for the whole channel.
+        if (_currentVoiceChannelId == channelId) return;
+
         if (_currentVoiceChannelId.HasValue)
         {
             await _hub.LeaveVoiceChannelAsync(_currentVoiceChannelId.Value);
             await _voice.LeaveAllAsync();
-            FindVoiceChannelItem(_currentVoiceChannelId.Value)?.Members.Clear();
+            RemoveSelfFromVoiceRoster(_currentVoiceChannelId.Value);
         }
 
         _currentVoiceChannelId = channelId;
         _voice.SetActiveChannel(channelId);
         var existingMembers = await _hub.JoinVoiceChannelAsync(channelId);
 
+        // Connects to everyone already in the channel from our side too -
+        // see ConnectToExistingMembersAsync for why this can't be left to
+        // the pre-existing members alone (whether a pair actually connects
+        // used to depend on which of the two had the lower user id).
+        await _voice.ConnectToExistingMembersAsync(existingMembers.Select(m => m.UserId), channelId);
+
         var item = FindVoiceChannelItem(channelId);
         if (item is not null)
         {
             item.Members.Clear();
             foreach (var m in existingMembers)
-                item.Members.Add(new VoiceMemberItem { UserId = m.UserId, Username = m.Username, IsSelf = m.UserId == _api.CurrentUserId });
+                item.Members.Add(new VoiceMemberItem { UserId = m.UserId, Username = m.Username, AvatarUrl = App.ResolveUploadUrl(m.AvatarUrl), IsSelf = m.UserId == _api.CurrentUserId });
             if (_api.CurrentUserId is not null && _api.CurrentUsername is not null)
-                item.Members.Add(new VoiceMemberItem { UserId = _api.CurrentUserId.Value, Username = _api.CurrentUsername, IsSelf = true });
+                item.Members.Add(new VoiceMemberItem { UserId = _api.CurrentUserId.Value, Username = _api.CurrentUsername, AvatarUrl = _api.CurrentUserAvatarUrl, IsSelf = true });
         }
 
         LeaveVoiceButton.Visibility = Visibility.Visible;
@@ -413,6 +437,12 @@ public partial class MainWindow : FluentWindow
         UpdateMuteButtonVisual();
         UpdateDeafenButtonVisual();
         ConnectionStatusText.Text = "Joined voice";
+
+        // Unconditional (not gated on window focus like OnVoiceUserJoined's
+        // toast/sound for other people) - this is direct feedback that your
+        // own join went through, so it needs to play even if you're the
+        // only one in the channel and even while the app is focused.
+        NotificationService.PlayVoiceJoinSound();
     }
 
     private void MuteMicButton_Click(object sender, RoutedEventArgs e)
@@ -589,12 +619,28 @@ public partial class MainWindow : FluentWindow
 
         await _hub.LeaveVoiceChannelAsync(_currentVoiceChannelId.Value);
         await _voice.LeaveAllAsync();
-        FindVoiceChannelItem(_currentVoiceChannelId.Value)?.Members.Clear();
+        RemoveSelfFromVoiceRoster(_currentVoiceChannelId.Value);
         _currentVoiceChannelId = null;
         LeaveVoiceButton.Visibility = Visibility.Collapsed;
         MuteMicButton.Visibility = Visibility.Collapsed;
         DeafenButton.Visibility = Visibility.Collapsed;
         ConnectionStatusText.Text = "";
+    }
+
+    // Removes just the local user's own entry from a voice channel's roster.
+    // The old code called Members.Clear() here, which wiped out everyone
+    // else still in the channel too - visible as "the whole list disappears"
+    // the moment you leave, even though other people are still in the call.
+    // Anyone else's departure is already handled correctly (one at a time)
+    // by OnVoiceUserLeft reacting to the server's broadcast; this covers the
+    // one case that broadcast doesn't reliably beat the UI update for - our
+    // own leave, applied immediately rather than waiting on the round trip.
+    private void RemoveSelfFromVoiceRoster(int channelId)
+    {
+        if (_api.CurrentUserId is null) return;
+        var item = FindVoiceChannelItem(channelId);
+        var self = item?.Members.FirstOrDefault(m => m.UserId == _api.CurrentUserId);
+        if (item is not null && self is not null) item.Members.Remove(self);
     }
 
     private void LogOutButton_Click(object sender, RoutedEventArgs e)
@@ -730,13 +776,14 @@ public partial class MainWindow : FluentWindow
         var results = await _api.SearchUsersAsync(query);
         _dmSearchResults.Clear();
         foreach (var r in results.Where(r => r.Id != _api.CurrentUserId))
-            _dmSearchResults.Add(new UserSearchResultItem { Id = r.Id, Username = r.Username });
+            _dmSearchResults.Add(new UserSearchResultItem { Id = r.Id, Username = r.Username, AvatarUrl = App.ResolveUploadUrl(r.AvatarUrl) });
     }
 
     private async void DmSearchResult_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { Tag: int userId } button) return;
-        await OpenDmConversation(userId, (button.Content as string) ?? "user");
+        var username = (button.DataContext as UserSearchResultItem)?.Username ?? "user";
+        await OpenDmConversation(userId, username);
     }
 
     private async void DmConversation_Click(object sender, RoutedEventArgs e)
@@ -772,7 +819,7 @@ public partial class MainWindow : FluentWindow
         var friends = await _api.GetFriendsAsync();
         _friends.Clear();
         foreach (var f in friends)
-            _friends.Add(new FriendListItem { UserId = f.UserId, Username = f.Username });
+            _friends.Add(new FriendListItem { UserId = f.UserId, Username = f.Username, AvatarUrl = App.ResolveUploadUrl(f.AvatarUrl) });
     }
 
     private async Task LoadFriendRequestsAsync()
@@ -780,7 +827,7 @@ public partial class MainWindow : FluentWindow
         var requests = await _api.GetFriendRequestsAsync();
         _friendRequests.Clear();
         foreach (var r in requests)
-            _friendRequests.Add(new FriendRequestListItem { Id = r.Id, UserId = r.UserId, Username = r.Username, Direction = r.Direction });
+            _friendRequests.Add(new FriendRequestListItem { Id = r.Id, UserId = r.UserId, Username = r.Username, Direction = r.Direction, AvatarUrl = App.ResolveUploadUrl(r.AvatarUrl) });
     }
 
     private async void FriendSearchBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
@@ -799,7 +846,7 @@ public partial class MainWindow : FluentWindow
 
         _friendSearchResults.Clear();
         foreach (var r in results.Where(r => r.Id != _api.CurrentUserId && !existingIds.Contains(r.Id)))
-            _friendSearchResults.Add(new UserSearchResultItem { Id = r.Id, Username = r.Username });
+            _friendSearchResults.Add(new UserSearchResultItem { Id = r.Id, Username = r.Username, AvatarUrl = App.ResolveUploadUrl(r.AvatarUrl) });
     }
 
     private async void AddFriendButton_Click(object sender, RoutedEventArgs e)
@@ -839,7 +886,8 @@ public partial class MainWindow : FluentWindow
     private async void FriendListItem_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { Tag: int userId } button) return;
-        await OpenDmConversation(userId, (button.Content as string) ?? "user");
+        var username = (button.DataContext as FriendListItem)?.Username ?? "user";
+        await OpenDmConversation(userId, username);
     }
 
     private void OnFriendRequestReceived(int friendshipId, int requesterId, string requesterUsername)
@@ -884,10 +932,10 @@ public partial class MainWindow : FluentWindow
 
         if (dialog.ShowDialog() != true) return;
 
-        var upload = await _api.UploadFileAsync(dialog.FileName);
+        var (upload, error) = await _api.UploadFileAsync(dialog.FileName);
         if (upload is null)
         {
-            MessageBox.Show("Upload failed.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(error ?? "Upload failed.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
         }
 
@@ -943,24 +991,43 @@ public partial class MainWindow : FluentWindow
     {
         Dispatcher.Invoke(() =>
         {
-            if (msg.ChannelId == _currentChannelId)
+            var isOwnMessage = msg.AuthorId == _api.CurrentUserId;
+            var isCurrentlyOpen = msg.ChannelId == _currentChannelId;
+
+            if (isCurrentlyOpen)
             {
                 _messages.Add(ToListItem(msg));
                 ScrollToBottom();
-                return;
+            }
+            else if (!isOwnMessage)
+            {
+                // Someone else's message landed in a channel that isn't open
+                // right now - flag it with an unread dot rather than just
+                // dropping it. _unreadTextChannelIds is the source of truth
+                // (survives even if that channel's server has never been
+                // opened, so there's no ChannelListItem yet to mark); also
+                // update the item directly if it happens to already be
+                // loaded, for an instant UI update.
+                _unreadTextChannelIds.Add(msg.ChannelId);
+                var item = FindTextChannelItem(msg.ChannelId);
+                if (item is not null) item.HasUnread = true;
             }
 
-            // Someone else's message landed in a channel that isn't open right
-            // now - flag it with an unread dot rather than just dropping it.
-            // _unreadTextChannelIds is the source of truth (survives even if
-            // that channel's server has never been opened, so there's no
-            // ChannelListItem yet to mark); also update the item directly if
-            // it happens to already be loaded, for an instant UI update.
-            if (msg.AuthorId == _api.CurrentUserId) return;
-
-            _unreadTextChannelIds.Add(msg.ChannelId);
-            var item = FindTextChannelItem(msg.ChannelId);
-            if (item is not null) item.HasUnread = true;
+            // Plays whenever you're not actually looking at this channel
+            // right now - either a different channel/view is open, or this
+            // one is open but the window itself isn't focused. Being on a
+            // different view is the common case (e.g. sitting in Friends or
+            // another channel) and was previously silent because this only
+            // checked window focus, not which view was open.
+            if (!isOwnMessage && (!isCurrentlyOpen || !IsActive))
+            {
+                NotificationService.PlayMessageSound();
+                if (!isCurrentlyOpen)
+                {
+                    var preview = msg.Content.Length > 80 ? msg.Content[..80] + "…" : msg.Content;
+                    NotificationService.ShowToast(FindChannelDisplayName(msg.ChannelId) ?? "New message", preview);
+                }
+            }
         });
     }
 
@@ -981,6 +1048,7 @@ public partial class MainWindow : FluentWindow
             {
                 OtherUserId = otherUserId,
                 OtherUsername = existing?.OtherUsername ?? _dmActiveUsername ?? "user",
+                OtherUserAvatarUrl = existing?.OtherUserAvatarUrl,
                 LastMessagePreview = dm.Content,
                 LastMessageAt = dm.SentAt,
                 HasUnread = !isOwnMessage && !isCurrentlyOpen
@@ -993,6 +1061,16 @@ public partial class MainWindow : FluentWindow
             }
 
             UpdateMessagesUnreadBadge();
+
+            // Same "not actually looking at this conversation" logic as
+            // OnMessageReceived - either a different view is open, or this
+            // DM is open but the window itself isn't focused.
+            if (!isOwnMessage && (!isCurrentlyOpen || !IsActive))
+            {
+                NotificationService.PlayMessageSound();
+                var preview = dm.Content.Length > 80 ? dm.Content[..80] + "…" : dm.Content;
+                NotificationService.ShowToast($"{existing?.OtherUsername ?? _dmActiveUsername ?? "New message"}", preview);
+            }
         });
     }
 
@@ -1030,13 +1108,22 @@ public partial class MainWindow : FluentWindow
         Dispatcher.Invoke(() => ConnectionStatusText.Text = "");
     }
 
-    private void OnVoiceUserJoined(int userId, string username, int channelId)
+    private void OnVoiceUserJoined(int userId, string username, int channelId, string? avatarUrl)
     {
         Dispatcher.Invoke(() =>
         {
             var item = FindVoiceChannelItem(channelId);
             if (item is not null && !item.Members.Any(m => m.UserId == userId))
-                item.Members.Add(new VoiceMemberItem { UserId = userId, Username = username, IsSelf = userId == _api.CurrentUserId });
+                item.Members.Add(new VoiceMemberItem { UserId = userId, Username = username, AvatarUrl = App.ResolveUploadUrl(avatarUrl), IsSelf = userId == _api.CurrentUserId });
+
+            // Only for the voice channel you're actually sitting in, and
+            // only when you're not looking at the app - the icon/roster
+            // update above already covers "looking at it" case.
+            if (channelId == _currentVoiceChannelId && userId != _api.CurrentUserId && !IsActive)
+            {
+                NotificationService.PlayVoiceJoinSound();
+                NotificationService.ShowToast("Voice", $"{username} joined voice");
+            }
         });
     }
 
@@ -1047,6 +1134,12 @@ public partial class MainWindow : FluentWindow
             var item = FindVoiceChannelItem(channelId);
             var existing = item?.Members.FirstOrDefault(m => m.UserId == userId);
             if (item is not null && existing is not null) item.Members.Remove(existing);
+
+            if (channelId == _currentVoiceChannelId && userId != _api.CurrentUserId && !IsActive)
+            {
+                NotificationService.PlayVoiceLeaveSound();
+                NotificationService.ShowToast("Voice", $"{username} left voice");
+            }
         });
     }
 
@@ -1151,14 +1244,22 @@ public partial class MainWindow : FluentWindow
     private static MessageListItem ToListItem(MessageResponse m) => new()
     {
         AuthorUsername = m.AuthorUsername,
+        AuthorAvatarUrl = App.ResolveUploadUrl(m.AuthorAvatarUrl),
         Content = m.Content,
         TimeDisplay = m.SentAt.ToLocalTime().ToString("t"),
         AttachmentUrl = m.AttachmentUrl
     };
 
+    // DirectMessageResponse doesn't carry a sender avatar (1:1 DMs - you
+    // already know who you're talking to, unlike a multi-sender channel) -
+    // pull it from context instead: our own cached avatar, or the open
+    // conversation's cached one for the other side.
     private MessageListItem ToDmListItem(DirectMessageResponse dm) => new()
     {
         AuthorUsername = dm.SenderId == _api.CurrentUserId ? "You" : (_dmActiveUsername ?? "them"),
+        AuthorAvatarUrl = dm.SenderId == _api.CurrentUserId
+            ? _api.CurrentUserAvatarUrl
+            : _dmConversations.FirstOrDefault(c => c.OtherUserId == _dmActiveUserId)?.OtherUserAvatarUrl,
         Content = dm.Content,
         TimeDisplay = dm.SentAt.ToLocalTime().ToString("t")
     };
@@ -1167,6 +1268,7 @@ public partial class MainWindow : FluentWindow
     {
         OtherUserId = c.OtherUserId,
         OtherUsername = c.OtherUsername,
+        OtherUserAvatarUrl = App.ResolveUploadUrl(c.OtherUserAvatarUrl),
         LastMessagePreview = c.LastMessagePreview,
         LastMessageAt = c.LastMessageAt
     };

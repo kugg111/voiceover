@@ -39,7 +39,7 @@ public class MessagesController : ControllerBase
             .OrderByDescending(m => m.SentAt)
             .Take(take)
             .OrderBy(m => m.SentAt)
-            .Select(m => new MessageResponse(m.Id, m.Content, m.ChannelId, m.AuthorId, m.Author!.Username, m.SentAt, m.AttachmentUrl))
+            .Select(m => new MessageResponse(m.Id, m.Content, m.ChannelId, m.AuthorId, m.Author!.Username, m.SentAt, m.AttachmentUrl, m.Author!.AvatarUrl))
             .ToListAsync();
 
         return Ok(messages);
