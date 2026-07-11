@@ -1,30 +1,53 @@
 using System.Windows;
+using System.Windows.Media;
 using Voiceover.Client.Models;
 using Voiceover.Client.Services;
 using Wpf.Ui.Controls;
+using Button = System.Windows.Controls.Button;
 
 namespace Voiceover.Client.Views;
 
 public partial class SettingsWindow : FluentWindow
 {
     private readonly ApiService _api;
-    private readonly VoiceService? _voice;
     private VersionInfo? _latestVersion;
 
     public SettingsWindow(ApiService api, VoiceService? voice)
     {
         InitializeComponent();
         _api = api;
-        _voice = voice;
+
+        if (voice is not null) VoicePanel.Initialize(voice);
 
         UpdateStatusText.Text = $"You're on version {UpdateChecker.CurrentVersion}" +
             (UpdateChecker.IsInstalled ? " (installed)." : " (portable).");
+
+        ShowVoiceTab();
     }
 
-    private void VoiceSettingsButton_Click(object sender, RoutedEventArgs e)
+    private void VoiceTabButton_Click(object sender, RoutedEventArgs e) => ShowVoiceTab();
+    private void UpdateTabButton_Click(object sender, RoutedEventArgs e) => ShowUpdateTab();
+
+    private void ShowVoiceTab()
     {
-        if (_voice is null) return;
-        new VoiceSettingsWindow(_voice) { Owner = this }.ShowDialog();
+        VoiceTabContent.Visibility = Visibility.Visible;
+        UpdateTabContent.Visibility = Visibility.Collapsed;
+        SetActiveTab(VoiceTabButton, UpdateTabButton);
+    }
+
+    private void ShowUpdateTab()
+    {
+        VoiceTabContent.Visibility = Visibility.Collapsed;
+        UpdateTabContent.Visibility = Visibility.Visible;
+        SetActiveTab(UpdateTabButton, VoiceTabButton);
+    }
+
+    private void SetActiveTab(Button active, Button inactive)
+    {
+        active.Background = (Brush)FindResource("AccentBlurple");
+        active.Foreground = Brushes.White;
+        inactive.Background = Brushes.Transparent;
+        inactive.Foreground = (Brush)FindResource("TextNormal");
     }
 
     private async void CheckForUpdateButton_Click(object sender, RoutedEventArgs e)
