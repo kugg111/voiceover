@@ -13,3 +13,5 @@ Server/appsettings.Development.json
 /installer-output/
 Server/Site/downloads/*.zip
 Server/Site/downloads/*.exe
+/DEPLOYMENT.txt
+/REDEPLOY.txt
