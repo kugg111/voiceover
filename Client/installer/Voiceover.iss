@@ -4,6 +4,8 @@
 ; to already exist at ..\..\publish relative to this file.
 
 #define MyAppName "Voiceover"
+; Must move together with Client.csproj's <Version> and Server/Site/downloads/
+; version.json on every release, see REDEPLOY.txt.
 #define MyAppVersion "1.0.0"
 #define MyAppPublisher "Voiceover"
 #define MyAppExeName "Client.exe"

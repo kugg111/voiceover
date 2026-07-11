@@ -707,6 +707,11 @@ public partial class MainWindow : FluentWindow
         window.ShowDialog();
     }
 
+    private void MyAvatarBorder_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        new SettingsWindow(_api, _voice) { Owner = this }.ShowDialog();
+    }
+
     private async void MessagesButton_Click(object sender, RoutedEventArgs e)
     {
         await LeaveServerContentAsync();

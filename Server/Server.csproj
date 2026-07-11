@@ -26,8 +26,13 @@
     <!-- wwwroot gets this treatment automatically from the Web SDK; Site/
          (the public landing page) doesn't, so it needs an explicit content
          item to actually ship in `dotnet publish` output (and therefore the
-         Docker image - see Dockerfile, which only copies the publish dir). -->
-    <Content Include="Site\**" CopyToPublishDirectory="PreserveNewest" />
+         Docker image - see Dockerfile, which only copies the publish dir).
+         *.json is excluded here because the Web SDK already treats every
+         .json file in the project tree as a default Content item (same
+         mechanism that picks up appsettings.json) - including it again
+         below double-includes Site/downloads/version.json and fails the
+         build with NETSDK1022. -->
+    <Content Include="Site\**" Exclude="Site\**\*.json" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

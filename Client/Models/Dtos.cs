@@ -17,3 +17,4 @@ public record SetAvatarRequest(string Url);
 public record FriendResponse(int UserId, string Username, string? AvatarUrl = null);
 public record FriendRequestResponse(int Id, int UserId, string Username, string Direction, string? AvatarUrl = null);
 public record LiveKitJoinResponse(string Token, string ServerUrl);
+public record VersionInfo(string Version, string InstallerUrl, string PortableUrl);
