@@ -16,7 +16,18 @@
                   Foreground="{StaticResource TextNormal}" FontWeight="Bold" Margin="0,0,0,4"
                   Checked="NoiseSuppressionCheck_Changed" Unchecked="NoiseSuppressionCheck_Changed"/>
         <TextBlock Text="Gates out quiet background noise (breathing, keyboard, room hum) picked up by the mic boost. May clip the very start of soft speech."
-                   FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}" Margin="0,0,0,16"/>
+                   FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}" Margin="0,0,0,12"/>
+
+        <StackPanel x:Name="NoiseSuppressionBackendPanel" Visibility="Collapsed" Margin="16,0,0,16">
+            <RadioButton x:Name="WebRtcApmRadio" Content="WebRTC (default)" GroupName="NoiseBackend"
+                         Foreground="{StaticResource TextNormal}" Margin="0,0,0,4"
+                         Checked="NoiseSuppressionBackendRadio_Changed"/>
+            <RadioButton x:Name="RNNoiseRadio" Content="RNNoise" GroupName="NoiseBackend"
+                         Foreground="{StaticResource TextNormal}" Margin="0,0,0,4"
+                         Checked="NoiseSuppressionBackendRadio_Changed"/>
+            <TextBlock Text="RNNoise is a lightweight neural denoiser - lighter on CPU, sometimes more aggressive on background noise. Try both and pick whichever sounds better on your mic."
+                       FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}"/>
+        </StackPanel>
 
         <TextBlock Text="Changes take effect the next time you join a voice channel."
                    FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}" Margin="0,0,0,16"/>

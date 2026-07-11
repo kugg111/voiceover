@@ -13,7 +13,7 @@
          version.json to detect an available update. Must move together with
          Voiceover.iss's MyAppVersion and version.json on every release, see
          REDEPLOY.txt. -->
-    <Version>1.0.2</Version>
+    <Version>1.0.3</Version>
   </PropertyGroup>
 
   <ItemGroup>
@@ -56,6 +56,12 @@
          which couldn't tell a keyboard click from speech because it had no
          actual model of what noise looks like, just "loud or not". -->
     <PackageReference Include="SoundFlow.Extensions.WebRtc.Apm" Version="1.4.0" />
+    <!-- Alternative noise-suppression engine (selectable in Voice Settings,
+         see NoiseSuppressionBackend) - a lightweight RNN denoiser instead of
+         WebRTC's full Audio Processing Module. Real win-x64 native binary,
+         MIT licensed. Lighter on CPU than the APM; some mics do better with
+         one or the other, hence selectable rather than a hard swap. -->
+    <PackageReference Include="YellowDogMan.RRNoise.NET" Version="0.1.9" />
     <!-- Fluent Design controls/theming for a modern, Discord-like look -
          rounded window chrome, restyled standard controls (Button, TextBox,
          etc. get the new look automatically once the theme dictionaries are

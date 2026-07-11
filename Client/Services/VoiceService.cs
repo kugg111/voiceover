@@ -11,6 +11,17 @@ public enum VoiceInputMode
     PushToMute     // open at rest, muted only while the hotkey is held
 }
 
+// Which noise-suppression engine MicCaptureSource runs captured audio
+// through - see the PackageReference comments in Client.csproj for why
+// there's a choice at all instead of just one. WebRtcApm is first/default
+// so existing saved settings (missing this field entirely) deserialize to
+// today's behavior unchanged.
+public enum NoiseSuppressionBackend
+{
+    WebRtcApm,
+    RNNoise
+}
+
 // Connects to the self-hosted LiveKit SFU (see REDEPLOY.txt) for voice
 // audio. Replaces the old WebRTC mesh - one RTCPeerConnection per remote
 // participant doesn't scale, and Railway (where the app server lives)
@@ -106,6 +117,18 @@ public class VoiceService : IAsyncDisposable
         }
     }
 
+    private NoiseSuppressionBackend _noiseSuppressionBackend = NoiseSuppressionBackend.WebRtcApm;
+    public NoiseSuppressionBackend NoiseSuppressionBackend
+    {
+        get => _noiseSuppressionBackend;
+        set
+        {
+            _noiseSuppressionBackend = value;
+            if (_micCapture is not null) _micCapture.NoiseSuppressionBackend = value;
+            SaveSettings();
+        }
+    }
+
     // Not persisted (see SaveSettings) - deafen/mute are session states
     // like Discord's, not preferences, so a fresh login always starts
     // undeafened/unmuted regardless of how a previous session ended.
@@ -168,7 +191,7 @@ public class VoiceService : IAsyncDisposable
     // this existed they'd silently reset to defaults every login.
     private void SaveSettings() =>
         VoiceSettingsStorage.Save(new SavedVoiceSettings(
-            InputDeviceIndex, OutputDeviceIndex, NoiseSuppressionEnabled, _inputMode, PushToTalkKey, PushToTalkMouseButton));
+            InputDeviceIndex, OutputDeviceIndex, NoiseSuppressionEnabled, _inputMode, PushToTalkKey, PushToTalkMouseButton, _noiseSuppressionBackend));
 
     private void LoadSettings()
     {
@@ -178,6 +201,7 @@ public class VoiceService : IAsyncDisposable
         _inputDeviceIndex = saved.InputDeviceIndex;
         _outputDeviceIndex = saved.OutputDeviceIndex;
         _noiseSuppressionEnabled = saved.NoiseSuppressionEnabled;
+        _noiseSuppressionBackend = saved.NoiseSuppressionBackend;
 
         // Mouse button takes priority if somehow both are set in the saved
         // file (shouldn't happen given the mutual-exclusivity setters, but
@@ -276,7 +300,8 @@ public class VoiceService : IAsyncDisposable
         var micCapture = new MicCaptureSource(InputDeviceIndex ?? -1)
         {
             MicMuted = IsMicMuted,
-            NoiseSuppressionEnabled = NoiseSuppressionEnabled
+            NoiseSuppressionEnabled = NoiseSuppressionEnabled,
+            NoiseSuppressionBackend = NoiseSuppressionBackend
         };
         // Local speaking-indicator detection, straight off the fully
         // processed PCM MicCaptureSource already produces (post noise-

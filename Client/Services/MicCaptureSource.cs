@@ -1,6 +1,7 @@
 using LiveKit.Rtc;
 using NAudio.Wave;
 using SoundFlow.Extensions.WebRtc.Apm;
+using RNNoise.NET;
 
 namespace Voiceover.Client.Services;
 
@@ -24,6 +25,7 @@ public class MicCaptureSource : IDisposable
     public float MicGain { get; set; } = 4.0f;
     public bool MicMuted { get; set; }
     public bool NoiseSuppressionEnabled { get; set; } = true;
+    public NoiseSuppressionBackend NoiseSuppressionBackend { get; set; } = NoiseSuppressionBackend.WebRtcApm;
 
     // Fires with the fully processed frame (post noise-suppression, post-
     // gain) right before it's handed to LiveKit - used for the local
@@ -54,6 +56,16 @@ public class MicCaptureSource : IDisposable
     private readonly float[][] _apmOutputChannels;
     private static readonly StreamConfig ApmStreamConfig = new(SampleRate, Channels);
 
+    // --- RNNoise (lightweight RNN denoiser, selectable alternative to the
+    // APM above - see NoiseSuppressionBackend). Denoiser.Denoise() handles
+    // its own internal 480-sample framing and accepts any buffer length, so
+    // unlike the APM this doesn't need a manual sub-chunking loop - the
+    // full 960-sample frame goes in as one call. Samples are normalized to
+    // -1..1 float same as the APM path; the wrapper does its own internal
+    // scaling to what the native model expects. ---
+    private readonly Denoiser? _rnnoise;
+    private readonly float[] _rnnoiseBuffer = new float[SamplesPerFrame];
+
     public MicCaptureSource(int inputDeviceIndex)
     {
         _inputDeviceIndex = inputDeviceIndex;
@@ -71,6 +83,24 @@ public class MicCaptureSource : IDisposable
         _apmConfig.SetNoiseSuppression(true, NoiseSuppressionLevel.High);
         _apmConfig.SetHighPassFilter(true); // cuts low-frequency rumble (desk thumps, mic handling) below speech range
         _apm.ApplyConfig(_apmConfig);
+
+        // Constructed unconditionally alongside the APM (cheap to init)
+        // rather than lazily on first selection, so switching
+        // NoiseSuppressionBackend mid-session never needs to spin up native
+        // resources on the audio callback thread. Wrapped in try/catch
+        // unlike the APM above - RNNoise is a newer, less-proven native
+        // dependency, and a failure to load its native library (missing
+        // file, wrong arch, AV quarantine) must not break voice joining
+        // entirely for people who never even select it. ApplyRNNoise
+        // no-ops if this stays null; the WebRTC APM path is unaffected.
+        try
+        {
+            _rnnoise = new Denoiser();
+        }
+        catch
+        {
+            _rnnoise = null;
+        }
 
         _waveIn = new WaveInEvent
         {
@@ -136,7 +166,17 @@ public class MicCaptureSource : IDisposable
 
     private void ApplyNoiseSuppression(short[] pcm)
     {
-        if (!NoiseSuppressionEnabled || _apm is null) return;
+        if (!NoiseSuppressionEnabled) return;
+
+        if (NoiseSuppressionBackend == NoiseSuppressionBackend.RNNoise)
+            ApplyRNNoise(pcm);
+        else
+            ApplyWebRtcApm(pcm);
+    }
+
+    private void ApplyWebRtcApm(short[] pcm)
+    {
+        if (_apm is null) return;
 
         for (int offset = 0; offset < pcm.Length; offset += ApmFrameSamples)
         {
@@ -150,6 +190,19 @@ public class MicCaptureSource : IDisposable
         }
     }
 
+    private void ApplyRNNoise(short[] pcm)
+    {
+        if (_rnnoise is null) return;
+
+        for (int i = 0; i < pcm.Length; i++)
+            _rnnoiseBuffer[i] = pcm[i] / (float)short.MaxValue;
+
+        _rnnoise.Denoise(_rnnoiseBuffer.AsSpan(0, pcm.Length));
+
+        for (int i = 0; i < pcm.Length; i++)
+            pcm[i] = (short)Math.Clamp(_rnnoiseBuffer[i] * short.MaxValue, short.MinValue, short.MaxValue);
+    }
+
     public void Dispose()
     {
         if (_waveIn is not null)
@@ -161,6 +214,7 @@ public class MicCaptureSource : IDisposable
         }
         _apmConfig?.Dispose();
         _apm?.Dispose();
+        _rnnoise?.Dispose();
         Source.Dispose();
     }
 }

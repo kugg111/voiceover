@@ -40,6 +40,11 @@ public partial class VoiceSettingsPanel : UserControl
         OutputDeviceCombo.SelectedItem = outputs.FirstOrDefault(d => d.Index == _voice.OutputDeviceIndex) ?? outputs.FirstOrDefault();
 
         NoiseSuppressionCheck.IsChecked = _voice.NoiseSuppressionEnabled;
+        NoiseSuppressionBackendPanel.Visibility = _voice.NoiseSuppressionEnabled ? Visibility.Visible : Visibility.Collapsed;
+        if (_voice.NoiseSuppressionBackend == NoiseSuppressionBackend.RNNoise)
+            RNNoiseRadio.IsChecked = true;
+        else
+            WebRtcApmRadio.IsChecked = true;
 
         HotkeyRecordButton.Content = FormatTriggerName();
 
@@ -100,6 +105,15 @@ public partial class VoiceSettingsPanel : UserControl
     {
         if (!_loaded) return;
         _voice!.NoiseSuppressionEnabled = NoiseSuppressionCheck.IsChecked == true;
+        NoiseSuppressionBackendPanel.Visibility = _voice.NoiseSuppressionEnabled ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void NoiseSuppressionBackendRadio_Changed(object sender, RoutedEventArgs e)
+    {
+        if (!_loaded) return;
+        _voice!.NoiseSuppressionBackend = sender == RNNoiseRadio
+            ? NoiseSuppressionBackend.RNNoise
+            : NoiseSuppressionBackend.WebRtcApm;
     }
 
     private void InputModeRadio_Changed(object sender, RoutedEventArgs e)
