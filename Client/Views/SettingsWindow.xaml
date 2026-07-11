@@ -28,10 +28,10 @@
             <!-- TAB RAIL -->
             <Border Grid.Column="0" Background="{StaticResource BgSidebar}">
                 <StackPanel Margin="8">
-                    <Button x:Name="VoiceTabButton" Content="🎤   Voice" Height="40" Margin="0,0,0,4"
+                    <Button x:Name="VoiceTabButton" Content="Sound Options" Height="40" Margin="0,0,0,4"
                             Click="VoiceTabButton_Click" HorizontalContentAlignment="Left" Padding="12,0" FontWeight="Bold"
                             BorderThickness="0"/>
-                    <Button x:Name="UpdateTabButton" Content="⬆️   Update" Height="40"
+                    <Button x:Name="UpdateTabButton" Content="Version" Height="40"
                             Click="UpdateTabButton_Click" HorizontalContentAlignment="Left" Padding="12,0" FontWeight="Bold"
                             BorderThickness="0"/>
                 </StackPanel>

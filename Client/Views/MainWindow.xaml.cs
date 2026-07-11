@@ -502,7 +502,11 @@ public partial class MainWindow : FluentWindow
     {
         if (_voice is null) return;
 
-        DeafenButton.Content = _voice.IsDeafened ? "🔇 Undeafen" : "🎧 Deafen";
+        // Icon stays 🎧 in both states (color already signals active/inactive) -
+        // reusing 🔇 here would make it indistinguishable from the Mute Mic
+        // button's own active-state icon, which is a genuinely different
+        // action (can't be heard vs. can't hear anyone).
+        DeafenButton.Content = _voice.IsDeafened ? "🎧 Undeafen" : "🎧 Deafen";
         DeafenButton.Foreground = _voice.IsDeafened
             ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xF2, 0x3F, 0x42))
             : (System.Windows.Media.Brush)FindResource("TextMuted");
