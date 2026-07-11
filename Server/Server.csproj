@@ -16,6 +16,10 @@
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.10" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.10" />
     <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
+    <!-- Mints join tokens for the self-hosted LiveKit deployment (see
+         REDEPLOY.txt) - this server never does any media-plane work itself,
+         only vouches for who's allowed into which voice room. -->
+    <PackageReference Include="Livekit.Server.Sdk.Dotnet" Version="1.2.2" />
   </ItemGroup>
 
   <ItemGroup>

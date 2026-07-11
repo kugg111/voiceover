@@ -14,11 +14,13 @@ public class ChatHub : Hub
 {
     private readonly AppDbContext _db;
     private readonly VoicePresenceService _voicePresence;
+    private readonly LiveKitTokenService _liveKitTokens;
 
-    public ChatHub(AppDbContext db, VoicePresenceService voicePresence)
+    public ChatHub(AppDbContext db, VoicePresenceService voicePresence, LiveKitTokenService liveKitTokens)
     {
         _db = db;
         _voicePresence = voicePresence;
+        _liveKitTokens = liveKitTokens;
     }
 
     private int CurrentUserId => int.Parse(Context.User!.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -115,6 +117,17 @@ public class ChatHub : Hub
         await Clients.OthersInGroup(ServerPresenceGroupName(channel.GuildServerId)).SendAsync("VoiceUserJoined", CurrentUserId, CurrentUsername, channelId, avatarUrl);
 
         return existingMembers;
+    }
+
+    // Mints a LiveKit join token for the SFU deployment - a separate,
+    // additive path alongside the existing mesh presence/signaling above
+    // while the client-side rewrite to actually use it is still pending
+    // (see LiveKitTokenService for why this doesn't require configuration
+    // at server startup). Room name mirrors VoiceGroupName's convention.
+    public Task<LiveKitJoinResponse> GetLiveKitToken(int channelId)
+    {
+        var token = _liveKitTokens.CreateJoinToken(CurrentUserId, CurrentUsername, channelId);
+        return Task.FromResult(new LiveKitJoinResponse(token, _liveKitTokens.ServerUrl ?? string.Empty));
     }
 
     public async Task LeaveVoiceChannel(int channelId)
