@@ -27,15 +27,17 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="8.0.10" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
-    <!-- Voice chat: WebRTC engine + Windows mic/speaker access.
-         Pinned to the 8.0.x line, which is the last one that supports net8.0-windows -
-         the 10.x releases require the .NET 10 SDK. If you install .NET 10 and want the
-         newer packages instead, bump both to 10.0.x and retarget the TFM to net10.0-windows10.0.17763.0. -->
-    <PackageReference Include="SIPSorcery" Version="8.0.23" />
-    <PackageReference Include="SIPSorceryMedia.Windows" Version="8.0.14" />
-    <!-- Already pulled in transitively by SIPSorceryMedia.Windows; pinned
-         explicitly since VoiceService/AudioDeviceService reference NAudio's
-         device-enumeration APIs directly for mic/speaker selection. -->
+    <!-- Voice chat: connects to the self-hosted LiveKit SFU (see
+         REDEPLOY.txt) instead of the WebRTC mesh this used to be - a
+         RTCPeerConnection per remote participant doesn't scale, and Railway
+         (where the app server lives) doesn't support inbound UDP anyway,
+         which ruled out hosting the relay ourselves. LiveKit's own .NET
+         bindings wrap its real Rust WebRTC core, not a from-scratch
+         reimplementation. -->
+    <PackageReference Include="Livekit.Rtc.Dotnet" Version="0.1.3" />
+    <!-- Mic/speaker device enumeration and capture/playback - LiveKit's
+         AudioSource/AudioStream take and give raw PCM frames, they don't
+         touch physical audio devices themselves. -->
     <PackageReference Include="NAudio" Version="2.2.1" />
     <!-- Real noise suppression (OpusAudioEndPoint.ApplyNoiseSuppression) -
          Google's WebRTC Audio Processing Module via SoundFlow's wrapper.

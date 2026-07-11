@@ -1,41 +1,33 @@
 using System.Collections.Concurrent;
-using System.Linq;
-using System.Text.Json;
 using System.Windows.Input;
-using SIPSorcery.Net;
+using LiveKit.Rtc;
 
 namespace Voiceover.Client.Services;
 
-// Simple JSON payloads exchanged over the SignalR "VoiceSignal" relay.
-internal record IceCandidatePayload(string Candidate, string? SdpMid, int? SdpMLineIndex);
-
 public enum VoiceInputMode
 {
-    VoiceActivity, // default: mic always "open"; the noise gate handles the rest
+    VoiceActivity, // default: mic always "open"; noise suppression handles the rest
     PushToTalk,    // muted at rest, open only while the hotkey is held
     PushToMute     // open at rest, muted only while the hotkey is held
 }
 
-public class VoiceService : IDisposable
+// Connects to the self-hosted LiveKit SFU (see REDEPLOY.txt) for voice
+// audio. Replaces the old WebRTC mesh - one RTCPeerConnection per remote
+// participant doesn't scale, and Railway (where the app server lives)
+// doesn't support inbound UDP, which ruled out hosting a relay ourselves.
+// One Room connection per joined channel now, instead of N-1 direct
+// connections; LiveKit's server owns all track lifecycle (who's publishing,
+// who should receive what), so there's no more manual SDP/ICE signaling or
+// initiator-election logic to maintain here.
+public class VoiceService : IAsyncDisposable
 {
     private readonly SignalRService _hub;
     private readonly int _selfUserId;
 
-    private int? _activeChannelId;
-
-    // One RTCPeerConnection + audio endpoint per remote participant (mesh topology).
-    // Fine for small voice channels (a handful of people); doesn't scale to large
-    // rooms the way a media server (SFU) would, but keeps the server dumb/simple.
-    private readonly ConcurrentDictionary<int, RTCPeerConnection> _peerConnections = new();
-    private readonly ConcurrentDictionary<int, OpusAudioEndPoint> _audioEndPoints = new();
-
-    private static readonly RTCConfiguration IceConfig = new()
-    {
-        iceServers = new List<RTCIceServer>
-        {
-            new() { urls = "stun:stun.l.google.com:19302" }
-        }
-    };
+    private Room? _room;
+    private MicCaptureSource? _micCapture;
+    private LocalAudioTrack? _localTrack;
+    private readonly ConcurrentDictionary<int, RemoteAudioPlayback> _remotePlaybacks = new();
 
     public event Action<int>? PeerConnected;
     public event Action<int>? PeerDisconnected;
@@ -51,8 +43,9 @@ public class VoiceService : IDisposable
     private const int SpeakingRmsThreshold = 800; // empirical threshold for 16-bit PCM RMS
 
     // Device indices from AudioDeviceService (null/-1 = system default). Applied
-    // when a peer connection is created, so a change here takes effect on the
-    // next channel join/new peer rather than hot-swapping an active call.
+    // when the mic capture/room connection is (re)created, so a change here
+    // takes effect on the next channel join rather than hot-swapping an
+    // active call.
     private int? _inputDeviceIndex;
     public int? InputDeviceIndex
     {
@@ -67,29 +60,27 @@ public class VoiceService : IDisposable
         set { _outputDeviceIndex = value; SaveSettings(); }
     }
 
-    // Forwards to OpusAudioEndPoint's static flags - static because a mesh
-    // call has one audio endpoint per remote peer, and muting/gating needs
-    // to apply to the mic across all of them at once. Exposed here so the UI
-    // only has to know about VoiceService, not the audio endpoint internals.
-    // Mute can now change from several independent places - the mute
-    // button, deafen (couples to it), an input mode switch (PTT/push-to-
-    // mute reset it to their resting state), and the PTT/push-to-mute
-    // hotkey itself - so the UI can't just refresh its own button inline
-    // after calling this setter anymore. MicMutedChanged is the one place
-    // any of them can listen to stay in sync, instead of every caller
-    // needing to know about every button that displays mute state.
+    // Mute can change from several independent places - the mute button,
+    // deafen (couples to it), an input mode switch (PTT/push-to-mute reset
+    // it to their resting state), and the PTT/push-to-mute hotkey itself -
+    // so the UI can't just refresh its own button inline after calling this
+    // setter anymore. MicMutedChanged is the one place any of them can
+    // listen to stay in sync, instead of every caller needing to know about
+    // every button that displays mute state.
     public event Action<bool>? MicMutedChanged;
 
+    private bool _isMicMuted;
     public bool IsMicMuted
     {
-        get => OpusAudioEndPoint.MicMuted;
+        get => _isMicMuted;
         set
         {
-            var changed = OpusAudioEndPoint.MicMuted != value;
-            OpusAudioEndPoint.MicMuted = value;
+            var changed = _isMicMuted != value;
+            _isMicMuted = value;
+            if (_micCapture is not null) _micCapture.MicMuted = value;
 
-            // Muting stops raw-sample callbacks entirely (see
-            // OpusAudioEndPoint.OnMicDataAvailable), so the hangover-based
+            // Muting stops processed-frame callbacks entirely (see
+            // MicCaptureSource.OnMicDataAvailable), so the hangover-based
             // "still speaking" expiry in OnLocalRawSample never gets a
             // chance to run - clear it immediately instead of leaving the
             // speaking indicator stuck on until it happens to time out.
@@ -103,16 +94,24 @@ public class VoiceService : IDisposable
         }
     }
 
+    private bool _noiseSuppressionEnabled = true;
     public bool NoiseSuppressionEnabled
     {
-        get => OpusAudioEndPoint.NoiseSuppressionEnabled;
-        set { OpusAudioEndPoint.NoiseSuppressionEnabled = value; SaveSettings(); }
+        get => _noiseSuppressionEnabled;
+        set
+        {
+            _noiseSuppressionEnabled = value;
+            if (_micCapture is not null) _micCapture.NoiseSuppressionEnabled = value;
+            SaveSettings();
+        }
     }
 
     // Not persisted (see SaveSettings) - deafen/mute are session states
     // like Discord's, not preferences, so a fresh login always starts
     // undeafened/unmuted regardless of how a previous session ended.
     public event Action<bool>? DeafenedChanged;
+
+    private bool _isDeafened;
 
     // Deafen always drives mute to match its own new state, same as
     // Discord: turning deafen on also mutes (no point talking if you can't
@@ -123,10 +122,11 @@ public class VoiceService : IDisposable
     // deafen control couples the two.
     public bool IsDeafened
     {
-        get => OpusAudioEndPoint.Deafened;
+        get => _isDeafened;
         set
         {
-            OpusAudioEndPoint.Deafened = value;
+            _isDeafened = value;
+            foreach (var playback in _remotePlaybacks.Values) playback.Deafened = value;
             IsMicMuted = value || _inputMode == VoiceInputMode.PushToTalk;
             DeafenedChanged?.Invoke(value);
         }
@@ -169,7 +169,7 @@ public class VoiceService : IDisposable
 
         _inputDeviceIndex = saved.InputDeviceIndex;
         _outputDeviceIndex = saved.OutputDeviceIndex;
-        OpusAudioEndPoint.NoiseSuppressionEnabled = saved.NoiseSuppressionEnabled;
+        _noiseSuppressionEnabled = saved.NoiseSuppressionEnabled;
         _hotkey.WatchedKey = saved.PushToTalkKey;
 
         if (saved.InputMode != VoiceInputMode.VoiceActivity)
@@ -215,14 +215,14 @@ public class VoiceService : IDisposable
         else if (_inputMode == VoiceInputMode.PushToMute) IsMicMuted = false;
     }
 
-    // Per-remote-peer volume (1.0 = unchanged). No-op for a userId that
-    // isn't currently connected - the slider only makes sense/exists for
-    // people you're actually in a call with, see MainWindow's voice member
-    // list.
+    // Per-remote-participant volume (1.0 = unchanged). No-op for a userId
+    // that isn't currently connected - the slider only makes sense/exists
+    // for people you're actually in a call with, see MainWindow's voice
+    // member list.
     public void SetRemoteVolume(int userId, float volume)
     {
-        if (_audioEndPoints.TryGetValue(userId, out var endpoint))
-            endpoint.PlaybackVolume = volume;
+        if (_remotePlaybacks.TryGetValue(userId, out var playback))
+            playback.PlaybackVolume = volume;
     }
 
     public VoiceService(SignalRService hub, int selfUserId)
@@ -230,193 +230,110 @@ public class VoiceService : IDisposable
         _hub = hub;
         _selfUserId = selfUserId;
 
-        _hub.VoiceUserJoined += OnVoiceUserJoined;
-        _hub.VoiceUserLeft += OnVoiceUserLeft;
-        _hub.VoiceSignalReceived += OnVoiceSignalReceived;
-
         _hotkey.KeyDown += OnHotkeyDown;
         _hotkey.KeyUp += OnHotkeyUp;
 
         LoadSettings();
     }
 
-    public void Dispose() => _hotkey.Dispose();
+    // Fetches a LiveKit join token for this channel (identity = our own
+    // numeric userId, see LiveKitTokenService server-side) and connects.
+    // Replaces the old SetActiveChannel + ConnectToExistingMembersAsync pair
+    // from the mesh days - there's no "connect to everyone already there"
+    // step anymore, LiveKit's server handles fanning existing participants'
+    // tracks out to us as part of the room connection itself.
+    public async Task JoinChannelAsync(int channelId)
+    {
+        var response = await _hub.GetLiveKitTokenAsync(channelId);
+        if (string.IsNullOrEmpty(response.ServerUrl))
+            throw new InvalidOperationException("Voice chat isn't configured on the server yet.");
 
-    public void SetActiveChannel(int channelId) => _activeChannelId = channelId;
+        var room = new Room();
+        room.TrackSubscribed += OnTrackSubscribed;
+        room.TrackUnsubscribed += OnTrackUnsubscribed;
+        room.ParticipantDisconnected += OnParticipantDisconnected;
+        room.Connected += (_, _) => PeerConnected?.Invoke(_selfUserId);
+        room.Disconnected += (_, _) => PeerDisconnected?.Invoke(_selfUserId);
 
+        await room.ConnectAsync(response.ServerUrl, response.Token, new RoomOptions(), CancellationToken.None);
+        _room = room;
+
+        var micCapture = new MicCaptureSource(InputDeviceIndex ?? -1)
+        {
+            MicMuted = IsMicMuted,
+            NoiseSuppressionEnabled = NoiseSuppressionEnabled
+        };
+        // Local speaking-indicator detection, straight off the fully
+        // processed PCM MicCaptureSource already produces (post noise-
+        // suppression, post-gain) - reacts the same way the published
+        // audio actually sounds.
+        micCapture.OnProcessedFrame += OnLocalRawSample;
+        _micCapture = micCapture;
+
+        _localTrack = LocalAudioTrack.Create("mic", micCapture.Source);
+        // Non-null once ConnectAsync above has completed successfully.
+        await room.LocalParticipant!.PublishTrackAsync(_localTrack, new TrackPublishOptions(), CancellationToken.None);
+    }
+
+    private void OnTrackSubscribed(object? sender, TrackSubscribedEventArgs e)
+    {
+        if (e.Track is not RemoteAudioTrack audioTrack) return;
+        if (!int.TryParse(e.Participant.Identity, out var userId)) return;
+
+        var playback = new RemoteAudioPlayback(audioTrack, OutputDeviceIndex ?? -1) { Deafened = IsDeafened };
+        _remotePlaybacks[userId] = playback;
+    }
+
+    private async void OnTrackUnsubscribed(object? sender, TrackSubscribedEventArgs e)
+    {
+        if (!int.TryParse(e.Participant.Identity, out var userId)) return;
+        if (_remotePlaybacks.TryRemove(userId, out var playback))
+            await playback.DisposeAsync();
+    }
+
+    private async void OnParticipantDisconnected(object? sender, Participant e)
+    {
+        if (!int.TryParse(e.Identity, out var userId)) return;
+
+        // TrackUnsubscribed should already have cleaned this up - a
+        // participant disconnecting always implies their tracks going away
+        // too - but this covers it defensively in case that event doesn't
+        // fire for some reason.
+        if (_remotePlaybacks.TryRemove(userId, out var playback))
+            await playback.DisposeAsync();
+
+        PeerDisconnected?.Invoke(userId);
+    }
+
+    // Leaves the current room and tears down capture/playback, but keeps
+    // the hotkey hook and saved settings alive - called both when actually
+    // leaving voice and when switching from one channel to another (leave
+    // then immediately JoinChannelAsync the new one).
     public async Task LeaveAllAsync()
     {
-        _activeChannelId = null;
-        foreach (var userId in _peerConnections.Keys.ToList())
-            await ClosePeerAsync(userId);
-
         if (_localIsSpeaking)
         {
             _localIsSpeaking = false;
             LocalSpeakingChanged?.Invoke(false);
         }
-    }
 
-    // Called when someone new shows up in a channel we're already sitting
-    // in. To avoid both sides sending competing offers, only the
-    // participant with the lower user id initiates.
-    private async void OnVoiceUserJoined(int userId, string username, int channelId, string? avatarUrl)
-    {
-        if (channelId != _activeChannelId || userId == _selfUserId) return;
-        await ConnectToPeerAsync(userId, channelId);
-    }
+        foreach (var userId in _remotePlaybacks.Keys.ToList())
+            if (_remotePlaybacks.TryRemove(userId, out var playback))
+                await playback.DisposeAsync();
 
-    // Connects to everyone who was already in the channel *before* we
-    // joined. The server excludes the joining connection from the
-    // "VoiceUserJoined" broadcast (Clients.OthersInGroup), so OnVoiceUserJoined
-    // above only ever fires on the *other* side - a client that just joined
-    // never otherwise learns it needs to talk to anyone already there, and
-    // was depending entirely on the pre-existing member happening to have
-    // the lower user id and initiating on its own. When it was the other
-    // way around, neither side ever sent an offer and the pair silently
-    // never connected - no error, just no audio between those two. Calling
-    // this from the joining side too, with the same lower-id-initiates
-    // rule, makes each pair connect regardless of who joined first or
-    // which id is higher.
-    public async Task ConnectToExistingMembersAsync(IEnumerable<int> userIds, int channelId)
-    {
-        foreach (var userId in userIds)
+        if (_micCapture is not null)
         {
-            if (userId == _selfUserId) continue;
-            await ConnectToPeerAsync(userId, channelId);
+            _micCapture.OnProcessedFrame -= OnLocalRawSample;
+            _micCapture.Dispose();
+            _micCapture = null;
         }
-    }
+        _localTrack = null;
 
-    private async Task ConnectToPeerAsync(int userId, int channelId)
-    {
-        if (_peerConnections.ContainsKey(userId)) return;
-
-        if (_selfUserId < userId)
-            await CreatePeerConnectionAsync(userId, channelId, isInitiator: true);
-        else
-            await CreatePeerConnectionAsync(userId, channelId, isInitiator: false);
-    }
-
-    private async void OnVoiceUserLeft(int userId, string username, int channelId)
-    {
-        if (channelId != _activeChannelId) return;
-        await ClosePeerAsync(userId);
-    }
-
-    private async void OnVoiceSignalReceived(int fromUserId, int channelId, string signalType, string payload)
-    {
-        if (channelId != _activeChannelId) return;
-
-        if (!_peerConnections.TryGetValue(fromUserId, out var pc))
+        if (_room is not null)
         {
-            // We received a signal (likely an offer) before we'd set up our side -
-            // create the connection now as the non-initiator.
-            await CreatePeerConnectionAsync(fromUserId, channelId, isInitiator: false);
-            _peerConnections.TryGetValue(fromUserId, out pc);
-        }
-
-        if (pc is null) return;
-
-        switch (signalType)
-        {
-            case "offer":
-                pc.setRemoteDescription(new RTCSessionDescriptionInit { sdp = payload, type = RTCSdpType.offer });
-                var answer = pc.createAnswer();
-                await pc.setLocalDescription(answer);
-                await _hub.SendVoiceSignalAsync(fromUserId, channelId, "answer", answer.sdp);
-                break;
-
-            case "answer":
-                pc.setRemoteDescription(new RTCSessionDescriptionInit { sdp = payload, type = RTCSdpType.answer });
-                break;
-
-            case "ice-candidate":
-                var candidate = JsonSerializer.Deserialize<IceCandidatePayload>(payload);
-                if (candidate is not null)
-                {
-                    pc.addIceCandidate(new RTCIceCandidateInit
-                    {
-                        candidate = candidate.Candidate,
-                        sdpMid = candidate.SdpMid,
-                        sdpMLineIndex = (ushort)(candidate.SdpMLineIndex ?? 0)
-                    });
-                }
-                break;
-        }
-    }
-
-    private async Task CreatePeerConnectionAsync(int remoteUserId, int channelId, bool isInitiator)
-    {
-        // OpusAudioEndPoint talks to NAudio and Concentus (Opus) directly rather
-        // than going through SIPSorceryMedia.Windows' WindowsAudioEndPoint - see
-        // its own comments for why (mic gain, jitter buffer, an RTP timestamp
-        // bug in the upstream Encode/Decode duration handling).
-        var audioEndPoint = new OpusAudioEndPoint(OutputDeviceIndex ?? -1, InputDeviceIndex ?? -1);
-
-        var pc = new RTCPeerConnection(IceConfig);
-
-        var audioTrack = new MediaStreamTrack(audioEndPoint.GetAudioSourceFormats(), MediaStreamStatusEnum.SendRecv);
-        pc.addTrack(audioTrack);
-
-        // Mic -> outgoing RTP.
-        audioEndPoint.OnAudioSourceEncodedSample += pc.SendAudio;
-
-        // Mic -> local speaking-indicator detection, straight off the raw PCM
-        // OpusAudioEndPoint already captures (post-gain, so this reacts the
-        // same way the encoded audio actually sounds) - no need to decode our
-        // own outgoing Opus frames back to PCM just to measure volume.
-        audioEndPoint.OnAudioSourceRawSample += (samplingRate, durationMs, pcm) => OnLocalRawSample(pcm);
-
-        // Incoming RTP -> jitter-buffered decode -> speaker. Feeds the real RTP
-        // sequence number through so OpusAudioEndPoint can reorder/conceal
-        // properly, unlike the IAudioSink.GotEncodedMediaFrame interface method
-        // (used by the old WindowsAudioEndPoint path) which has no sequence
-        // number to work with.
-        pc.OnRtpPacketReceived += (remoteEndPoint, mediaType, rtpPkt) =>
-        {
-            if (mediaType == SDPMediaTypesEnum.audio)
-                audioEndPoint.SubmitEncodedFrame((ushort)rtpPkt.Header.SequenceNumber, rtpPkt.Payload);
-        };
-
-        pc.onicecandidate += async candidate =>
-        {
-            if (candidate is null) return;
-            var json = JsonSerializer.Serialize(new IceCandidatePayload(candidate.candidate, candidate.sdpMid, candidate.sdpMLineIndex));
-            await _hub.SendVoiceSignalAsync(remoteUserId, channelId, "ice-candidate", json);
-        };
-
-        pc.onconnectionstatechange += async state =>
-        {
-            // WindowsAudioEndPoint implements IAudioSource (mic) and IAudioSink
-            // (speaker) as two independent lifecycles - StartAudio()/CloseAudio()
-            // only starts/stops the microphone capture, and StartAudioSink()/
-            // CloseAudioSink() only starts/stops speaker playback. Both are
-            // required; calling only StartAudio() (as this used to) means the
-            // mic captures and sends fine but nothing ever plays back - RTP
-            // flows correctly in both directions with no errors, just silence.
-            // OpusAudioEndPoint keeps the same two-lifecycle shape.
-            if (state == RTCPeerConnectionState.connected)
-            {
-                await audioEndPoint.StartAudio();
-                await audioEndPoint.StartAudioSink();
-                PeerConnected?.Invoke(remoteUserId);
-            }
-            else if (state is RTCPeerConnectionState.closed or RTCPeerConnectionState.failed or RTCPeerConnectionState.disconnected)
-            {
-                await audioEndPoint.CloseAudio();
-                await audioEndPoint.CloseAudioSink();
-                PeerDisconnected?.Invoke(remoteUserId);
-            }
-        };
-
-        _peerConnections[remoteUserId] = pc;
-        _audioEndPoints[remoteUserId] = audioEndPoint;
-
-        if (isInitiator)
-        {
-            var offer = pc.createOffer();
-            await pc.setLocalDescription(offer);
-            await _hub.SendVoiceSignalAsync(remoteUserId, channelId, "offer", offer.sdp);
+            await _room.DisconnectAsync();
+            _room.Dispose();
+            _room = null;
         }
     }
 
@@ -445,17 +362,9 @@ public class VoiceService : IDisposable
         }
     }
 
-    private async Task ClosePeerAsync(int userId)
+    public async ValueTask DisposeAsync()
     {
-        if (_peerConnections.TryRemove(userId, out var pc))
-            pc.close();
-
-        if (_audioEndPoints.TryRemove(userId, out var audioEndPoint))
-        {
-            await audioEndPoint.CloseAudio();
-            await audioEndPoint.CloseAudioSink();
-        }
-
-        PeerDisconnected?.Invoke(userId);
+        await LeaveAllAsync();
+        _hotkey.Dispose();
     }
 }
