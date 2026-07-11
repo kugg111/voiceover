@@ -31,9 +31,11 @@
             <Button x:Name="CheckForUpdateButton" Content="Check for Update" Height="40" Margin="0,0,0,10"
                     Click="CheckForUpdateButton_Click"
                     Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}" BorderThickness="0"/>
-            <Button x:Name="InstallUpdateButton" Content="Install Update" Height="40"
+            <Button x:Name="InstallUpdateButton" Content="Install Update" Height="40" Margin="0,0,0,10"
                     Click="InstallUpdateButton_Click" Visibility="Collapsed" FontWeight="Bold"
                     Background="{StaticResource AccentBlurple}" Foreground="White" BorderThickness="0"/>
+            <ProgressBar x:Name="UpdateProgressBar" Height="6" Minimum="0" Maximum="100"
+                         Visibility="Collapsed" Foreground="{StaticResource AccentBlurple}"/>
         </StackPanel>
     </Grid>
 </ui:FluentWindow>

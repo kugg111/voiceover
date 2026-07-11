@@ -6,7 +6,7 @@
 #define MyAppName "Voiceover"
 ; Must move together with Client.csproj's <Version> and Server/Site/downloads/
 ; version.json on every release, see REDEPLOY.txt.
-#define MyAppVersion "1.0.1"
+#define MyAppVersion "1.0.2"
 #define MyAppPublisher "Voiceover"
 #define MyAppExeName "Client.exe"
 #define MyAppURL "https://voiceover-production-c32a.up.railway.app/"

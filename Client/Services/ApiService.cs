@@ -208,4 +208,30 @@ public class ApiService
             return null;
         }
     }
+
+    // Streams the response straight to disk instead of buffering the whole
+    // ~80MB build in memory, and reports 0-100 progress off the response's
+    // Content-Length (absent on a chunked/compressed response, in which
+    // case progress just never fires - the caller's own status text still
+    // shows something is happening).
+    public async Task DownloadFileAsync(string url, string destinationPath, IProgress<double>? progress = null)
+    {
+        using var response = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+        response.EnsureSuccessStatusCode();
+
+        var totalBytes = response.Content.Headers.ContentLength;
+        await using var contentStream = await response.Content.ReadAsStreamAsync();
+        await using var fileStream = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true);
+
+        var buffer = new byte[81920];
+        long totalRead = 0;
+        int read;
+        while ((read = await contentStream.ReadAsync(buffer)) > 0)
+        {
+            await fileStream.WriteAsync(buffer.AsMemory(0, read));
+            totalRead += read;
+            if (totalBytes is > 0)
+                progress?.Report(100.0 * totalRead / totalBytes.Value);
+        }
+    }
 }

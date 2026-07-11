@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Windows;
 using Voiceover.Client.Models;
 using Voiceover.Client.Services;
@@ -18,7 +17,8 @@ public partial class SettingsWindow : FluentWindow
         _api = api;
         _voice = voice;
 
-        UpdateStatusText.Text = $"You're on version {UpdateChecker.CurrentVersion}.";
+        UpdateStatusText.Text = $"You're on version {UpdateChecker.CurrentVersion}" +
+            (UpdateChecker.IsInstalled ? " (installed)." : " (portable).");
     }
 
     private void VoiceSettingsButton_Click(object sender, RoutedEventArgs e)
@@ -56,15 +56,37 @@ public partial class SettingsWindow : FluentWindow
     }
 
     // Only ever fires from this explicit click - checking for an update
-    // never downloads or installs anything on its own.
-    private void InstallUpdateButton_Click(object sender, RoutedEventArgs e)
+    // never downloads or installs anything on its own. Downloads in the
+    // background and swaps the files in place (see SelfUpdateService)
+    // instead of just opening a browser tab - the app closes itself once
+    // the download finishes so the swap can happen, then relaunches on its
+    // own, so there's nothing further to do here on success.
+    private async void InstallUpdateButton_Click(object sender, RoutedEventArgs e)
     {
         if (_latestVersion is null) return;
 
-        // Hands off to the browser/shell rather than silently self-replacing
-        // a running single-file exe - that needs a separate updater process,
-        // real extra complexity not worth it for a friends-scale app.
-        var url = UpdateChecker.IsInstalled ? _latestVersion.InstallerUrl : _latestVersion.PortableUrl;
-        Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        InstallUpdateButton.IsEnabled = false;
+        CheckForUpdateButton.IsEnabled = false;
+        UpdateProgressBar.Value = 0;
+        UpdateProgressBar.Visibility = Visibility.Visible;
+        UpdateStatusText.Text = "Downloading update...";
+
+        var progress = new Progress<double>(percent =>
+        {
+            UpdateProgressBar.Value = percent;
+            UpdateStatusText.Text = $"Downloading update... {percent:F0}%";
+        });
+
+        try
+        {
+            await SelfUpdateService.DownloadAndApplyAsync(_api, _latestVersion.PortableUrl, progress);
+        }
+        catch (Exception ex)
+        {
+            UpdateStatusText.Text = $"Update failed: {ex.Message}";
+            InstallUpdateButton.IsEnabled = true;
+            CheckForUpdateButton.IsEnabled = true;
+            UpdateProgressBar.Visibility = Visibility.Collapsed;
+        }
     }
 }
