@@ -31,19 +31,28 @@ public class OpusAudioEndPoint : IAudioSource, IAudioSink, IDisposable
     // keeps loud passages from clipping/crackling once boosted.
     public static float MicGain { get; set; } = 4.0f;
 
+    // volatile because these are written from the UI thread (mute button /
+    // settings checkbox) and read from the NAudio capture callback thread
+    // on every frame - a stale read would just be a one-frame (20ms) delay
+    // in practice, but there's no reason to rely on that.
+    private static volatile bool _micMuted;
+    private static volatile bool _noiseSuppressionEnabled = true;
+
     // Static rather than per-instance because a mesh voice call creates one
     // OpusAudioEndPoint (and one independent mic capture stream) per remote
     // peer - muting has to silence all of them at once, not just whichever
     // one happened to be created first.
-    public static bool MicMuted { get; set; }
+    public static bool MicMuted { get => _micMuted; set => _micMuted = value; }
 
     // Boosting a quiet mic 4x also boosts everything else picked up by it -
     // breathing, keyboard clatter, room hum. A gate is a blunt but cheap
-    // fix: below the threshold, treat it as noise and zero the frame instead
-    // of sending it. Toggleable because a gate can occasionally clip the
-    // start of a soft word, which some people would rather live without.
-    public static bool NoiseSuppressionEnabled { get; set; } = true;
-    public static float NoiseGateThreshold { get; set; } = 700f;
+    // fix: below the threshold, attenuate instead of transmitting it at
+    // full volume. Toggleable because a gate can still clip the start of a
+    // soft word for some voices/mics, which some people would rather live
+    // without. Attenuates rather than hard-mutes below the threshold (see
+    // ApplyNoiseGate) so a misjudged quiet word is muffled, not deleted.
+    public static bool NoiseSuppressionEnabled { get => _noiseSuppressionEnabled; set => _noiseSuppressionEnabled = value; }
+    public static float NoiseGateThreshold { get; set; } = 400f;
 
     // RFC 7587: dynamic payload type, 48kHz clock, "2" channels declared in
     // the SDP regardless of the actual (mono) stream content, FEC hinted.
@@ -78,7 +87,7 @@ public class OpusAudioEndPoint : IAudioSource, IAudioSink, IDisposable
     // drops back down, so it doesn't chop the trailing edge of a word.
     private bool _gateOpen;
     private DateTime _gateLastLoudUtc = DateTime.MinValue;
-    private static readonly TimeSpan GateHangover = TimeSpan.FromMilliseconds(300);
+    private static readonly TimeSpan GateHangover = TimeSpan.FromMilliseconds(600);
 
     // --- jitter buffer (playback side) ---
     // Frames can arrive out of order or with uneven timing over UDP; decoding
@@ -258,11 +267,15 @@ public class OpusAudioEndPoint : IAudioSource, IAudioSink, IDisposable
         }
     }
 
+    // How much a "closed" gate turns the signal down rather than muting it
+    // outright - a misjudged quiet word ends up muffled instead of deleted,
+    // which matters because a single fixed RMS threshold can't perfectly
+    // separate noise from speech for every voice/mic (quiet speakers) or
+    // catch every trailing consonant as a word ends (fast speech).
+    private const float GateAttenuation = 0.2f;
+
     // Simple RMS threshold gate with hangover, run on the post-gain frame
-    // (so it's judging the same signal that's about to be sent). Below the
-    // threshold and past the hangover window, the frame is silenced instead
-    // of transmitted - this is what actually stops breathing/room noise from
-    // going out once the mic is boosted, rather than just making it louder.
+    // (so it's judging the same signal that's about to be sent).
     private void ApplyNoiseGate(short[] pcm)
     {
         if (!NoiseSuppressionEnabled) return;
@@ -283,13 +296,37 @@ public class OpusAudioEndPoint : IAudioSource, IAudioSink, IDisposable
         }
 
         if (!_gateOpen)
-            Array.Clear(pcm, 0, pcm.Length);
+        {
+            for (int i = 0; i < pcm.Length; i++)
+                pcm[i] = (short)(pcm[i] * GateAttenuation);
+        }
     }
 
     public void SubmitEncodedFrame(ushort sequenceNumber, byte[] encodedAudio)
     {
         lock (_jitterLock)
         {
+            if (_playbackStarted)
+            {
+                // A big forward gap means the sender paused for a while
+                // (e.g. they muted, rather than a handful of packets being
+                // reordered or lost) - _nextPlaySeq is still sitting back
+                // where playback left off. Left alone, it would crawl
+                // forward one PLC-concealed frame per 20ms tick to "catch
+                // up", and every genuinely new frame arriving in the
+                // meantime would pile up in the buffer; once that hit
+                // JitterMaxFrames the guard below would drop every frame
+                // after it, so playback could never actually catch up and
+                // stayed silent/stuck for the rest of the call. Resync
+                // straight to just before this frame instead of crawling.
+                int gap = (short)(sequenceNumber - _nextPlaySeq);
+                if (gap > JitterMaxFrames)
+                {
+                    _jitterBuffer.Clear();
+                    _nextPlaySeq = (ushort)(sequenceNumber - JitterTargetFrames);
+                }
+            }
+
             if (_jitterBuffer.Count >= JitterMaxFrames)
             {
                 // The peer is either wildly out of order or we've stalled -
