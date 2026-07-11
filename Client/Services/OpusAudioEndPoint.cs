@@ -2,6 +2,7 @@ using Concentus;
 using Concentus.Enums;
 using NAudio.Wave;
 using SIPSorceryMedia.Abstractions;
+using SoundFlow.Extensions.WebRtc.Apm;
 
 namespace Voiceover.Client.Services;
 
@@ -53,14 +54,12 @@ public class OpusAudioEndPoint : IAudioSource, IAudioSink, IDisposable
     public static bool Deafened { get => _deafened; set => _deafened = value; }
 
     // Boosting a quiet mic 4x also boosts everything else picked up by it -
-    // breathing, keyboard clatter, room hum. A gate is a blunt but cheap
-    // fix: below the threshold, attenuate instead of transmitting it at
-    // full volume. Toggleable because a gate can still clip the start of a
-    // soft word for some voices/mics, which some people would rather live
-    // without. Attenuates rather than hard-mutes below the threshold (see
-    // ApplyNoiseGate) so a misjudged quiet word is muffled, not deleted.
+    // breathing, keyboard clatter, room hum. Runs Google's real WebRTC noise
+    // suppression (see ApplyNoiseSuppression) rather than a blunt RMS
+    // threshold gate - toggleable for the same reason a gate was: no single
+    // setting is right for every mic/voice, some people would rather have
+    // the raw signal.
     public static bool NoiseSuppressionEnabled { get => _noiseSuppressionEnabled; set => _noiseSuppressionEnabled = value; }
-    public static float NoiseGateThreshold { get; set; } = 400f;
 
     // RFC 7587: dynamic payload type, 48kHz clock, "2" channels declared in
     // the SDP regardless of the actual (mono) stream content, FEC hinted.
@@ -97,13 +96,25 @@ public class OpusAudioEndPoint : IAudioSource, IAudioSink, IDisposable
     // endpoint instances).
     public float PlaybackVolume { get; set; } = 1.0f;
 
-    // --- noise gate (capture side) ---
-    // Hysteresis via hangover, same shape as VoiceService's speaking-hangover
-    // logic: once the gate opens it stays open for a bit after the level
-    // drops back down, so it doesn't chop the trailing edge of a word.
-    private bool _gateOpen;
-    private DateTime _gateLastLoudUtc = DateTime.MinValue;
-    private static readonly TimeSpan GateHangover = TimeSpan.FromMilliseconds(600);
+    // --- noise suppression (capture side) ---
+    // Real WebRTC APM, not a hand-rolled gate - see ApplyNoiseSuppression.
+    // Per-instance (like _encoder/_decoder) rather than static/shared, since
+    // each instance owns its own independent mic capture stream and the
+    // APM's noise-floor learning is meaningful per-stream, not global.
+    private AudioProcessingModule? _apm;
+    private ApmConfig? _apmConfig;
+
+    // WebRTC APM processes fixed 10ms frames regardless of the caller's own
+    // framing (AudioProcessingModule.GetFrameSize(48000) == 480) - half of
+    // this class's own 20ms/960-sample frame, so each frame needs two calls.
+    // Buffers are reused across calls rather than allocated per frame, same
+    // reasoning as _encodeBuffer below.
+    private const int ApmFrameSamples = 480;
+    private readonly float[] _apmInput = new float[ApmFrameSamples];
+    private readonly float[] _apmOutput = new float[ApmFrameSamples];
+    private readonly float[][] _apmInputChannels;
+    private readonly float[][] _apmOutputChannels;
+    private static readonly StreamConfig ApmStreamConfig = new(SampleRate, Channels);
 
     // --- jitter buffer (playback side) ---
     // Frames can arrive out of order or with uneven timing over UDP; decoding
@@ -134,6 +145,8 @@ public class OpusAudioEndPoint : IAudioSource, IAudioSink, IDisposable
     {
         _outputDeviceIndex = outputDeviceIndex;
         _inputDeviceIndex = inputDeviceIndex;
+        _apmInputChannels = new[] { _apmInput };
+        _apmOutputChannels = new[] { _apmOutput };
 
         InitCapture();
         InitPlayback();
@@ -183,6 +196,13 @@ public class OpusAudioEndPoint : IAudioSource, IAudioSink, IDisposable
         _encoder.SignalType = OpusSignal.OPUS_SIGNAL_VOICE;
         _encoder.UseInbandFEC = true;      // lets the decoder recover some lost packets from the next one
         _encoder.PacketLossPercent = 10;
+
+        _apm = new AudioProcessingModule();
+        _apm.Initialize();
+        _apmConfig = new ApmConfig();
+        _apmConfig.SetNoiseSuppression(true, NoiseSuppressionLevel.High);
+        _apmConfig.SetHighPassFilter(true); // cuts low-frequency rumble (desk thumps, mic handling) below speech range
+        _apm.ApplyConfig(_apmConfig);
 
         _waveIn = new WaveInEvent
         {
@@ -242,8 +262,12 @@ public class OpusAudioEndPoint : IAudioSource, IAudioSink, IDisposable
             var frame = _captureAccumulator.GetRange(0, SamplesPerFrame).ToArray();
             _captureAccumulator.RemoveRange(0, SamplesPerFrame);
 
+            // Runs on the raw captured signal, before gain - the APM's noise
+            // modelling is calibrated for normal mic input levels, and
+            // boosting first would distort the noise floor it's trying to
+            // characterize.
+            ApplyNoiseSuppression(frame);
             ApplyGain(frame, MicGain);
-            ApplyNoiseGate(frame);
 
             int encodedLength;
             try
@@ -283,54 +307,27 @@ public class OpusAudioEndPoint : IAudioSource, IAudioSink, IDisposable
         }
     }
 
-    // How much a "closed" gate turns the signal down rather than muting it
-    // outright - a misjudged quiet word ends up muffled instead of deleted,
-    // which matters because a single fixed RMS threshold can't perfectly
-    // separate noise from speech for every voice/mic (quiet speakers) or
-    // catch every trailing consonant as a word ends (fast speech).
-    private const float GateAttenuation = 0.1f;
-
-    // A keyboard click is a single ~20ms broadband transient, not a
-    // sustained sound - it crosses the RMS threshold for one frame and then
-    // drops back down, whereas real speech keeps its level up across
-    // several consecutive frames. Requiring the gate to see this many
-    // consecutive loud frames before actually opening means an isolated
-    // click never gets through, while a spoken word (which easily clears
-    // 40ms) only loses its very first couple of milliseconds.
-    private const int GateOpenConfirmFrames = 2;
-    private int _consecutiveLoudFrames;
-
-    // Simple RMS threshold gate with hangover, run on the post-gain frame
-    // (so it's judging the same signal that's about to be sent).
-    private void ApplyNoiseGate(short[] pcm)
+    // Runs the real WebRTC noise suppressor over the frame in place. The APM
+    // works in fixed 480-sample (10ms) chunks regardless of the caller's own
+    // framing, so this class's 960-sample (20ms) frame is processed as two
+    // consecutive halves. Unlike the old RMS-threshold gate this doesn't
+    // just judge "loud or not" and attenuate everything below a cutoff - it
+    // has an actual spectral noise model, so it can distinguish steady-state
+    // noise (fans, hum) and transients (a keyboard click) from speech
+    // instead of gating on volume alone.
+    private void ApplyNoiseSuppression(short[] pcm)
     {
-        if (!NoiseSuppressionEnabled) return;
+        if (!NoiseSuppressionEnabled || _apm is null) return;
 
-        long sumSquares = 0;
-        foreach (var s in pcm) sumSquares += (long)s * s;
-        var rms = Math.Sqrt(sumSquares / (double)pcm.Length);
+        for (int offset = 0; offset < pcm.Length; offset += ApmFrameSamples)
+        {
+            for (int i = 0; i < ApmFrameSamples; i++)
+                _apmInput[i] = pcm[offset + i] / (float)short.MaxValue;
 
-        var now = DateTime.UtcNow;
-        if (rms >= NoiseGateThreshold)
-        {
-            _consecutiveLoudFrames++;
-            if (_consecutiveLoudFrames >= GateOpenConfirmFrames)
-            {
-                _gateOpen = true;
-                _gateLastLoudUtc = now;
-            }
-        }
-        else
-        {
-            _consecutiveLoudFrames = 0;
-            if (now - _gateLastLoudUtc > GateHangover)
-                _gateOpen = false;
-        }
+            _apm.ProcessStream(_apmInputChannels, ApmStreamConfig, ApmStreamConfig, _apmOutputChannels);
 
-        if (!_gateOpen)
-        {
-            for (int i = 0; i < pcm.Length; i++)
-                pcm[i] = (short)(pcm[i] * GateAttenuation);
+            for (int i = 0; i < ApmFrameSamples; i++)
+                pcm[offset + i] = (short)Math.Clamp(_apmOutput[i] * short.MaxValue, short.MinValue, short.MaxValue);
         }
     }
 
@@ -469,6 +466,10 @@ public class OpusAudioEndPoint : IAudioSource, IAudioSink, IDisposable
             }
             (_encoder as IDisposable)?.Dispose();
             _encoder = null;
+            _apmConfig?.Dispose();
+            _apmConfig = null;
+            _apm?.Dispose();
+            _apm = null;
         }
         return Task.CompletedTask;
     }
