@@ -13,15 +13,19 @@ public class VoicePresenceService
     // ServerId is stored alongside ChannelId so OnDisconnectedAsync - which only
     // has the connectionId, no way to ask the disconnecting client which server
     // it was viewing - can still know which server-presence group to notify.
-    private record Entry(int ChannelId, int ServerId, int UserId, string Username);
+    private record Entry(int ChannelId, int ServerId, int UserId, string Username, string? AvatarUrl);
 
     private readonly ConcurrentDictionary<string, Entry> _connections = new();
 
     // Returns the roster that existed before this connection joined, then adds it.
-    public List<VoiceParticipant> Join(string connectionId, int channelId, int serverId, int userId, string username)
+    // AvatarUrl is cached here at join-time (same as Username already was) rather
+    // than looked up fresh on every roster read - a changed avatar won't show up
+    // in an existing voice session until the next join, same staleness tradeoff
+    // the cached username already has.
+    public List<VoiceParticipant> Join(string connectionId, int channelId, int serverId, int userId, string username, string? avatarUrl)
     {
         var existing = GetRoster(channelId);
-        _connections[connectionId] = new Entry(channelId, serverId, userId, username);
+        _connections[connectionId] = new Entry(channelId, serverId, userId, username, avatarUrl);
         return existing;
     }
 
@@ -40,6 +44,6 @@ public class VoicePresenceService
     public List<VoiceParticipant> GetRoster(int channelId) =>
         _connections.Values
             .Where(e => e.ChannelId == channelId)
-            .Select(e => new VoiceParticipant(e.UserId, e.Username))
+            .Select(e => new VoiceParticipant(e.UserId, e.Username, e.AvatarUrl))
             .ToList();
 }

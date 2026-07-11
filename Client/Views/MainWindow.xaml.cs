@@ -16,13 +16,15 @@ namespace Voiceover.Client.Views;
 public class ServerListItem
 {
     public int Id { get; set; }
-    public string Initial { get; set; } = "?";
+    public string Name { get; set; } = string.Empty;
+    public string? IconUrl { get; set; }
 }
 
 public class VoiceMemberItem : INotifyPropertyChanged
 {
     public int UserId { get; set; }
     public string Username { get; set; } = string.Empty;
+    public string? AvatarUrl { get; set; }
 
     // A volume slider only makes sense for someone else's audio, not your
     // own - set once at construction (see everywhere Members.Add happens).
@@ -111,6 +113,7 @@ public class ChannelListItem : INotifyPropertyChanged
 public class MessageListItem
 {
     public string AuthorUsername { get; set; } = string.Empty;
+    public string? AuthorAvatarUrl { get; set; }
     public string Content { get; set; } = string.Empty;
     public string TimeDisplay { get; set; } = string.Empty;
     public string? AttachmentUrl { get; set; }
@@ -124,12 +127,14 @@ public class UserSearchResultItem
 {
     public int Id { get; set; }
     public string Username { get; set; } = string.Empty;
+    public string? AvatarUrl { get; set; }
 }
 
 public class DmConversationListItem : INotifyPropertyChanged
 {
     public int OtherUserId { get; set; }
     public string OtherUsername { get; set; } = string.Empty;
+    public string? OtherUserAvatarUrl { get; set; }
     public string LastMessagePreview { get; set; } = string.Empty;
     public DateTime LastMessageAt { get; set; }
 
@@ -157,6 +162,7 @@ public class FriendListItem
 {
     public int UserId { get; set; }
     public string Username { get; set; } = string.Empty;
+    public string? AvatarUrl { get; set; }
 }
 
 public class FriendRequestListItem
@@ -164,6 +170,7 @@ public class FriendRequestListItem
     public int Id { get; set; }
     public int UserId { get; set; }
     public string Username { get; set; } = string.Empty;
+    public string? AvatarUrl { get; set; }
     public string Direction { get; set; } = string.Empty; // "Incoming" or "Outgoing"
 
     public Visibility AcceptButtonVisibility => Direction == "Incoming" ? Visibility.Visible : Visibility.Collapsed;
@@ -205,6 +212,9 @@ public partial class MainWindow : FluentWindow
     {
         InitializeComponent();
         _api = api;
+
+        MyAvatarView.DisplayName = _api.CurrentUsername ?? "?";
+        MyAvatarView.ImageUrl = _api.CurrentUserAvatarUrl;
 
         ServerList.ItemsSource = _servers;
         TextChannelList.ItemsSource = _textChannels;
@@ -269,7 +279,7 @@ public partial class MainWindow : FluentWindow
         var servers = await _api.GetMyServersAsync();
         _servers.Clear();
         foreach (var s in servers)
-            _servers.Add(new ServerListItem { Id = s.Id, Initial = s.Name.Length > 0 ? s.Name[0].ToString().ToUpper() : "?" });
+            _servers.Add(new ServerListItem { Id = s.Id, Name = s.Name, IconUrl = App.ResolveUploadUrl(s.IconUrl) });
 
         // Join every text channel's SignalR group across every server the
         // user belongs to - not just whichever one happens to be open right
@@ -351,7 +361,7 @@ public partial class MainWindow : FluentWindow
             foreach (var member in roster.Members)
             {
                 if (!item.Members.Any(m => m.UserId == member.UserId))
-                    item.Members.Add(new VoiceMemberItem { UserId = member.UserId, Username = member.Username, IsSelf = member.UserId == _api.CurrentUserId });
+                    item.Members.Add(new VoiceMemberItem { UserId = member.UserId, Username = member.Username, AvatarUrl = App.ResolveUploadUrl(member.AvatarUrl), IsSelf = member.UserId == _api.CurrentUserId });
             }
         }
     }
@@ -402,9 +412,9 @@ public partial class MainWindow : FluentWindow
         {
             item.Members.Clear();
             foreach (var m in existingMembers)
-                item.Members.Add(new VoiceMemberItem { UserId = m.UserId, Username = m.Username, IsSelf = m.UserId == _api.CurrentUserId });
+                item.Members.Add(new VoiceMemberItem { UserId = m.UserId, Username = m.Username, AvatarUrl = App.ResolveUploadUrl(m.AvatarUrl), IsSelf = m.UserId == _api.CurrentUserId });
             if (_api.CurrentUserId is not null && _api.CurrentUsername is not null)
-                item.Members.Add(new VoiceMemberItem { UserId = _api.CurrentUserId.Value, Username = _api.CurrentUsername, IsSelf = true });
+                item.Members.Add(new VoiceMemberItem { UserId = _api.CurrentUserId.Value, Username = _api.CurrentUsername, AvatarUrl = _api.CurrentUserAvatarUrl, IsSelf = true });
         }
 
         LeaveVoiceButton.Visibility = Visibility.Visible;
@@ -490,6 +500,38 @@ public partial class MainWindow : FluentWindow
             }
             await LoadServersAsync();
         }
+    }
+
+    private async void ChangeServerIconMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.MenuItem { Tag: int serverId }) return;
+
+        var dialog = new OpenFileDialog
+        {
+            Filter = "Images (*.png;*.jpg;*.jpeg;*.gif;*.webp)|*.png;*.jpg;*.jpeg;*.gif;*.webp"
+        };
+        if (dialog.ShowDialog() != true) return;
+
+        var (upload, uploadError) = await _api.UploadFileAsync(dialog.FileName);
+        if (upload is null)
+        {
+            MessageBox.Show(uploadError ?? "Upload failed.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        // The server enforces owner-only itself (403) rather than this
+        // client hiding/disabling the menu item for non-owners - simpler,
+        // and matches how kick/role-change already just surface the
+        // server's rejection instead of duplicating the permission logic.
+        var updated = await _api.SetServerIconAsync(serverId, upload.Url);
+        if (updated is null)
+        {
+            MessageBox.Show("Could not change the server icon (you may lack permission - only the owner can).",
+                "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        await LoadServersAsync();
     }
 
     private async void AddChannelMenuItem_Click(object sender, RoutedEventArgs e)
@@ -595,6 +637,37 @@ public partial class MainWindow : FluentWindow
         MuteMicButton.Visibility = Visibility.Collapsed;
         DeafenButton.Visibility = Visibility.Collapsed;
         ConnectionStatusText.Text = "";
+    }
+
+    private async void MyAvatarButton_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Filter = "Images (*.png;*.jpg;*.jpeg;*.gif;*.webp)|*.png;*.jpg;*.jpeg;*.gif;*.webp"
+        };
+        if (dialog.ShowDialog() != true) return;
+
+        var (upload, uploadError) = await _api.UploadFileAsync(dialog.FileName);
+        if (upload is null)
+        {
+            MessageBox.Show(uploadError ?? "Upload failed.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        if (!await _api.SetMyAvatarAsync(upload.Url))
+        {
+            MessageBox.Show("Could not set your avatar.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        // Update the cached value directly rather than a full reload - it's
+        // consumed everywhere else too (voice member self-row, message
+        // authoring, etc.) via App.ResolveUploadUrl at each construction
+        // site, so this alone doesn't retroactively fix already-rendered
+        // rows, only ones built from here on (new messages, rejoining
+        // voice) - acceptable, matches how other live state here behaves.
+        _api.CurrentUserAvatarUrl = App.ResolveUploadUrl(upload.Url);
+        MyAvatarView.ImageUrl = _api.CurrentUserAvatarUrl;
     }
 
     private void LogOutButton_Click(object sender, RoutedEventArgs e)
@@ -730,13 +803,14 @@ public partial class MainWindow : FluentWindow
         var results = await _api.SearchUsersAsync(query);
         _dmSearchResults.Clear();
         foreach (var r in results.Where(r => r.Id != _api.CurrentUserId))
-            _dmSearchResults.Add(new UserSearchResultItem { Id = r.Id, Username = r.Username });
+            _dmSearchResults.Add(new UserSearchResultItem { Id = r.Id, Username = r.Username, AvatarUrl = App.ResolveUploadUrl(r.AvatarUrl) });
     }
 
     private async void DmSearchResult_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { Tag: int userId } button) return;
-        await OpenDmConversation(userId, (button.Content as string) ?? "user");
+        var username = (button.DataContext as UserSearchResultItem)?.Username ?? "user";
+        await OpenDmConversation(userId, username);
     }
 
     private async void DmConversation_Click(object sender, RoutedEventArgs e)
@@ -772,7 +846,7 @@ public partial class MainWindow : FluentWindow
         var friends = await _api.GetFriendsAsync();
         _friends.Clear();
         foreach (var f in friends)
-            _friends.Add(new FriendListItem { UserId = f.UserId, Username = f.Username });
+            _friends.Add(new FriendListItem { UserId = f.UserId, Username = f.Username, AvatarUrl = App.ResolveUploadUrl(f.AvatarUrl) });
     }
 
     private async Task LoadFriendRequestsAsync()
@@ -780,7 +854,7 @@ public partial class MainWindow : FluentWindow
         var requests = await _api.GetFriendRequestsAsync();
         _friendRequests.Clear();
         foreach (var r in requests)
-            _friendRequests.Add(new FriendRequestListItem { Id = r.Id, UserId = r.UserId, Username = r.Username, Direction = r.Direction });
+            _friendRequests.Add(new FriendRequestListItem { Id = r.Id, UserId = r.UserId, Username = r.Username, Direction = r.Direction, AvatarUrl = App.ResolveUploadUrl(r.AvatarUrl) });
     }
 
     private async void FriendSearchBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
@@ -799,7 +873,7 @@ public partial class MainWindow : FluentWindow
 
         _friendSearchResults.Clear();
         foreach (var r in results.Where(r => r.Id != _api.CurrentUserId && !existingIds.Contains(r.Id)))
-            _friendSearchResults.Add(new UserSearchResultItem { Id = r.Id, Username = r.Username });
+            _friendSearchResults.Add(new UserSearchResultItem { Id = r.Id, Username = r.Username, AvatarUrl = App.ResolveUploadUrl(r.AvatarUrl) });
     }
 
     private async void AddFriendButton_Click(object sender, RoutedEventArgs e)
@@ -839,7 +913,8 @@ public partial class MainWindow : FluentWindow
     private async void FriendListItem_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { Tag: int userId } button) return;
-        await OpenDmConversation(userId, (button.Content as string) ?? "user");
+        var username = (button.DataContext as FriendListItem)?.Username ?? "user";
+        await OpenDmConversation(userId, username);
     }
 
     private void OnFriendRequestReceived(int friendshipId, int requesterId, string requesterUsername)
@@ -884,10 +959,10 @@ public partial class MainWindow : FluentWindow
 
         if (dialog.ShowDialog() != true) return;
 
-        var upload = await _api.UploadFileAsync(dialog.FileName);
+        var (upload, error) = await _api.UploadFileAsync(dialog.FileName);
         if (upload is null)
         {
-            MessageBox.Show("Upload failed.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(error ?? "Upload failed.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
         }
 
@@ -981,6 +1056,7 @@ public partial class MainWindow : FluentWindow
             {
                 OtherUserId = otherUserId,
                 OtherUsername = existing?.OtherUsername ?? _dmActiveUsername ?? "user",
+                OtherUserAvatarUrl = existing?.OtherUserAvatarUrl,
                 LastMessagePreview = dm.Content,
                 LastMessageAt = dm.SentAt,
                 HasUnread = !isOwnMessage && !isCurrentlyOpen
@@ -993,6 +1069,13 @@ public partial class MainWindow : FluentWindow
             }
 
             UpdateMessagesUnreadBadge();
+
+            if (!isOwnMessage && !IsActive)
+            {
+                NotificationService.PlayMessageSound();
+                var preview = dm.Content.Length > 80 ? dm.Content[..80] + "…" : dm.Content;
+                NotificationService.ShowToast($"{existing?.OtherUsername ?? _dmActiveUsername ?? "New message"}", preview);
+            }
         });
     }
 
@@ -1030,13 +1113,22 @@ public partial class MainWindow : FluentWindow
         Dispatcher.Invoke(() => ConnectionStatusText.Text = "");
     }
 
-    private void OnVoiceUserJoined(int userId, string username, int channelId)
+    private void OnVoiceUserJoined(int userId, string username, int channelId, string? avatarUrl)
     {
         Dispatcher.Invoke(() =>
         {
             var item = FindVoiceChannelItem(channelId);
             if (item is not null && !item.Members.Any(m => m.UserId == userId))
-                item.Members.Add(new VoiceMemberItem { UserId = userId, Username = username, IsSelf = userId == _api.CurrentUserId });
+                item.Members.Add(new VoiceMemberItem { UserId = userId, Username = username, AvatarUrl = App.ResolveUploadUrl(avatarUrl), IsSelf = userId == _api.CurrentUserId });
+
+            // Only for the voice channel you're actually sitting in, and
+            // only when you're not looking at the app - the icon/roster
+            // update above already covers "looking at it" case.
+            if (channelId == _currentVoiceChannelId && userId != _api.CurrentUserId && !IsActive)
+            {
+                NotificationService.PlayVoiceJoinSound();
+                NotificationService.ShowToast("Voice", $"{username} joined voice");
+            }
         });
     }
 
@@ -1047,6 +1139,12 @@ public partial class MainWindow : FluentWindow
             var item = FindVoiceChannelItem(channelId);
             var existing = item?.Members.FirstOrDefault(m => m.UserId == userId);
             if (item is not null && existing is not null) item.Members.Remove(existing);
+
+            if (channelId == _currentVoiceChannelId && userId != _api.CurrentUserId && !IsActive)
+            {
+                NotificationService.PlayVoiceLeaveSound();
+                NotificationService.ShowToast("Voice", $"{username} left voice");
+            }
         });
     }
 
@@ -1151,14 +1249,22 @@ public partial class MainWindow : FluentWindow
     private static MessageListItem ToListItem(MessageResponse m) => new()
     {
         AuthorUsername = m.AuthorUsername,
+        AuthorAvatarUrl = App.ResolveUploadUrl(m.AuthorAvatarUrl),
         Content = m.Content,
         TimeDisplay = m.SentAt.ToLocalTime().ToString("t"),
         AttachmentUrl = m.AttachmentUrl
     };
 
+    // DirectMessageResponse doesn't carry a sender avatar (1:1 DMs - you
+    // already know who you're talking to, unlike a multi-sender channel) -
+    // pull it from context instead: our own cached avatar, or the open
+    // conversation's cached one for the other side.
     private MessageListItem ToDmListItem(DirectMessageResponse dm) => new()
     {
         AuthorUsername = dm.SenderId == _api.CurrentUserId ? "You" : (_dmActiveUsername ?? "them"),
+        AuthorAvatarUrl = dm.SenderId == _api.CurrentUserId
+            ? _api.CurrentUserAvatarUrl
+            : _dmConversations.FirstOrDefault(c => c.OtherUserId == _dmActiveUserId)?.OtherUserAvatarUrl,
         Content = dm.Content,
         TimeDisplay = dm.SentAt.ToLocalTime().ToString("t")
     };
@@ -1167,6 +1273,7 @@ public partial class MainWindow : FluentWindow
     {
         OtherUserId = c.OtherUserId,
         OtherUsername = c.OtherUsername,
+        OtherUserAvatarUrl = App.ResolveUploadUrl(c.OtherUserAvatarUrl),
         LastMessagePreview = c.LastMessagePreview,
         LastMessageAt = c.LastMessageAt
     };

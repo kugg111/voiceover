@@ -52,7 +52,13 @@ public class ChatHub : Hub
         _db.Messages.Add(message);
         await _db.SaveChangesAsync();
 
-        var response = new MessageResponse(message.Id, message.Content, channelId, CurrentUserId, CurrentUsername, message.SentAt, message.AttachmentUrl);
+        // CurrentUserId/CurrentUsername come straight from JWT claims, but
+        // avatar isn't (and shouldn't be - it changes more often than a
+        // token gets refreshed) baked into the token, so it needs an actual
+        // lookup here rather than reusing those.
+        var authorAvatarUrl = (await _db.Users.FindAsync(CurrentUserId))?.AvatarUrl;
+
+        var response = new MessageResponse(message.Id, message.Content, channelId, CurrentUserId, CurrentUsername, message.SentAt, message.AttachmentUrl, authorAvatarUrl);
         await Clients.Group(GroupName(channelId)).SendAsync("ReceiveMessage", response);
     }
 
@@ -97,15 +103,16 @@ public class ChatHub : Hub
         var channel = await _db.Channels.FirstOrDefaultAsync(c => c.Id == channelId);
         if (channel is null) return new List<VoiceParticipant>();
 
-        var existingMembers = _voicePresence.Join(Context.ConnectionId, channelId, channel.GuildServerId, CurrentUserId, CurrentUsername);
+        var avatarUrl = (await _db.Users.FindAsync(CurrentUserId))?.AvatarUrl;
+        var existingMembers = _voicePresence.Join(Context.ConnectionId, channelId, channel.GuildServerId, CurrentUserId, CurrentUsername, avatarUrl);
         await Groups.AddToGroupAsync(Context.ConnectionId, VoiceGroupName(channelId));
-        await Clients.OthersInGroup(VoiceGroupName(channelId)).SendAsync("VoiceUserJoined", CurrentUserId, CurrentUsername, channelId);
+        await Clients.OthersInGroup(VoiceGroupName(channelId)).SendAsync("VoiceUserJoined", CurrentUserId, CurrentUsername, channelId, avatarUrl);
 
         // Also notify anyone just viewing the server (not necessarily in this
         // voice channel) so their sidebar roster updates live too. Someone in
         // both groups gets this event twice - harmless, the client-side
         // handler is idempotent (checks the member isn't already listed).
-        await Clients.OthersInGroup(ServerPresenceGroupName(channel.GuildServerId)).SendAsync("VoiceUserJoined", CurrentUserId, CurrentUsername, channelId);
+        await Clients.OthersInGroup(ServerPresenceGroupName(channel.GuildServerId)).SendAsync("VoiceUserJoined", CurrentUserId, CurrentUsername, channelId, avatarUrl);
 
         return existingMembers;
     }

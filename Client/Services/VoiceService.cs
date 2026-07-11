@@ -260,7 +260,7 @@ public class VoiceService : IDisposable
     // Called when someone (including a peer already in the channel when we
     // join) shows up. To avoid both sides sending competing offers, only the
     // participant with the lower user id initiates.
-    private async void OnVoiceUserJoined(int userId, string username, int channelId)
+    private async void OnVoiceUserJoined(int userId, string username, int channelId, string? avatarUrl)
     {
         if (channelId != _activeChannelId || userId == _selfUserId) return;
         if (_peerConnections.ContainsKey(userId)) return;

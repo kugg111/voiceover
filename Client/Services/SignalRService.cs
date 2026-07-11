@@ -10,7 +10,7 @@ public class SignalRService
     public event Action<MessageResponse>? MessageReceived;
     public event Action<DirectMessageResponse>? DirectMessageReceived;
     public event Action<string, int>? UserTyping;
-    public event Action<int, string, int>? VoiceUserJoined;
+    public event Action<int, string, int, string?>? VoiceUserJoined;
     public event Action<int, string, int>? VoiceUserLeft;
     public event Action<int, int, string, string>? VoiceSignalReceived;
     public event Action<int, int, bool>? UserSpeaking;
@@ -38,7 +38,7 @@ public class SignalRService
         _connection.On<MessageResponse>("ReceiveMessage", msg => MessageReceived?.Invoke(msg));
         _connection.On<DirectMessageResponse>("ReceiveDirectMessage", dm => DirectMessageReceived?.Invoke(dm));
         _connection.On<string, int>("UserTyping", (username, channelId) => UserTyping?.Invoke(username, channelId));
-        _connection.On<int, string, int>("VoiceUserJoined", (userId, username, channelId) => VoiceUserJoined?.Invoke(userId, username, channelId));
+        _connection.On<int, string, int, string?>("VoiceUserJoined", (userId, username, channelId, avatarUrl) => VoiceUserJoined?.Invoke(userId, username, channelId, avatarUrl));
         _connection.On<int, string, int>("VoiceUserLeft", (userId, username, channelId) => VoiceUserLeft?.Invoke(userId, username, channelId));
         _connection.On<int, int, string, string>("VoiceSignal", (fromUserId, channelId, signalType, payload) => VoiceSignalReceived?.Invoke(fromUserId, channelId, signalType, payload));
         _connection.On<int, int, bool>("UserSpeaking", (userId, channelId, isSpeaking) => UserSpeaking?.Invoke(userId, channelId, isSpeaking));

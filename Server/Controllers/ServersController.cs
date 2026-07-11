@@ -9,7 +9,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Voiceover.Server.Controllers;
 
-public record MemberResponse(int UserId, string Username, string Role);
+public record MemberResponse(int UserId, string Username, string Role, string? AvatarUrl = null);
 public record ChangeRoleRequest(string Role); // "Member" or "Moderator"
 
 [ApiController]
@@ -87,7 +87,7 @@ public class ServersController : ControllerBase
 
         var members = await _db.Memberships
             .Where(m => m.GuildServerId == serverId)
-            .Select(m => new MemberResponse(m.UserId, m.User!.Username, m.Role.ToString()))
+            .Select(m => new MemberResponse(m.UserId, m.User!.Username, m.Role.ToString(), m.User!.AvatarUrl))
             .ToListAsync();
 
         return Ok(members);
@@ -121,6 +121,24 @@ public class ServersController : ControllerBase
         _db.Memberships.Remove(target);
         await _db.SaveChangesAsync();
         return Ok();
+    }
+
+    // Url is expected to already be an uploaded file's path (from POST
+    // /api/upload). Owner-only, same as the rest of a server's identity
+    // (renaming isn't even exposed yet) - matches real Discord where
+    // moderators can manage members/channels but not the server's branding.
+    [HttpPut("{serverId}/icon")]
+    public async Task<ActionResult<GuildServerResponse>> SetIcon(int serverId, SetIconRequest req)
+    {
+        if (!await _permissions.IsOwnerAsync(CurrentUserId, serverId))
+            return Forbid();
+
+        var server = await _db.GuildServers.FirstOrDefaultAsync(s => s.Id == serverId);
+        if (server is null) return NotFound();
+
+        server.IconUrl = req.Url;
+        await _db.SaveChangesAsync();
+        return Ok(new GuildServerResponse(server.Id, server.Name, server.IconUrl, server.OwnerId));
     }
 
     [HttpPut("{serverId}/members/{userId}/role")]

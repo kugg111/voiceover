@@ -35,16 +35,21 @@ public class DirectMessagesController : ControllerBase
             .ToList();
 
         var otherUserIds = latestPerOtherUser.Select(c => c.OtherUserId).ToList();
-        var usernames = await _db.Users
+        var userInfo = await _db.Users
             .Where(u => otherUserIds.Contains(u.Id))
-            .ToDictionaryAsync(u => u.Id, u => u.Username);
+            .ToDictionaryAsync(u => u.Id, u => new { u.Username, u.AvatarUrl });
 
         var result = latestPerOtherUser
-            .Select(c => new DmConversationResponse(
-                c.OtherUserId,
-                usernames.GetValueOrDefault(c.OtherUserId, "Unknown"),
-                c.Last.Content,
-                c.Last.SentAt))
+            .Select(c =>
+            {
+                var info = userInfo.GetValueOrDefault(c.OtherUserId);
+                return new DmConversationResponse(
+                    c.OtherUserId,
+                    info?.Username ?? "Unknown",
+                    c.Last.Content,
+                    c.Last.SentAt,
+                    info?.AvatarUrl);
+            })
             .OrderByDescending(c => c.LastMessageAt)
             .ToList();
 

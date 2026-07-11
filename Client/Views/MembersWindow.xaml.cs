@@ -3,6 +3,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using Voiceover.Client.Services;
+using Voiceover.Client;
 using Wpf.Ui.Controls;
 using MessageBox = System.Windows.MessageBox;
 using MessageBoxButton = System.Windows.MessageBoxButton;
@@ -15,6 +16,7 @@ public class MemberListItem
 {
     public int UserId { get; set; }
     public string Username { get; set; } = string.Empty;
+    public string? AvatarUrl { get; set; }
     public string Role { get; set; } = string.Empty;
     public bool CanChangeRole { get; set; }
 
@@ -62,6 +64,7 @@ public partial class MembersWindow : FluentWindow
             {
                 UserId = m.UserId,
                 Username = m.Username,
+                AvatarUrl = App.ResolveUploadUrl(m.AvatarUrl),
                 Role = m.Role,
                 CanChangeRole = isOwner && m.Role != "Owner"
             });

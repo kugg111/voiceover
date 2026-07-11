@@ -1,0 +1,11 @@
+<UserControl x:Class="Voiceover.Client.Views.AvatarView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid x:Name="RootGrid" Width="32" Height="32">
+        <Ellipse x:Name="FallbackCircle" Width="32" Height="32"/>
+        <TextBlock x:Name="InitialText" Foreground="White" FontWeight="Bold"
+                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+        <Image x:Name="AvatarImage" Stretch="UniformToFill" Visibility="Collapsed"
+               ImageFailed="AvatarImage_ImageFailed"/>
+    </Grid>
+</UserControl>
