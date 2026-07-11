@@ -353,7 +353,27 @@ public partial class MainWindow : FluentWindow
         }
 
         LeaveVoiceButton.Visibility = Visibility.Visible;
+        MuteMicButton.Visibility = Visibility.Visible;
+        UpdateMuteButtonVisual();
         ConnectionStatusText.Text = "Joined voice";
+    }
+
+    private void MuteMicButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_voice is null) return;
+
+        _voice.IsMicMuted = !_voice.IsMicMuted;
+        UpdateMuteButtonVisual();
+    }
+
+    private void UpdateMuteButtonVisual()
+    {
+        if (_voice is null) return;
+
+        MuteMicButton.Content = _voice.IsMicMuted ? "🔇 Unmute Mic" : "🎤 Mute Mic";
+        MuteMicButton.Foreground = _voice.IsMicMuted
+            ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xF2, 0x3F, 0x42))
+            : (System.Windows.Media.Brush)FindResource("TextMuted");
     }
 
     private async void AddServerButton_Click(object sender, RoutedEventArgs e)
@@ -471,6 +491,7 @@ public partial class MainWindow : FluentWindow
             await _voice.LeaveAllAsync();
             _currentVoiceChannelId = null;
             LeaveVoiceButton.Visibility = Visibility.Collapsed;
+            MuteMicButton.Visibility = Visibility.Collapsed;
             ConnectionStatusText.Text = "";
         }
 
@@ -486,6 +507,7 @@ public partial class MainWindow : FluentWindow
         FindVoiceChannelItem(_currentVoiceChannelId.Value)?.Members.Clear();
         _currentVoiceChannelId = null;
         LeaveVoiceButton.Visibility = Visibility.Collapsed;
+        MuteMicButton.Visibility = Visibility.Collapsed;
         ConnectionStatusText.Text = "";
     }
 

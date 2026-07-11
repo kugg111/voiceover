@@ -1,9 +1,7 @@
 using System.Collections.Concurrent;
 using System.Linq;
 using System.Text.Json;
-using SIPSorcery.Media;
 using SIPSorcery.Net;
-using SIPSorceryMedia.Windows;
 
 namespace Voiceover.Client.Services;
 
@@ -21,7 +19,7 @@ public class VoiceService
     // Fine for small voice channels (a handful of people); doesn't scale to large
     // rooms the way a media server (SFU) would, but keeps the server dumb/simple.
     private readonly ConcurrentDictionary<int, RTCPeerConnection> _peerConnections = new();
-    private readonly ConcurrentDictionary<int, WindowsAudioEndPoint> _audioEndPoints = new();
+    private readonly ConcurrentDictionary<int, OpusAudioEndPoint> _audioEndPoints = new();
 
     private static readonly RTCConfiguration IceConfig = new()
     {
@@ -49,6 +47,36 @@ public class VoiceService
     // next channel join/new peer rather than hot-swapping an active call.
     public int? InputDeviceIndex { get; set; }
     public int? OutputDeviceIndex { get; set; }
+
+    // Forwards to OpusAudioEndPoint's static flags - static because a mesh
+    // call has one audio endpoint per remote peer, and muting/gating needs
+    // to apply to the mic across all of them at once. Exposed here so the UI
+    // only has to know about VoiceService, not the audio endpoint internals.
+    public bool IsMicMuted
+    {
+        get => OpusAudioEndPoint.MicMuted;
+        set
+        {
+            OpusAudioEndPoint.MicMuted = value;
+
+            // Muting stops raw-sample callbacks entirely (see
+            // OpusAudioEndPoint.OnMicDataAvailable), so the hangover-based
+            // "still speaking" expiry in OnLocalRawSample never gets a
+            // chance to run - clear it immediately instead of leaving the
+            // speaking indicator stuck on until it happens to time out.
+            if (value && _localIsSpeaking)
+            {
+                _localIsSpeaking = false;
+                LocalSpeakingChanged?.Invoke(false);
+            }
+        }
+    }
+
+    public bool NoiseSuppressionEnabled
+    {
+        get => OpusAudioEndPoint.NoiseSuppressionEnabled;
+        set => OpusAudioEndPoint.NoiseSuppressionEnabled = value;
+    }
 
     public VoiceService(SignalRService hub, int selfUserId)
     {
@@ -139,57 +167,35 @@ public class VoiceService
 
     private async Task CreatePeerConnectionAsync(int remoteUserId, int channelId, bool isInitiator)
     {
-        // Opus (48kHz, adaptive bitrate, forward error correction) instead of the
-        // default PCMU (8kHz mono, fixed 64kbps "phone line" quality) - PCMU was
-        // the initial choice because it's the one format guaranteed to exist with
-        // zero setup, but it's a large step down from what Discord/Opus sounds
-        // like. Concentus (a pure C# Opus implementation) is already a transitive
-        // SIPSorcery dependency, so this needs no new package.
-        var encoder = new AudioEncoder(includeLinearFormats: false, includeOpus: true);
-        var audioEndPoint = new WindowsAudioEndPoint(encoder, OutputDeviceIndex ?? -1, InputDeviceIndex ?? -1);
-        audioEndPoint.RestrictFormats(f => f.Codec == SIPSorceryMedia.Abstractions.AudioCodecsEnum.OPUS);
+        // OpusAudioEndPoint talks to NAudio and Concentus (Opus) directly rather
+        // than going through SIPSorceryMedia.Windows' WindowsAudioEndPoint - see
+        // its own comments for why (mic gain, jitter buffer, an RTP timestamp
+        // bug in the upstream Encode/Decode duration handling).
+        var audioEndPoint = new OpusAudioEndPoint(OutputDeviceIndex ?? -1, InputDeviceIndex ?? -1);
 
         var pc = new RTCPeerConnection(IceConfig);
 
         var audioTrack = new MediaStreamTrack(audioEndPoint.GetAudioSourceFormats(), MediaStreamStatusEnum.SendRecv);
         pc.addTrack(audioTrack);
 
-        // Negotiated format applies to both directions since we're using the
-        // same codec (Opus) for send and receive.
-        SIPSorceryMedia.Abstractions.AudioFormat? negotiatedFormat = null;
-        pc.OnAudioFormatsNegotiated += formats =>
-        {
-            negotiatedFormat = formats.First();
-            audioEndPoint.SetAudioSourceFormat(negotiatedFormat.Value);
-            audioEndPoint.SetAudioSinkFormat(negotiatedFormat.Value);
-        };
-
         // Mic -> outgoing RTP.
         audioEndPoint.OnAudioSourceEncodedSample += pc.SendAudio;
 
-        // Mic -> local speaking-indicator detection. Decodes our own outgoing
-        // Opus frames back to PCM (via the same encoder instance) to measure
-        // volume, rather than using OnAudioSourceRawSample - that event is
-        // marked obsolete in this SIPSorceryMedia version with "the audio
-        // source only generates encoded samples", meaning it likely never
-        // fires at all. Every peer connection captures the mic independently
-        // (see the mesh note above), so this runs once per peer - harmless
-        // since the state machine below only raises LocalSpeakingChanged on
-        // transitions.
-        audioEndPoint.OnAudioSourceEncodedSample += (durationRtpUnits, sample) =>
-            OnLocalEncodedSample(encoder, negotiatedFormat, sample);
+        // Mic -> local speaking-indicator detection, straight off the raw PCM
+        // OpusAudioEndPoint already captures (post-gain, so this reacts the
+        // same way the encoded audio actually sounds) - no need to decode our
+        // own outgoing Opus frames back to PCM just to measure volume.
+        audioEndPoint.OnAudioSourceRawSample += (samplingRate, durationMs, pcm) => OnLocalRawSample(pcm);
 
-        // Incoming RTP -> speaker. GotAudioRtp is obsolete in this SIPSorceryMedia
-        // version in favor of GotEncodedMediaFrame, which takes the decoded RTP
-        // fields pre-packaged instead of the raw header.
+        // Incoming RTP -> jitter-buffered decode -> speaker. Feeds the real RTP
+        // sequence number through so OpusAudioEndPoint can reorder/conceal
+        // properly, unlike the IAudioSink.GotEncodedMediaFrame interface method
+        // (used by the old WindowsAudioEndPoint path) which has no sequence
+        // number to work with.
         pc.OnRtpPacketReceived += (remoteEndPoint, mediaType, rtpPkt) =>
         {
-            if (mediaType == SDPMediaTypesEnum.audio && negotiatedFormat is not null)
-            {
-                var frame = new SIPSorceryMedia.Abstractions.EncodedAudioFrame(
-                    0, negotiatedFormat.Value, rtpPkt.Header.Timestamp, rtpPkt.Payload);
-                audioEndPoint.GotEncodedMediaFrame(frame);
-            }
+            if (mediaType == SDPMediaTypesEnum.audio)
+                audioEndPoint.SubmitEncodedFrame((ushort)rtpPkt.Header.SequenceNumber, rtpPkt.Payload);
         };
 
         pc.onicecandidate += async candidate =>
@@ -208,6 +214,7 @@ public class VoiceService
             // required; calling only StartAudio() (as this used to) means the
             // mic captures and sends fine but nothing ever plays back - RTP
             // flows correctly in both directions with no errors, just silence.
+            // OpusAudioEndPoint keeps the same two-lifecycle shape.
             if (state == RTCPeerConnectionState.connected)
             {
                 await audioEndPoint.StartAudio();
@@ -233,19 +240,8 @@ public class VoiceService
         }
     }
 
-    private void OnLocalEncodedSample(AudioEncoder encoder, SIPSorceryMedia.Abstractions.AudioFormat? format, byte[] encoded)
+    private void OnLocalRawSample(short[] pcm)
     {
-        if (format is null || encoded.Length == 0) return;
-
-        short[] pcm;
-        try
-        {
-            pcm = encoder.DecodeAudio(encoded, format.Value);
-        }
-        catch
-        {
-            return; // e.g. format negotiation hasn't completed yet
-        }
         if (pcm.Length == 0) return;
 
         long sumSquares = 0;

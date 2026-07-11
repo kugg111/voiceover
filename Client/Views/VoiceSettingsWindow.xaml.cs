@@ -25,6 +25,8 @@ public partial class VoiceSettingsWindow : FluentWindow
         InputDeviceCombo.SelectedItem = inputs.FirstOrDefault(d => d.Index == _voice.InputDeviceIndex) ?? inputs.FirstOrDefault();
         OutputDeviceCombo.SelectedItem = outputs.FirstOrDefault(d => d.Index == _voice.OutputDeviceIndex) ?? outputs.FirstOrDefault();
 
+        NoiseSuppressionCheck.IsChecked = _voice.NoiseSuppressionEnabled;
+
         _loaded = true;
     }
 
@@ -40,5 +42,11 @@ public partial class VoiceSettingsWindow : FluentWindow
         if (!_loaded) return;
         if (OutputDeviceCombo.SelectedItem is AudioDevice device)
             _voice.OutputDeviceIndex = device.Index;
+    }
+
+    private void NoiseSuppressionCheck_Changed(object sender, RoutedEventArgs e)
+    {
+        if (!_loaded) return;
+        _voice.NoiseSuppressionEnabled = NoiseSuppressionCheck.IsChecked == true;
     }
 }
