@@ -22,7 +22,9 @@
   body {
     margin: 0;
     font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
-    background: var(--bg-darker);
+    background:
+      radial-gradient(ellipse 900px 500px at 50% -10%, rgba(88, 101, 242, 0.20), transparent 60%),
+      var(--bg-darker);
     color: var(--text-normal);
   }
 
@@ -153,6 +155,11 @@
     border: 1px solid var(--bg-sidebar);
     border-radius: 12px;
     padding: 24px;
+    transition: transform 0.15s ease, border-color 0.15s ease;
+  }
+  .feature:hover {
+    transform: translateY(-3px);
+    border-color: var(--accent);
   }
 
   .feature .icon { font-size: 26px; margin-bottom: 10px; }
@@ -185,7 +192,7 @@
 </header>
 
 <section class="hero">
-  <h1>A Discord-style app,<br>built from scratch.</h1>
+  <h1>Your people, your server,<br>your voice.</h1>
   <p class="tagline">Servers, text channels, direct messages, friends, and mesh voice chat — a lightweight desktop client for you and your friends.</p>
   <a class="download-btn" href="/downloads/Voiceover-Setup.exe" id="download-link">
     <span>⬇</span> Download for Windows
@@ -207,7 +214,7 @@
   <div class="feature">
     <div class="icon">🎙️</div>
     <h3>Voice chat</h3>
-    <p>Live voice channels with a speaking indicator, powered by real peer-to-peer WebRTC audio.</p>
+    <p>Live voice channels with mute, noise suppression, and a speaking indicator — real peer-to-peer WebRTC audio.</p>
   </div>
   <div class="feature">
     <div class="icon">✉️</div>

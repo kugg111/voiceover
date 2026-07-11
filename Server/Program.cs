@@ -104,6 +104,40 @@ using (var scope = app.Services.CreateScope())
 
 app.UseCors();
 
+// The app is also reachable at its Railway-assigned *.up.railway.app domain
+// (Railway needs that to work regardless - health checks, and it's the
+// fallback if the custom domain's DNS ever breaks). Browser visits to the
+// *website* on that domain get redirected to the canonical custom domain
+// instead of serving the same site at two different URLs. Skipped in dev
+// (no custom domain locally) and for API/hub/upload paths, since the WPF
+// client's requests (login, messages, SignalR, file uploads) stay pinned to
+// whichever host it was configured with - see App.HubUrl - and must get a
+// real response, not a redirect.
+const string CanonicalHost = "voiceover-app.hu";
+if (!app.Environment.IsDevelopment())
+{
+    app.Use(async (context, next) =>
+    {
+        var host = context.Request.Host.Host;
+        var path = context.Request.Path;
+        var isAppRequest = path.StartsWithSegments("/api")
+            || path.StartsWithSegments("/hubs")
+            || path.StartsWithSegments("/uploads");
+
+        var isCanonicalHost = host.Equals(CanonicalHost, StringComparison.OrdinalIgnoreCase)
+            || host.Equals($"www.{CanonicalHost}", StringComparison.OrdinalIgnoreCase);
+
+        if (!isAppRequest && !isCanonicalHost)
+        {
+            var target = $"https://{CanonicalHost}{path}{context.Request.QueryString}";
+            context.Response.Redirect(target, permanent: true);
+            return;
+        }
+
+        await next();
+    });
+}
+
 // Public landing page (Server/Site/) - a static download page for the
 // client build, served at the root path. Unlike wwwroot/uploads above,
 // this is committed to source control (it's app content, not user data).
