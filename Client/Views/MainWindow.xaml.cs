@@ -45,6 +45,36 @@ public class VoiceMemberItem : INotifyPropertyChanged
 
     public Visibility SpeakingDotVisibility => IsSpeaking ? Visibility.Visible : Visibility.Collapsed;
 
+    private bool _isMuted;
+    public bool IsMuted
+    {
+        get => _isMuted;
+        set
+        {
+            if (_isMuted == value) return;
+            _isMuted = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsMuted)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(MutedIconVisibility)));
+        }
+    }
+
+    public Visibility MutedIconVisibility => IsMuted ? Visibility.Visible : Visibility.Collapsed;
+
+    private bool _isDeafened;
+    public bool IsDeafened
+    {
+        get => _isDeafened;
+        set
+        {
+            if (_isDeafened == value) return;
+            _isDeafened = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsDeafened)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DeafenedIconVisibility)));
+        }
+    }
+
+    public Visibility DeafenedIconVisibility => IsDeafened ? Visibility.Visible : Visibility.Collapsed;
+
     // 0-200%, 100 = unchanged. Only local to this UI row/session - not
     // persisted, not sent to the server, matches how mute/deafen work too.
     public double Volume { get; set; } = 100;
@@ -192,6 +222,8 @@ public partial class MainWindow : FluentWindow
         _hub.VoiceUserJoined += OnVoiceUserJoined;
         _hub.VoiceUserLeft += OnVoiceUserLeft;
         _hub.UserSpeaking += OnUserSpeaking;
+        _hub.UserMuted += OnUserMuted;
+        _hub.UserDeafened += OnUserDeafened;
         _hub.FriendRequestReceived += OnFriendRequestReceived;
         _hub.FriendRequestAccepted += OnFriendRequestAccepted;
         _hub.Reconnecting += () => Dispatcher.Invoke(() => ConnectionStatusText.Text = "Reconnecting...");
@@ -223,7 +255,12 @@ public partial class MainWindow : FluentWindow
         // button - Voice Settings' input mode switch, the PTT/push-to-mute
         // hotkey - so this is the one place that keeps it in sync regardless
         // of where the change came from (see VoiceService.MicMutedChanged).
-        _voice.MicMutedChanged += _ => Dispatcher.Invoke(UpdateMuteButtonVisual);
+        _voice.MicMutedChanged += isMuted =>
+        {
+            Dispatcher.Invoke(UpdateMuteButtonVisual);
+            _ = OnLocalMutedChangedAsync(isMuted);
+        };
+        _voice.DeafenedChanged += isDeafened => _ = OnLocalDeafenedChangedAsync(isDeafened);
         await LoadServersAsync();
     }
 
@@ -1043,6 +1080,71 @@ public partial class MainWindow : FluentWindow
             var item = FindVoiceChannelItem(_currentVoiceChannelId.Value);
             var me = item?.Members.FirstOrDefault(m => m.UserId == _api.CurrentUserId.Value);
             if (me is not null) me.IsSpeaking = isSpeaking;
+        });
+    }
+
+    private void OnUserMuted(int userId, int channelId, bool isMuted)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            var item = FindVoiceChannelItem(channelId);
+            var member = item?.Members.FirstOrDefault(m => m.UserId == userId);
+            if (member is not null) member.IsMuted = isMuted;
+        });
+    }
+
+    private void OnUserDeafened(int userId, int channelId, bool isDeafened)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            var item = FindVoiceChannelItem(channelId);
+            var member = item?.Members.FirstOrDefault(m => m.UserId == userId);
+            if (member is not null) member.IsDeafened = isDeafened;
+        });
+    }
+
+    // Mirrors OnLocalSpeakingChangedAsync - broadcast to whoever else is in
+    // the channel, then reflect it on our own row too (the row for "you"
+    // needs the icon just as much as everyone else's).
+    private async Task OnLocalMutedChangedAsync(bool isMuted)
+    {
+        try
+        {
+            if (_currentVoiceChannelId.HasValue)
+                await _hub.SendMutedAsync(_currentVoiceChannelId.Value, isMuted);
+        }
+        catch
+        {
+            // Best-effort - a dropped mute-state update isn't worth surfacing an error for.
+        }
+
+        Dispatcher.Invoke(() =>
+        {
+            if (!_currentVoiceChannelId.HasValue || _api.CurrentUserId is null) return;
+            var item = FindVoiceChannelItem(_currentVoiceChannelId.Value);
+            var me = item?.Members.FirstOrDefault(m => m.UserId == _api.CurrentUserId.Value);
+            if (me is not null) me.IsMuted = isMuted;
+        });
+    }
+
+    private async Task OnLocalDeafenedChangedAsync(bool isDeafened)
+    {
+        try
+        {
+            if (_currentVoiceChannelId.HasValue)
+                await _hub.SendDeafenedAsync(_currentVoiceChannelId.Value, isDeafened);
+        }
+        catch
+        {
+            // Best-effort - a dropped deafen-state update isn't worth surfacing an error for.
+        }
+
+        Dispatcher.Invoke(() =>
+        {
+            if (!_currentVoiceChannelId.HasValue || _api.CurrentUserId is null) return;
+            var item = FindVoiceChannelItem(_currentVoiceChannelId.Value);
+            var me = item?.Members.FirstOrDefault(m => m.UserId == _api.CurrentUserId.Value);
+            if (me is not null) me.IsDeafened = isDeafened;
         });
     }
 

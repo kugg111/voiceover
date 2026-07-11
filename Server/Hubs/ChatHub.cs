@@ -141,6 +141,29 @@ public class ChatHub : Hub
             await Clients.OthersInGroup(ServerPresenceGroupName(serverId.Value)).SendAsync("UserSpeaking", CurrentUserId, channelId, isSpeaking);
     }
 
+    // Mirrors NotifySpeaking - same live-broadcast-only shape (not part of
+    // the roster snapshot GetVoiceRostersForServer returns), so someone who
+    // opens a voice channel after another participant already muted won't
+    // see the icon until that participant's mute state next changes. Same
+    // tradeoff the speaking indicator already accepts.
+    public async Task NotifyMuted(int channelId, bool isMuted)
+    {
+        await Clients.OthersInGroup(VoiceGroupName(channelId)).SendAsync("UserMuted", CurrentUserId, channelId, isMuted);
+
+        var serverId = _voicePresence.GetServerId(Context.ConnectionId);
+        if (serverId is not null)
+            await Clients.OthersInGroup(ServerPresenceGroupName(serverId.Value)).SendAsync("UserMuted", CurrentUserId, channelId, isMuted);
+    }
+
+    public async Task NotifyDeafened(int channelId, bool isDeafened)
+    {
+        await Clients.OthersInGroup(VoiceGroupName(channelId)).SendAsync("UserDeafened", CurrentUserId, channelId, isDeafened);
+
+        var serverId = _voicePresence.GetServerId(Context.ConnectionId);
+        if (serverId is not null)
+            await Clients.OthersInGroup(ServerPresenceGroupName(serverId.Value)).SendAsync("UserDeafened", CurrentUserId, channelId, isDeafened);
+    }
+
     // --- Server presence (joined whenever a client selects a server in the
     // UI, independent of the per-voice-channel group above) ---
 
