@@ -21,12 +21,12 @@
         <StackPanel Grid.Row="1" Margin="16">
         <TextBlock Text="Input Device (Microphone)" FontWeight="Bold"
                    Foreground="{StaticResource TextNormal}" Margin="0,0,0,6"/>
-        <ComboBox x:Name="InputDeviceCombo" Height="32" Margin="0,0,0,16"
+        <ComboBox x:Name="InputDeviceCombo" Height="44" FontSize="14" Margin="0,0,0,16"
                   DisplayMemberPath="Name" SelectionChanged="InputDeviceCombo_SelectionChanged"/>
 
         <TextBlock Text="Output Device (Speaker)" FontWeight="Bold"
                    Foreground="{StaticResource TextNormal}" Margin="0,0,0,6"/>
-        <ComboBox x:Name="OutputDeviceCombo" Height="32" Margin="0,0,0,16"
+        <ComboBox x:Name="OutputDeviceCombo" Height="44" FontSize="14" Margin="0,0,0,16"
                   DisplayMemberPath="Name" SelectionChanged="OutputDeviceCombo_SelectionChanged"/>
 
         <CheckBox x:Name="NoiseSuppressionCheck" Content="Noise suppression"
@@ -53,9 +53,10 @@
         <StackPanel x:Name="HotkeyPanel" Visibility="Collapsed">
             <TextBlock Text="Hotkey" FontWeight="Bold"
                        Foreground="{StaticResource TextNormal}" Margin="0,0,0,6"/>
-            <ComboBox x:Name="HotkeyCombo" Height="32" Margin="0,0,0,4"
-                      DisplayMemberPath="Name" SelectionChanged="HotkeyCombo_SelectionChanged"/>
-            <TextBlock Text="Works even while Voiceover isn't the focused window."
+            <Button x:Name="HotkeyRecordButton" Height="40" Margin="0,0,0,4"
+                    Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
+                    BorderThickness="0" Click="HotkeyRecordButton_Click"/>
+            <TextBlock Text="Click the button above, then press the key you want to use. Works even while Voiceover isn't the focused window - pick something you don't type often."
                        FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}"/>
         </StackPanel>
         </StackPanel>

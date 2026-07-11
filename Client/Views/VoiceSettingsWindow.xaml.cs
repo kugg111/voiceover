@@ -1,4 +1,5 @@
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -7,24 +8,11 @@ using Wpf.Ui.Controls;
 
 namespace Voiceover.Client.Views;
 
-public record HotkeyOption(string Name, Key Key);
-
 public partial class VoiceSettingsWindow : FluentWindow
 {
     private readonly VoiceService _voice;
     private bool _loaded;
-
-    // A fixed, curated list rather than a "press any key to bind" capture
-    // control - keeps this simple, and all of these are safe defaults that
-    // don't collide with normal typing or common app/OS shortcuts.
-    private static readonly List<HotkeyOption> HotkeyOptions = new()
-    {
-        new("Right Ctrl", Key.RightCtrl),
-        new("Right Shift", Key.RightShift),
-        new("Right Alt", Key.RightAlt),
-        new("Caps Lock", Key.CapsLock),
-        new("Left Alt", Key.LeftAlt),
-    };
+    private bool _recordingHotkey;
 
     public VoiceSettingsWindow(VoiceService voice)
     {
@@ -42,8 +30,8 @@ public partial class VoiceSettingsWindow : FluentWindow
 
         NoiseSuppressionCheck.IsChecked = _voice.NoiseSuppressionEnabled;
 
-        HotkeyCombo.ItemsSource = HotkeyOptions;
-        HotkeyCombo.SelectedItem = HotkeyOptions.FirstOrDefault(h => h.Key == _voice.PushToTalkKey) ?? HotkeyOptions[0];
+        HotkeyRecordButton.Content = FormatKeyName(_voice.PushToTalkKey);
+        PreviewKeyDown += VoiceSettingsWindow_PreviewKeyDown;
 
         switch (_voice.InputMode)
         {
@@ -96,10 +84,39 @@ public partial class VoiceSettingsWindow : FluentWindow
         HotkeyPanel.Visibility = _voice.InputMode == VoiceInputMode.VoiceActivity ? Visibility.Collapsed : Visibility.Visible;
     }
 
-    private void HotkeyCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void HotkeyRecordButton_Click(object sender, RoutedEventArgs e)
     {
-        if (!_loaded) return;
-        if (HotkeyCombo.SelectedItem is HotkeyOption option)
-            _voice.PushToTalkKey = option.Key;
+        _recordingHotkey = true;
+        HotkeyRecordButton.Content = "Press any key... (Esc to cancel)";
+        // The button itself already has focus from being clicked, but make
+        // sure the window (where PreviewKeyDown is handled) does too -
+        // otherwise a control that eats key input first could swallow it.
+        Focus();
     }
+
+    private void VoiceSettingsWindow_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (!_recordingHotkey) return;
+
+        // Alt-combinations arrive as Key.System with the real key in
+        // SystemKey instead - unwrap it so recording Right Alt et al. works.
+        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+
+        _recordingHotkey = false;
+        e.Handled = true;
+
+        if (key == Key.Escape)
+        {
+            HotkeyRecordButton.Content = FormatKeyName(_voice.PushToTalkKey);
+            return;
+        }
+
+        _voice.PushToTalkKey = key;
+        HotkeyRecordButton.Content = FormatKeyName(key);
+    }
+
+    // "RightCtrl" -> "Right Ctrl", "CapsLock" -> "Caps Lock", single
+    // letters/numbers/function keys pass through unchanged ("A", "F5").
+    private static string FormatKeyName(Key key) =>
+        Regex.Replace(key.ToString(), "(?<!^)([A-Z])", " $1");
 }
