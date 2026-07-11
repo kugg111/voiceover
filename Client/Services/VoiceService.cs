@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Linq;
 using System.Text.Json;
+using System.Windows.Input;
 using SIPSorcery.Net;
 
 namespace Voiceover.Client.Services;
@@ -8,7 +9,14 @@ namespace Voiceover.Client.Services;
 // Simple JSON payloads exchanged over the SignalR "VoiceSignal" relay.
 internal record IceCandidatePayload(string Candidate, string? SdpMid, int? SdpMLineIndex);
 
-public class VoiceService
+public enum VoiceInputMode
+{
+    VoiceActivity, // default: mic always "open"; the noise gate handles the rest
+    PushToTalk,    // muted at rest, open only while the hotkey is held
+    PushToMute     // open at rest, muted only while the hotkey is held
+}
+
+public class VoiceService : IDisposable
 {
     private readonly SignalRService _hub;
     private readonly int _selfUserId;
@@ -52,11 +60,21 @@ public class VoiceService
     // call has one audio endpoint per remote peer, and muting/gating needs
     // to apply to the mic across all of them at once. Exposed here so the UI
     // only has to know about VoiceService, not the audio endpoint internals.
+    // Mute can now change from several independent places - the mute
+    // button, deafen (couples to it), an input mode switch (PTT/push-to-
+    // mute reset it to their resting state), and the PTT/push-to-mute
+    // hotkey itself - so the UI can't just refresh its own button inline
+    // after calling this setter anymore. MicMutedChanged is the one place
+    // any of them can listen to stay in sync, instead of every caller
+    // needing to know about every button that displays mute state.
+    public event Action<bool>? MicMutedChanged;
+
     public bool IsMicMuted
     {
         get => OpusAudioEndPoint.MicMuted;
         set
         {
+            var changed = OpusAudioEndPoint.MicMuted != value;
             OpusAudioEndPoint.MicMuted = value;
 
             // Muting stops raw-sample callbacks entirely (see
@@ -69,6 +87,8 @@ public class VoiceService
                 _localIsSpeaking = false;
                 LocalSpeakingChanged?.Invoke(false);
             }
+
+            if (changed) MicMutedChanged?.Invoke(value);
         }
     }
 
@@ -76,6 +96,89 @@ public class VoiceService
     {
         get => OpusAudioEndPoint.NoiseSuppressionEnabled;
         set => OpusAudioEndPoint.NoiseSuppressionEnabled = value;
+    }
+
+    // Deafen always drives mute to match its own new state, same as
+    // Discord: turning deafen on also mutes (no point talking if you can't
+    // hear yourself), turning it off restores mic to whatever "at rest"
+    // means for the current input mode - PushToTalk's resting state is
+    // muted-until-held, so undeafening shouldn't silently force the mic
+    // open there. Muting on its own doesn't touch deafen - only the
+    // deafen control couples the two.
+    public bool IsDeafened
+    {
+        get => OpusAudioEndPoint.Deafened;
+        set
+        {
+            OpusAudioEndPoint.Deafened = value;
+            IsMicMuted = value || _inputMode == VoiceInputMode.PushToTalk;
+        }
+    }
+
+    private readonly GlobalHotkeyService _hotkey = new();
+    private VoiceInputMode _inputMode = VoiceInputMode.VoiceActivity;
+
+    public VoiceInputMode InputMode
+    {
+        get => _inputMode;
+        set
+        {
+            if (_inputMode == value) return;
+            _inputMode = value;
+            ApplyInputMode();
+        }
+    }
+
+    public Key PushToTalkKey
+    {
+        get => _hotkey.WatchedKey;
+        set => _hotkey.WatchedKey = value;
+    }
+
+    // Resets the mic to whatever "at rest" means for the newly selected
+    // mode, and only keeps the global hotkey hook installed while a push
+    // mode is actually in use - no reason to have a systemwide keyboard
+    // hook running for voice-activity mode, where it'd never be used.
+    private void ApplyInputMode()
+    {
+        _hotkey.Stop();
+
+        switch (_inputMode)
+        {
+            case VoiceInputMode.PushToTalk:
+                IsMicMuted = true;
+                _hotkey.Start();
+                break;
+            case VoiceInputMode.PushToMute:
+                IsMicMuted = false;
+                _hotkey.Start();
+                break;
+            default:
+                IsMicMuted = false;
+                break;
+        }
+    }
+
+    private void OnHotkeyDown()
+    {
+        if (_inputMode == VoiceInputMode.PushToTalk) IsMicMuted = false;
+        else if (_inputMode == VoiceInputMode.PushToMute) IsMicMuted = true;
+    }
+
+    private void OnHotkeyUp()
+    {
+        if (_inputMode == VoiceInputMode.PushToTalk) IsMicMuted = true;
+        else if (_inputMode == VoiceInputMode.PushToMute) IsMicMuted = false;
+    }
+
+    // Per-remote-peer volume (1.0 = unchanged). No-op for a userId that
+    // isn't currently connected - the slider only makes sense/exists for
+    // people you're actually in a call with, see MainWindow's voice member
+    // list.
+    public void SetRemoteVolume(int userId, float volume)
+    {
+        if (_audioEndPoints.TryGetValue(userId, out var endpoint))
+            endpoint.PlaybackVolume = volume;
     }
 
     public VoiceService(SignalRService hub, int selfUserId)
@@ -86,7 +189,12 @@ public class VoiceService
         _hub.VoiceUserJoined += OnVoiceUserJoined;
         _hub.VoiceUserLeft += OnVoiceUserLeft;
         _hub.VoiceSignalReceived += OnVoiceSignalReceived;
+
+        _hotkey.KeyDown += OnHotkeyDown;
+        _hotkey.KeyUp += OnHotkeyUp;
     }
+
+    public void Dispose() => _hotkey.Dispose();
 
     public void SetActiveChannel(int channelId) => _activeChannelId = channelId;
 
