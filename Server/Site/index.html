@@ -114,31 +114,38 @@
   }
   .download-secondary:hover { color: var(--text-normal); }
 
-  .screenshot-wrap {
-    max-width: 980px;
+  .gallery {
+    max-width: 1200px;
     margin: 48px auto 0;
     padding: 0 6vw;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
   }
 
-  .screenshot-wrap img {
+  .gallery figure {
+    margin: 0;
+  }
+
+  .gallery img {
     width: 100%;
     display: block;
     border-radius: 12px;
     border: 1px solid var(--bg-sidebar);
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+    transition: transform 0.15s ease, border-color 0.15s ease;
   }
 
-  .screenshot-placeholder {
-    width: 100%;
-    aspect-ratio: 16 / 9.3;
-    border-radius: 12px;
-    background: var(--bg-dark);
-    border: 1px solid var(--bg-sidebar);
-    display: flex;
-    align-items: center;
-    justify-content: center;
+  .gallery img:hover {
+    transform: translateY(-3px);
+    border-color: var(--accent);
+  }
+
+  .gallery figcaption {
+    margin-top: 10px;
+    font-size: 13px;
     color: var(--text-muted);
-    font-size: 14px;
+    text-align: center;
   }
 
   .features {
@@ -148,6 +155,23 @@
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
     gap: 24px;
+  }
+
+  /* Ultra-wide monitors (21:9 and similar): the 1100px-ish content caps
+     above are deliberately narrow for text readability, but on a much
+     wider viewport that leaves the page looking small and lost in the
+     middle. Give the wider, more visual sections (gallery, features) more
+     room to breathe instead of just floating in empty space; keep the
+     hero/footer text columns closer to their normal width since long text
+     lines get harder to read, not easier, as they get wider. */
+  @media (min-width: 1800px) {
+    .gallery { max-width: 1900px; grid-template-columns: repeat(3, 1fr); }
+    .features { max-width: 1400px; }
+    .hero { max-width: 1300px; }
+  }
+
+  @media (max-width: 800px) {
+    .gallery { grid-template-columns: 1fr; }
   }
 
   .feature {
@@ -200,8 +224,19 @@
   <span class="platform-note">Windows 10/11 · Installer, no admin rights needed</span>
   <a class="download-secondary" href="/downloads/Voiceover-Client.zip">Prefer a ZIP instead? Download without the installer</a>
 
-  <div class="screenshot-wrap">
-    <img src="/images/app-screenshot.png" alt="Voiceover app screenshot" onerror="this.replaceWith(Object.assign(document.createElement('div'), {className: 'screenshot-placeholder', textContent: 'Screenshot coming soon'}))">
+  <div class="gallery">
+    <figure>
+      <img src="/images/gallery-chat.png" alt="Text channel with a conversation in Voiceover" loading="lazy">
+      <figcaption>Text channels</figcaption>
+    </figure>
+    <figure>
+      <img src="/images/gallery-voice.png" alt="Voice channel with two members connected, mute button visible" loading="lazy">
+      <figcaption>Voice chat with mute &amp; noise suppression</figcaption>
+    </figure>
+    <figure>
+      <img src="/images/gallery-friends.png" alt="Friends list showing an accepted friend" loading="lazy">
+      <figcaption>Friends</figcaption>
+    </figure>
   </div>
 </section>
 
