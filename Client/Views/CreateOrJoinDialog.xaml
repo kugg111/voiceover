@@ -1,0 +1,33 @@
+<ui:FluentWindow x:Class="Voiceover.Client.Views.CreateOrJoinDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+        Title="Add a Server" Height="260" Width="360"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource BgDark}"
+        ResizeMode="NoResize"
+        Icon="/Assets/AppIcon.png"
+        ExtendsContentIntoTitleBar="True"
+        WindowBackdropType="Mica"
+        WindowCornerPreference="Round">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <ui:TitleBar Title="Add a Server" Grid.Row="0" ShowMaximize="False"/>
+
+        <StackPanel Grid.Row="1" Margin="20">
+            <TextBlock Text="Create a new server, or join one you already have an invite code for."
+                       FontSize="12" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}" Margin="0,0,0,16"/>
+
+            <Button x:Name="CreateButton" Content="🖥️   Create a New Server" Height="48" Margin="0,0,0,12"
+                    Click="CreateButton_Click" HorizontalContentAlignment="Left" Padding="16,0" FontWeight="Bold"
+                    Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}" BorderThickness="0"/>
+            <Button x:Name="JoinButton" Content="🔗   Join with Invite Code" Height="48"
+                    Click="JoinButton_Click" HorizontalContentAlignment="Left" Padding="16,0" FontWeight="Bold"
+                    Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}" BorderThickness="0"/>
+        </StackPanel>
+    </Grid>
+</ui:FluentWindow>

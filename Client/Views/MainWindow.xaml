@@ -15,7 +15,11 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <ui:TitleBar Title="Voiceover" Grid.Row="0"/>
+        <ui:TitleBar Title="Voiceover" Grid.Row="0">
+            <ui:TitleBar.Icon>
+                <ui:ImageIcon Source="/Assets/AppIcon.png"/>
+            </ui:TitleBar.Icon>
+        </ui:TitleBar>
 
         <Grid Grid.Row="1">
         <Grid.ColumnDefinitions>
@@ -78,6 +82,10 @@
                         Background="Transparent" Foreground="#F23F42"
                         BorderThickness="0" HorizontalContentAlignment="Left" Visibility="Collapsed"
                         Click="LeaveVoiceButton_Click"/>
+                <Button DockPanel.Dock="Bottom" x:Name="DeafenButton" Content="🎧 Deafen" Margin="10,0,10,0"
+                        Background="Transparent" Foreground="{StaticResource TextMuted}"
+                        BorderThickness="0" HorizontalContentAlignment="Left" Visibility="Collapsed"
+                        Click="DeafenButton_Click"/>
                 <Button DockPanel.Dock="Bottom" x:Name="MuteMicButton" Content="🎤 Mute Mic" Margin="10,0,10,0"
                         Background="Transparent" Foreground="{StaticResource TextMuted}"
                         BorderThickness="0" HorizontalContentAlignment="Left" Visibility="Collapsed"
@@ -132,7 +140,7 @@
                                                 Background="Transparent" Foreground="{StaticResource TextMuted}"
                                                 BorderThickness="0"/>
                                     </Grid>
-                                    <ItemsControl ItemsSource="{Binding Members}" Margin="34,0,0,4" Focusable="False">
+                                    <ItemsControl ItemsSource="{Binding Members}" Margin="34,0,8,4" Focusable="False">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
                                                 <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
@@ -141,6 +149,21 @@
                                                     <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
                                                              Fill="{StaticResource AccentBlurple}"
                                                              Visibility="{Binding SpeakingDotVisibility}"/>
+                                                    <StackPanel.ContextMenu>
+                                                        <ContextMenu>
+                                                            <MenuItem Header="{Binding Username}" IsEnabled="False" FontWeight="Bold"
+                                                                      Visibility="{Binding VolumeSliderVisibility}"/>
+                                                            <MenuItem StaysOpenOnClick="True" Visibility="{Binding VolumeSliderVisibility}">
+                                                                <MenuItem.Header>
+                                                                    <Slider Width="150" Minimum="0" Maximum="200"
+                                                                            Value="{Binding Volume, Mode=TwoWay}"
+                                                                            ValueChanged="VoiceMemberVolumeSlider_ValueChanged"/>
+                                                                </MenuItem.Header>
+                                                            </MenuItem>
+                                                            <MenuItem Header="This is you" IsEnabled="False"
+                                                                      Visibility="{Binding SelfMenuItemVisibility}"/>
+                                                        </ContextMenu>
+                                                    </StackPanel.ContextMenu>
                                                 </StackPanel>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>

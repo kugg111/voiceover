@@ -37,12 +37,20 @@ public class OpusAudioEndPoint : IAudioSource, IAudioSink, IDisposable
     // in practice, but there's no reason to rely on that.
     private static volatile bool _micMuted;
     private static volatile bool _noiseSuppressionEnabled = true;
+    private static volatile bool _deafened;
 
     // Static rather than per-instance because a mesh voice call creates one
     // OpusAudioEndPoint (and one independent mic capture stream) per remote
     // peer - muting has to silence all of them at once, not just whichever
     // one happened to be created first.
     public static bool MicMuted { get => _micMuted; set => _micMuted = value; }
+
+    // Also static/global for the same reason - deafening stops you hearing
+    // *every* remote peer at once, not just whichever endpoint this is.
+    // Checked in PlaybackTick rather than skipping decode entirely, so the
+    // jitter buffer keeps draining at the normal cadence instead of piling
+    // up while deafened and needing to catch up the moment it's turned off.
+    public static bool Deafened { get => _deafened; set => _deafened = value; }
 
     // Boosting a quiet mic 4x also boosts everything else picked up by it -
     // breathing, keyboard clatter, room hum. A gate is a blunt but cheap
@@ -80,6 +88,14 @@ public class OpusAudioEndPoint : IAudioSource, IAudioSink, IDisposable
 
     private bool _sourceStarted;
     private bool _sinkStarted;
+
+    // Per-instance (not static like MicGain) because this is a mesh call -
+    // each remote peer gets its own OpusAudioEndPoint, and a volume slider
+    // is inherently "how loud is *this* person", not a global setting.
+    // 1.0 = unchanged; VoiceService.SetRemoteVolume is the public entry
+    // point (this class doesn't know user IDs, VoiceService maps those to
+    // endpoint instances).
+    public float PlaybackVolume { get; set; } = 1.0f;
 
     // --- noise gate (capture side) ---
     // Hysteresis via hangover, same shape as VoiceService's speaking-hangover
@@ -384,6 +400,17 @@ public class OpusAudioEndPoint : IAudioSource, IAudioSink, IDisposable
         }
 
         if (decoded <= 0) return;
+
+        // Still fully decoded above even while deafened, so the jitter
+        // buffer keeps draining at the normal cadence - only the final
+        // "send it to the speaker" step is skipped, rather than letting
+        // frames pile up and needing to catch up the moment deafen is
+        // turned back off (the same class of bug the jitter buffer's
+        // resync logic in SubmitEncodedFrame exists to avoid).
+        if (Deafened) return;
+
+        if (PlaybackVolume != 1.0f)
+            ApplyGain(pcm, PlaybackVolume);
 
         var bytes = new byte[decoded * Channels * 2];
         Buffer.BlockCopy(pcm, 0, bytes, 0, bytes.Length);

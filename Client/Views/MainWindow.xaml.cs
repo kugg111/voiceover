@@ -24,6 +24,12 @@ public class VoiceMemberItem : INotifyPropertyChanged
     public int UserId { get; set; }
     public string Username { get; set; } = string.Empty;
 
+    // A volume slider only makes sense for someone else's audio, not your
+    // own - set once at construction (see everywhere Members.Add happens).
+    public bool IsSelf { get; set; }
+    public Visibility VolumeSliderVisibility => IsSelf ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility SelfMenuItemVisibility => IsSelf ? Visibility.Visible : Visibility.Collapsed;
+
     private bool _isSpeaking;
     public bool IsSpeaking
     {
@@ -38,6 +44,10 @@ public class VoiceMemberItem : INotifyPropertyChanged
     }
 
     public Visibility SpeakingDotVisibility => IsSpeaking ? Visibility.Visible : Visibility.Collapsed;
+
+    // 0-200%, 100 = unchanged. Only local to this UI row/session - not
+    // persisted, not sent to the server, matches how mute/deafen work too.
+    public double Volume { get; set; } = 100;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 }
@@ -195,7 +205,10 @@ public partial class MainWindow : FluentWindow
     private async void MainWindow_Closed(object? sender, EventArgs e)
     {
         if (_voice is not null)
+        {
             await _voice.LeaveAllAsync();
+            _voice.Dispose();
+        }
         await _hub.DisconnectAsync();
     }
 
@@ -206,6 +219,11 @@ public partial class MainWindow : FluentWindow
         _voice.PeerConnected += userId => Dispatcher.Invoke(() => ConnectionStatusText.Text = "Voice connected");
         _voice.PeerDisconnected += userId => Dispatcher.Invoke(() => ConnectionStatusText.Text = "");
         _voice.LocalSpeakingChanged += isSpeaking => _ = OnLocalSpeakingChangedAsync(isSpeaking);
+        // Mute can change from places that don't have a handle on this
+        // button - Voice Settings' input mode switch, the PTT/push-to-mute
+        // hotkey - so this is the one place that keeps it in sync regardless
+        // of where the change came from (see VoiceService.MicMutedChanged).
+        _voice.MicMutedChanged += _ => Dispatcher.Invoke(UpdateMuteButtonVisual);
         await LoadServersAsync();
     }
 
@@ -296,7 +314,7 @@ public partial class MainWindow : FluentWindow
             foreach (var member in roster.Members)
             {
                 if (!item.Members.Any(m => m.UserId == member.UserId))
-                    item.Members.Add(new VoiceMemberItem { UserId = member.UserId, Username = member.Username });
+                    item.Members.Add(new VoiceMemberItem { UserId = member.UserId, Username = member.Username, IsSelf = member.UserId == _api.CurrentUserId });
             }
         }
     }
@@ -347,14 +365,16 @@ public partial class MainWindow : FluentWindow
         {
             item.Members.Clear();
             foreach (var m in existingMembers)
-                item.Members.Add(new VoiceMemberItem { UserId = m.UserId, Username = m.Username });
+                item.Members.Add(new VoiceMemberItem { UserId = m.UserId, Username = m.Username, IsSelf = m.UserId == _api.CurrentUserId });
             if (_api.CurrentUserId is not null && _api.CurrentUsername is not null)
-                item.Members.Add(new VoiceMemberItem { UserId = _api.CurrentUserId.Value, Username = _api.CurrentUsername });
+                item.Members.Add(new VoiceMemberItem { UserId = _api.CurrentUserId.Value, Username = _api.CurrentUsername, IsSelf = true });
         }
 
         LeaveVoiceButton.Visibility = Visibility.Visible;
         MuteMicButton.Visibility = Visibility.Visible;
+        DeafenButton.Visibility = Visibility.Visible;
         UpdateMuteButtonVisual();
+        UpdateDeafenButtonVisual();
         ConnectionStatusText.Text = "Joined voice";
     }
 
@@ -376,14 +396,41 @@ public partial class MainWindow : FluentWindow
             : (System.Windows.Media.Brush)FindResource("TextMuted");
     }
 
+    private void DeafenButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_voice is null) return;
+
+        // Deafen forces mute to match (see VoiceService.IsDeafened), so
+        // both buttons' visuals need refreshing, not just Deafen's own.
+        _voice.IsDeafened = !_voice.IsDeafened;
+        UpdateDeafenButtonVisual();
+        UpdateMuteButtonVisual();
+    }
+
+    private void UpdateDeafenButtonVisual()
+    {
+        if (_voice is null) return;
+
+        DeafenButton.Content = _voice.IsDeafened ? "🔇 Undeafen" : "🎧 Deafen";
+        DeafenButton.Foreground = _voice.IsDeafened
+            ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xF2, 0x3F, 0x42))
+            : (System.Windows.Media.Brush)FindResource("TextMuted");
+    }
+
+    private void VoiceMemberVolumeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_voice is null) return;
+        if (sender is not FrameworkElement { DataContext: VoiceMemberItem member }) return;
+
+        _voice.SetRemoteVolume(member.UserId, (float)(e.NewValue / 100.0));
+    }
+
     private async void AddServerButton_Click(object sender, RoutedEventArgs e)
     {
-        var choice = MessageBox.Show("Click Yes to create a new server, or No to join one with an invite code.",
-            "Create or Join?", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
+        var dialog = new CreateOrJoinDialog { Owner = this };
+        dialog.ShowDialog();
 
-        if (choice == MessageBoxResult.Cancel) return;
-
-        if (choice == MessageBoxResult.Yes)
+        if (dialog.CreateSelected == true)
         {
             var name = PromptForText("Server name:");
             if (string.IsNullOrWhiteSpace(name)) return;
@@ -392,7 +439,7 @@ public partial class MainWindow : FluentWindow
             if (server is not null)
                 await LoadServersAsync();
         }
-        else
+        else if (dialog.CreateSelected == false)
         {
             var code = PromptForText("Invite code:");
             if (string.IsNullOrWhiteSpace(code)) return;
@@ -492,6 +539,7 @@ public partial class MainWindow : FluentWindow
             _currentVoiceChannelId = null;
             LeaveVoiceButton.Visibility = Visibility.Collapsed;
             MuteMicButton.Visibility = Visibility.Collapsed;
+            DeafenButton.Visibility = Visibility.Collapsed;
             ConnectionStatusText.Text = "";
         }
 
@@ -508,6 +556,7 @@ public partial class MainWindow : FluentWindow
         _currentVoiceChannelId = null;
         LeaveVoiceButton.Visibility = Visibility.Collapsed;
         MuteMicButton.Visibility = Visibility.Collapsed;
+        DeafenButton.Visibility = Visibility.Collapsed;
         ConnectionStatusText.Text = "";
     }
 
@@ -950,7 +999,7 @@ public partial class MainWindow : FluentWindow
         {
             var item = FindVoiceChannelItem(channelId);
             if (item is not null && !item.Members.Any(m => m.UserId == userId))
-                item.Members.Add(new VoiceMemberItem { UserId = userId, Username = username });
+                item.Members.Add(new VoiceMemberItem { UserId = userId, Username = username, IsSelf = userId == _api.CurrentUserId });
         });
     }
 
