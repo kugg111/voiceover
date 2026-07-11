@@ -53,8 +53,19 @@ public class VoiceService : IDisposable
     // Device indices from AudioDeviceService (null/-1 = system default). Applied
     // when a peer connection is created, so a change here takes effect on the
     // next channel join/new peer rather than hot-swapping an active call.
-    public int? InputDeviceIndex { get; set; }
-    public int? OutputDeviceIndex { get; set; }
+    private int? _inputDeviceIndex;
+    public int? InputDeviceIndex
+    {
+        get => _inputDeviceIndex;
+        set { _inputDeviceIndex = value; SaveSettings(); }
+    }
+
+    private int? _outputDeviceIndex;
+    public int? OutputDeviceIndex
+    {
+        get => _outputDeviceIndex;
+        set { _outputDeviceIndex = value; SaveSettings(); }
+    }
 
     // Forwards to OpusAudioEndPoint's static flags - static because a mesh
     // call has one audio endpoint per remote peer, and muting/gating needs
@@ -95,8 +106,13 @@ public class VoiceService : IDisposable
     public bool NoiseSuppressionEnabled
     {
         get => OpusAudioEndPoint.NoiseSuppressionEnabled;
-        set => OpusAudioEndPoint.NoiseSuppressionEnabled = value;
+        set { OpusAudioEndPoint.NoiseSuppressionEnabled = value; SaveSettings(); }
     }
+
+    // Not persisted (see SaveSettings) - deafen/mute are session states
+    // like Discord's, not preferences, so a fresh login always starts
+    // undeafened/unmuted regardless of how a previous session ended.
+    public event Action<bool>? DeafenedChanged;
 
     // Deafen always drives mute to match its own new state, same as
     // Discord: turning deafen on also mutes (no point talking if you can't
@@ -112,6 +128,7 @@ public class VoiceService : IDisposable
         {
             OpusAudioEndPoint.Deafened = value;
             IsMicMuted = value || _inputMode == VoiceInputMode.PushToTalk;
+            DeafenedChanged?.Invoke(value);
         }
     }
 
@@ -126,13 +143,40 @@ public class VoiceService : IDisposable
             if (_inputMode == value) return;
             _inputMode = value;
             ApplyInputMode();
+            SaveSettings();
         }
     }
 
     public Key PushToTalkKey
     {
         get => _hotkey.WatchedKey;
-        set => _hotkey.WatchedKey = value;
+        set { _hotkey.WatchedKey = value; SaveSettings(); }
+    }
+
+    // Devices, noise suppression, input mode and hotkey are local-machine
+    // preferences ("which mic", "which key") rather than account data, so
+    // they're saved to a local file (VoiceSettingsStorage) instead of the
+    // database - they survive a log out/in on this machine, same as before
+    // this existed they'd silently reset to defaults every login.
+    private void SaveSettings() =>
+        VoiceSettingsStorage.Save(new SavedVoiceSettings(
+            InputDeviceIndex, OutputDeviceIndex, NoiseSuppressionEnabled, _inputMode, PushToTalkKey));
+
+    private void LoadSettings()
+    {
+        var saved = VoiceSettingsStorage.Load();
+        if (saved is null) return;
+
+        _inputDeviceIndex = saved.InputDeviceIndex;
+        _outputDeviceIndex = saved.OutputDeviceIndex;
+        OpusAudioEndPoint.NoiseSuppressionEnabled = saved.NoiseSuppressionEnabled;
+        _hotkey.WatchedKey = saved.PushToTalkKey;
+
+        if (saved.InputMode != VoiceInputMode.VoiceActivity)
+        {
+            _inputMode = saved.InputMode;
+            ApplyInputMode();
+        }
     }
 
     // Resets the mic to whatever "at rest" means for the newly selected
@@ -192,6 +236,8 @@ public class VoiceService : IDisposable
 
         _hotkey.KeyDown += OnHotkeyDown;
         _hotkey.KeyUp += OnHotkeyUp;
+
+        LoadSettings();
     }
 
     public void Dispose() => _hotkey.Dispose();

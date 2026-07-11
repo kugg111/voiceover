@@ -144,6 +144,10 @@
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
                                                 <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
+                                                    <TextBlock Text="🔇" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0"
+                                                               Visibility="{Binding MutedIconVisibility}" ToolTip="Muted"/>
+                                                    <TextBlock Text="🎧" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0"
+                                                               Visibility="{Binding DeafenedIconVisibility}" ToolTip="Deafened"/>
                                                     <TextBlock Text="{Binding Username}" FontSize="12" VerticalAlignment="Center"
                                                                Foreground="{StaticResource TextMuted}"/>
                                                     <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"

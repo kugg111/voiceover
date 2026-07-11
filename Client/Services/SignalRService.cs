@@ -14,6 +14,8 @@ public class SignalRService
     public event Action<int, string, int>? VoiceUserLeft;
     public event Action<int, int, string, string>? VoiceSignalReceived;
     public event Action<int, int, bool>? UserSpeaking;
+    public event Action<int, int, bool>? UserMuted;
+    public event Action<int, int, bool>? UserDeafened;
     public event Action<int, int, string>? FriendRequestReceived;
     public event Action<int, int>? FriendRequestAccepted;
 
@@ -40,6 +42,8 @@ public class SignalRService
         _connection.On<int, string, int>("VoiceUserLeft", (userId, username, channelId) => VoiceUserLeft?.Invoke(userId, username, channelId));
         _connection.On<int, int, string, string>("VoiceSignal", (fromUserId, channelId, signalType, payload) => VoiceSignalReceived?.Invoke(fromUserId, channelId, signalType, payload));
         _connection.On<int, int, bool>("UserSpeaking", (userId, channelId, isSpeaking) => UserSpeaking?.Invoke(userId, channelId, isSpeaking));
+        _connection.On<int, int, bool>("UserMuted", (userId, channelId, isMuted) => UserMuted?.Invoke(userId, channelId, isMuted));
+        _connection.On<int, int, bool>("UserDeafened", (userId, channelId, isDeafened) => UserDeafened?.Invoke(userId, channelId, isDeafened));
         _connection.On<int, int, string>("FriendRequestReceived", (friendshipId, requesterId, requesterUsername) => FriendRequestReceived?.Invoke(friendshipId, requesterId, requesterUsername));
         _connection.On<int, int>("FriendRequestAccepted", (friendshipId, accepterId) => FriendRequestAccepted?.Invoke(friendshipId, accepterId));
 
@@ -61,6 +65,8 @@ public class SignalRService
     public Task SendVoiceSignalAsync(int targetUserId, int channelId, string signalType, string payload)
         => _connection!.InvokeAsync("SendVoiceSignal", targetUserId, channelId, signalType, payload);
     public Task SendSpeakingAsync(int channelId, bool isSpeaking) => _connection!.InvokeAsync("NotifySpeaking", channelId, isSpeaking);
+    public Task SendMutedAsync(int channelId, bool isMuted) => _connection!.InvokeAsync("NotifyMuted", channelId, isMuted);
+    public Task SendDeafenedAsync(int channelId, bool isDeafened) => _connection!.InvokeAsync("NotifyDeafened", channelId, isDeafened);
     public Task JoinServerPresenceAsync(int serverId) => _connection!.InvokeAsync("JoinServerPresence", serverId);
     public Task LeaveServerPresenceAsync(int serverId) => _connection!.InvokeAsync("LeaveServerPresence", serverId);
     public Task<List<ChannelVoiceRoster>> GetVoiceRostersForServerAsync(int serverId) => _connection!.InvokeAsync<List<ChannelVoiceRoster>>("GetVoiceRostersForServer", serverId);
