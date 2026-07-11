@@ -172,9 +172,13 @@
                                                                       Visibility="{Binding VolumeSliderVisibility}"/>
                                                             <MenuItem StaysOpenOnClick="True" Visibility="{Binding VolumeSliderVisibility}">
                                                                 <MenuItem.Header>
-                                                                    <Slider Width="150" Minimum="0" Maximum="200"
-                                                                            Value="{Binding Volume, Mode=TwoWay}"
-                                                                            ValueChanged="VoiceMemberVolumeSlider_ValueChanged"/>
+                                                                    <StackPanel Orientation="Horizontal">
+                                                                        <Slider Width="150" Minimum="0" Maximum="200"
+                                                                                Value="{Binding Volume, Mode=TwoWay}"
+                                                                                ValueChanged="VoiceMemberVolumeSlider_ValueChanged"/>
+                                                                        <TextBlock Text="{Binding VolumeDisplay}" Width="38" Margin="6,0,0,0"
+                                                                                   VerticalAlignment="Center" Foreground="{StaticResource TextMuted}"/>
+                                                                    </StackPanel>
                                                                 </MenuItem.Header>
                                                             </MenuItem>
                                                             <MenuItem Header="This is you" IsEnabled="False"

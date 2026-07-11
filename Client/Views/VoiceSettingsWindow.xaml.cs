@@ -30,8 +30,9 @@ public partial class VoiceSettingsWindow : FluentWindow
 
         NoiseSuppressionCheck.IsChecked = _voice.NoiseSuppressionEnabled;
 
-        HotkeyRecordButton.Content = FormatKeyName(_voice.PushToTalkKey);
+        HotkeyRecordButton.Content = FormatTriggerName();
         PreviewKeyDown += VoiceSettingsWindow_PreviewKeyDown;
+        PreviewMouseDown += VoiceSettingsWindow_PreviewMouseDown;
 
         switch (_voice.InputMode)
         {
@@ -87,10 +88,11 @@ public partial class VoiceSettingsWindow : FluentWindow
     private void HotkeyRecordButton_Click(object sender, RoutedEventArgs e)
     {
         _recordingHotkey = true;
-        HotkeyRecordButton.Content = "Press any key... (Esc to cancel)";
+        HotkeyRecordButton.Content = "Press any key or mouse button... (Esc to cancel)";
         // The button itself already has focus from being clicked, but make
-        // sure the window (where PreviewKeyDown is handled) does too -
-        // otherwise a control that eats key input first could swallow it.
+        // sure the window (where PreviewKeyDown/PreviewMouseDown are
+        // handled) does too - otherwise a control that eats input first
+        // could swallow it.
         Focus();
     }
 
@@ -107,16 +109,43 @@ public partial class VoiceSettingsWindow : FluentWindow
 
         if (key == Key.Escape)
         {
-            HotkeyRecordButton.Content = FormatKeyName(_voice.PushToTalkKey);
+            HotkeyRecordButton.Content = FormatTriggerName();
             return;
         }
 
         _voice.PushToTalkKey = key;
-        HotkeyRecordButton.Content = FormatKeyName(key);
+        HotkeyRecordButton.Content = FormatTriggerName();
+    }
+
+    // Only Middle/XButton1/XButton2 are recordable - Left/Right are
+    // deliberately excluded (see GlobalHotkeyService) since watching those
+    // would fire on every normal click anywhere on the system, not just a
+    // deliberate PTT press.
+    private void VoiceSettingsWindow_PreviewMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (!_recordingHotkey) return;
+        if (e.ChangedButton is not (MouseButton.Middle or MouseButton.XButton1 or MouseButton.XButton2)) return;
+
+        _recordingHotkey = false;
+        e.Handled = true;
+
+        _voice.PushToTalkMouseButton = e.ChangedButton;
+        HotkeyRecordButton.Content = FormatTriggerName();
     }
 
     // "RightCtrl" -> "Right Ctrl", "CapsLock" -> "Caps Lock", single
     // letters/numbers/function keys pass through unchanged ("A", "F5").
     private static string FormatKeyName(Key key) =>
         Regex.Replace(key.ToString(), "(?<!^)([A-Z])", " $1");
+
+    // Mouse Button 4/5 matches the naming most Windows software (and
+    // Discord itself) already uses for the side buttons - "XButton1"/"2"
+    // wouldn't mean anything to most people.
+    private string FormatTriggerName() => _voice.PushToTalkMouseButton switch
+    {
+        MouseButton.Middle => "Mouse Middle Button",
+        MouseButton.XButton1 => "Mouse Button 4",
+        MouseButton.XButton2 => "Mouse Button 5",
+        _ => _voice.PushToTalkKey is { } key ? FormatKeyName(key) : "None"
+    };
 }

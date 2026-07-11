@@ -21,6 +21,8 @@ public static class NotificationService
     private static readonly Lazy<SoundPlayer> MessageSound = new(() => LoadSound("message.wav"));
     private static readonly Lazy<SoundPlayer> VoiceJoinSound = new(() => LoadSound("voice-join.wav"));
     private static readonly Lazy<SoundPlayer> VoiceLeaveSound = new(() => LoadSound("voice-leave.wav"));
+    private static readonly Lazy<SoundPlayer> MuteSound = new(() => LoadSound("mute.wav"));
+    private static readonly Lazy<SoundPlayer> UnmuteSound = new(() => LoadSound("unmute.wav"));
 
     private static SoundPlayer LoadSound(string fileName)
     {
@@ -43,4 +45,6 @@ public static class NotificationService
     public static void PlayVoiceJoinSound() => VoiceJoinSound.Value.Play();
     public static void PlayVoiceLeaveSound() => VoiceLeaveSound.Value.Play();
     public static void PlayMessageSound() => MessageSound.Value.Play();
+    public static void PlayMuteSound() => MuteSound.Value.Play();
+    public static void PlayUnmuteSound() => UnmuteSound.Value.Play();
 }

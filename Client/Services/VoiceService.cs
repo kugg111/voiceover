@@ -147,10 +147,18 @@ public class VoiceService : IAsyncDisposable
         }
     }
 
-    public Key PushToTalkKey
+    // Mutually exclusive with PushToTalkMouseButton - setting one clears
+    // the other (see GlobalHotkeyService.WatchedKey/WatchedMouseButton).
+    public Key? PushToTalkKey
     {
         get => _hotkey.WatchedKey;
         set { _hotkey.WatchedKey = value; SaveSettings(); }
+    }
+
+    public MouseButton? PushToTalkMouseButton
+    {
+        get => _hotkey.WatchedMouseButton;
+        set { _hotkey.WatchedMouseButton = value; SaveSettings(); }
     }
 
     // Devices, noise suppression, input mode and hotkey are local-machine
@@ -160,7 +168,7 @@ public class VoiceService : IAsyncDisposable
     // this existed they'd silently reset to defaults every login.
     private void SaveSettings() =>
         VoiceSettingsStorage.Save(new SavedVoiceSettings(
-            InputDeviceIndex, OutputDeviceIndex, NoiseSuppressionEnabled, _inputMode, PushToTalkKey));
+            InputDeviceIndex, OutputDeviceIndex, NoiseSuppressionEnabled, _inputMode, PushToTalkKey, PushToTalkMouseButton));
 
     private void LoadSettings()
     {
@@ -170,7 +178,14 @@ public class VoiceService : IAsyncDisposable
         _inputDeviceIndex = saved.InputDeviceIndex;
         _outputDeviceIndex = saved.OutputDeviceIndex;
         _noiseSuppressionEnabled = saved.NoiseSuppressionEnabled;
+
+        // Mouse button takes priority if somehow both are set in the saved
+        // file (shouldn't happen given the mutual-exclusivity setters, but
+        // the file is hand-editable/could be from an older version) -
+        // assigning WatchedMouseButton second means it wins by clearing
+        // WatchedKey right back out.
         _hotkey.WatchedKey = saved.PushToTalkKey;
+        _hotkey.WatchedMouseButton = saved.PushToTalkMouseButton;
 
         if (saved.InputMode != VoiceInputMode.VoiceActivity)
         {
@@ -280,7 +295,11 @@ public class VoiceService : IAsyncDisposable
         if (e.Track is not RemoteAudioTrack audioTrack) return;
         if (!int.TryParse(e.Participant.Identity, out var userId)) return;
 
-        var playback = new RemoteAudioPlayback(audioTrack, OutputDeviceIndex ?? -1) { Deafened = IsDeafened };
+        var playback = new RemoteAudioPlayback(audioTrack, OutputDeviceIndex ?? -1)
+        {
+            Deafened = IsDeafened,
+            PlaybackVolume = UserVolumeStorage.GetVolume(userId) ?? 1.0f
+        };
         _remotePlaybacks[userId] = playback;
     }
 

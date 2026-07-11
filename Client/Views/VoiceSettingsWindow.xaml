@@ -56,7 +56,7 @@
             <Button x:Name="HotkeyRecordButton" Height="40" Margin="0,0,0,4"
                     Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
                     BorderThickness="0" Click="HotkeyRecordButton_Click"/>
-            <TextBlock Text="Click the button above, then press the key you want to use. Works even while Voiceover isn't the focused window - pick something you don't type often."
+            <TextBlock Text="Click the button above, then press the key or mouse button you want to use (middle-click or a side button - left/right click aren't recordable). Works even while Voiceover isn't the focused window - pick something you don't press often."
                        FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}"/>
         </StackPanel>
         </StackPanel>

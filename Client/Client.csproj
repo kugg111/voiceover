@@ -22,6 +22,8 @@
     <Resource Include="Assets\Sounds\message.wav" />
     <Resource Include="Assets\Sounds\voice-join.wav" />
     <Resource Include="Assets\Sounds\voice-leave.wav" />
+    <Resource Include="Assets\Sounds\mute.wav" />
+    <Resource Include="Assets\Sounds\unmute.wav" />
   </ItemGroup>
 
   <ItemGroup>
