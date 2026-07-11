@@ -10,7 +10,8 @@ public record SavedVoiceSettings(
     int? OutputDeviceIndex,
     bool NoiseSuppressionEnabled,
     VoiceInputMode InputMode,
-    Key PushToTalkKey);
+    Key? PushToTalkKey,
+    MouseButton? PushToTalkMouseButton = null);
 
 // Persists voice preferences (devices, noise suppression, input mode, PTT/
 // push-to-mute hotkey) locally so they survive a log out/in - these are

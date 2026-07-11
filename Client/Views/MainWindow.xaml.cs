@@ -77,9 +77,23 @@ public class VoiceMemberItem : INotifyPropertyChanged
 
     public Visibility DeafenedIconVisibility => IsDeafened ? Visibility.Visible : Visibility.Collapsed;
 
-    // 0-200%, 100 = unchanged. Only local to this UI row/session - not
-    // persisted, not sent to the server, matches how mute/deafen work too.
-    public double Volume { get; set; } = 100;
+    // 0-200%, 100 = unchanged. Persisted locally per-user (see
+    // UserVolumeStorage) so it carries over the next time you're in a
+    // voice channel with the same person, instead of resetting every join.
+    private double _volume = 100;
+    public double Volume
+    {
+        get => _volume;
+        set
+        {
+            if (_volume == value) return;
+            _volume = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Volume)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(VolumeDisplay)));
+        }
+    }
+
+    public string VolumeDisplay => $"{(int)Volume}%";
 
     public event PropertyChangedEventHandler? PropertyChanged;
 }
@@ -274,6 +288,12 @@ public partial class MainWindow : FluentWindow
         {
             Dispatcher.Invoke(UpdateMuteButtonVisual);
             _ = OnLocalMutedChangedAsync(isMuted);
+
+            // Audio feedback for your own mute state - the only reliable way
+            // to know push-to-mute/talk actually registered while alt-tabbed
+            // into a game with no UI visible at all.
+            if (isMuted) NotificationService.PlayMuteSound();
+            else NotificationService.PlayUnmuteSound();
         };
         _voice.DeafenedChanged += isDeafened => _ = OnLocalDeafenedChangedAsync(isDeafened);
         await LoadServersAsync();
@@ -366,7 +386,7 @@ public partial class MainWindow : FluentWindow
             foreach (var member in roster.Members)
             {
                 if (!item.Members.Any(m => m.UserId == member.UserId))
-                    item.Members.Add(new VoiceMemberItem { UserId = member.UserId, Username = member.Username, AvatarUrl = App.ResolveUploadUrl(member.AvatarUrl), IsSelf = member.UserId == _api.CurrentUserId });
+                    item.Members.Add(new VoiceMemberItem { UserId = member.UserId, Username = member.Username, AvatarUrl = App.ResolveUploadUrl(member.AvatarUrl), IsSelf = member.UserId == _api.CurrentUserId, Volume = SavedVolumePercent(member.UserId) });
             }
         }
     }
@@ -430,7 +450,7 @@ public partial class MainWindow : FluentWindow
         {
             item.Members.Clear();
             foreach (var m in existingMembers)
-                item.Members.Add(new VoiceMemberItem { UserId = m.UserId, Username = m.Username, AvatarUrl = App.ResolveUploadUrl(m.AvatarUrl), IsSelf = m.UserId == _api.CurrentUserId });
+                item.Members.Add(new VoiceMemberItem { UserId = m.UserId, Username = m.Username, AvatarUrl = App.ResolveUploadUrl(m.AvatarUrl), IsSelf = m.UserId == _api.CurrentUserId, Volume = SavedVolumePercent(m.UserId) });
             if (_api.CurrentUserId is not null && _api.CurrentUsername is not null)
                 item.Members.Add(new VoiceMemberItem { UserId = _api.CurrentUserId.Value, Username = _api.CurrentUsername, AvatarUrl = _api.CurrentUserAvatarUrl, IsSelf = true });
         }
@@ -493,7 +513,9 @@ public partial class MainWindow : FluentWindow
         if (_voice is null) return;
         if (sender is not FrameworkElement { DataContext: VoiceMemberItem member }) return;
 
-        _voice.SetRemoteVolume(member.UserId, (float)(e.NewValue / 100.0));
+        var volume = (float)(e.NewValue / 100.0);
+        _voice.SetRemoteVolume(member.UserId, volume);
+        UserVolumeStorage.SaveVolume(member.UserId, volume);
     }
 
     private async void AddServerButton_Click(object sender, RoutedEventArgs e)
@@ -646,6 +668,13 @@ public partial class MainWindow : FluentWindow
         var self = item?.Members.FirstOrDefault(m => m.UserId == _api.CurrentUserId);
         if (item is not null && self is not null) item.Members.Remove(self);
     }
+
+    // UserVolumeStorage stores the 1.0-scale multiplier (matching
+    // PlaybackVolume's own unit); VoiceMemberItem.Volume is the 0-200
+    // percent scale the slider uses - this converts and defaults to 100%
+    // (unchanged) for a user with no saved volume yet.
+    private static double SavedVolumePercent(int userId) =>
+        (UserVolumeStorage.GetVolume(userId) ?? 1.0f) * 100.0;
 
     private void LogOutButton_Click(object sender, RoutedEventArgs e)
     {
@@ -1123,7 +1152,7 @@ public partial class MainWindow : FluentWindow
         {
             var item = FindVoiceChannelItem(channelId);
             if (item is not null && !item.Members.Any(m => m.UserId == userId))
-                item.Members.Add(new VoiceMemberItem { UserId = userId, Username = username, AvatarUrl = App.ResolveUploadUrl(avatarUrl), IsSelf = userId == _api.CurrentUserId });
+                item.Members.Add(new VoiceMemberItem { UserId = userId, Username = username, AvatarUrl = App.ResolveUploadUrl(avatarUrl), IsSelf = userId == _api.CurrentUserId, Volume = SavedVolumePercent(userId) });
 
             // Only for the voice channel you're actually sitting in, and
             // only when you're not looking at the app - the icon/roster
