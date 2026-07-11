@@ -367,6 +367,14 @@
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
+                                <Grid.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="Edit Message" Tag="{Binding Id}" Click="EditMessageMenuItem_Click"
+                                                  Visibility="{Binding EditMenuVisibility}"/>
+                                        <MenuItem Header="Delete Message" Tag="{Binding Id}" Click="DeleteMessageMenuItem_Click"
+                                                  Visibility="{Binding DeleteMenuVisibility}"/>
+                                    </ContextMenu>
+                                </Grid.ContextMenu>
                                 <local:AvatarView Grid.Column="0" Size="36" DisplayName="{Binding AuthorUsername}"
                                                    ImageUrl="{Binding AuthorAvatarUrl}" Margin="0,2,10,0" VerticalAlignment="Top"/>
                                 <StackPanel Grid.Column="1">
@@ -375,9 +383,22 @@
                                                    Foreground="{StaticResource AccentBlurple}" Margin="0,0,8,0"/>
                                         <TextBlock Text="{Binding TimeDisplay}" FontSize="11"
                                                    Foreground="{StaticResource TextMuted}" VerticalAlignment="Center"/>
+                                        <TextBlock Text="(edited)" FontSize="11" Margin="4,0,0,0"
+                                                   Foreground="{StaticResource TextMuted}" VerticalAlignment="Center"
+                                                   Visibility="{Binding EditedTagVisibility}"/>
                                     </StackPanel>
                                     <TextBlock Text="{Binding Content}" Foreground="{StaticResource TextNormal}"
                                                TextWrapping="Wrap" Visibility="{Binding ContentVisibility}"/>
+                                    <StackPanel Visibility="{Binding EditBoxVisibility}" Margin="0,2,0,0">
+                                        <TextBox Text="{Binding EditingContent, UpdateSourceTrigger=PropertyChanged}"
+                                                 AcceptsReturn="False" TextWrapping="Wrap"/>
+                                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                            <Button Content="Save" Tag="{Binding Id}" Click="SaveMessageEditButton_Click"
+                                                    Padding="10,2" Margin="0,0,6,0"/>
+                                            <Button Content="Cancel" Tag="{Binding Id}" Click="CancelMessageEditButton_Click"
+                                                    Padding="10,2" Background="Transparent"/>
+                                        </StackPanel>
+                                    </StackPanel>
                                     <TextBlock Text="{Binding AttachmentDisplay}" Foreground="{StaticResource AccentBlurple}"
                                                TextDecorations="Underline" Cursor="Hand"
                                                Visibility="{Binding AttachmentVisibility}"

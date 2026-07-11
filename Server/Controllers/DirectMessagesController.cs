@@ -1,8 +1,10 @@
 using System.Security.Claims;
 using Voiceover.Server.Data;
 using Voiceover.Server.Dtos;
+using Voiceover.Server.Hubs;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
 namespace Voiceover.Server.Controllers;
@@ -13,7 +15,13 @@ namespace Voiceover.Server.Controllers;
 public class DirectMessagesController : ControllerBase
 {
     private readonly AppDbContext _db;
-    public DirectMessagesController(AppDbContext db) => _db = db;
+    private readonly IHubContext<ChatHub> _hub;
+
+    public DirectMessagesController(AppDbContext db, IHubContext<ChatHub> hub)
+    {
+        _db = db;
+        _hub = hub;
+    }
 
     private int CurrentUserId => int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
@@ -67,9 +75,57 @@ public class DirectMessagesController : ControllerBase
             .OrderByDescending(m => m.SentAt)
             .Take(take)
             .OrderBy(m => m.SentAt)
-            .Select(m => new DirectMessageResponse(m.Id, m.Content, m.SenderId, m.RecipientId, m.SentAt))
+            .Select(m => new DirectMessageResponse(m.Id, m.Content, m.SenderId, m.RecipientId, m.SentAt, m.EditedAt))
             .ToListAsync();
 
         return Ok(messages);
+    }
+
+    // Author-only, always - DMs have no moderator concept the way server
+    // channels do.
+    [HttpPut("{otherUserId:int}/{messageId:int}")]
+    public async Task<ActionResult<DirectMessageResponse>> Edit(int otherUserId, int messageId, EditMessageRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Content)) return BadRequest();
+
+        var message = await _db.DirectMessages.FirstOrDefaultAsync(m => m.Id == messageId);
+        if (message is null) return NotFound();
+        if (message.SenderId != CurrentUserId) return Forbid();
+
+        message.Content = request.Content;
+        message.EditedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+
+        var response = new DirectMessageResponse(message.Id, message.Content, message.SenderId, message.RecipientId, message.SentAt, message.EditedAt);
+
+        // Same dual-send pattern SendDirectMessage already uses - both
+        // participants' own connections need the update, there's no shared
+        // group for a 1:1 DM the way channel messages have.
+        await _hub.Clients.User(message.RecipientId.ToString()).SendAsync("DirectMessageEdited", response);
+        await _hub.Clients.User(message.SenderId.ToString()).SendAsync("DirectMessageEdited", response);
+
+        return Ok(response);
+    }
+
+    [HttpDelete("{otherUserId:int}/{messageId:int}")]
+    public async Task<ActionResult> Delete(int otherUserId, int messageId)
+    {
+        var message = await _db.DirectMessages.FirstOrDefaultAsync(m => m.Id == messageId);
+        if (message is null) return NotFound();
+        if (message.SenderId != CurrentUserId) return Forbid();
+
+        var senderId = message.SenderId;
+        var recipientId = message.RecipientId;
+
+        _db.DirectMessages.Remove(message);
+        await _db.SaveChangesAsync();
+
+        // Sends both ids (not just "the other user") so each side can work
+        // out which conversation this belongs to the same way a live
+        // DirectMessageResponse would - whichever id isn't their own.
+        await _hub.Clients.User(recipientId.ToString()).SendAsync("DirectMessageDeleted", messageId, senderId, recipientId);
+        await _hub.Clients.User(senderId.ToString()).SendAsync("DirectMessageDeleted", messageId, senderId, recipientId);
+
+        return Ok();
     }
 }
