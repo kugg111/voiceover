@@ -43,12 +43,14 @@
             <TextBlock x:Name="StatusText" Foreground="#F23F42" FontSize="12"
                        Margin="0,0,0,10" TextWrapping="Wrap" Visibility="Collapsed"/>
 
-            <Button x:Name="LoginButton" Content="Log In" Height="40"
+            <Button x:Name="LoginButton" Content="Log In" Height="40" Width="200"
+                    HorizontalAlignment="Center" HorizontalContentAlignment="Center"
                     Background="{StaticResource AccentBlurple}" Foreground="White"
                     BorderThickness="0" FontWeight="Bold" Cursor="Hand"
                     Click="LoginButton_Click" Margin="0,0,0,8"/>
 
-            <Button x:Name="RegisterButton" Content="Register New Account" Height="36"
+            <Button x:Name="RegisterButton" Content="Register New Account" Height="36" Width="200"
+                    HorizontalAlignment="Center" HorizontalContentAlignment="Center"
                     Background="Transparent" Foreground="{StaticResource TextMuted}"
                     BorderThickness="0" Cursor="Hand" Click="RegisterButton_Click"/>
         </StackPanel>
