@@ -288,7 +288,17 @@ public class OpusAudioEndPoint : IAudioSource, IAudioSink, IDisposable
     // which matters because a single fixed RMS threshold can't perfectly
     // separate noise from speech for every voice/mic (quiet speakers) or
     // catch every trailing consonant as a word ends (fast speech).
-    private const float GateAttenuation = 0.2f;
+    private const float GateAttenuation = 0.1f;
+
+    // A keyboard click is a single ~20ms broadband transient, not a
+    // sustained sound - it crosses the RMS threshold for one frame and then
+    // drops back down, whereas real speech keeps its level up across
+    // several consecutive frames. Requiring the gate to see this many
+    // consecutive loud frames before actually opening means an isolated
+    // click never gets through, while a spoken word (which easily clears
+    // 40ms) only loses its very first couple of milliseconds.
+    private const int GateOpenConfirmFrames = 2;
+    private int _consecutiveLoudFrames;
 
     // Simple RMS threshold gate with hangover, run on the post-gain frame
     // (so it's judging the same signal that's about to be sent).
@@ -303,12 +313,18 @@ public class OpusAudioEndPoint : IAudioSource, IAudioSink, IDisposable
         var now = DateTime.UtcNow;
         if (rms >= NoiseGateThreshold)
         {
-            _gateOpen = true;
-            _gateLastLoudUtc = now;
+            _consecutiveLoudFrames++;
+            if (_consecutiveLoudFrames >= GateOpenConfirmFrames)
+            {
+                _gateOpen = true;
+                _gateLastLoudUtc = now;
+            }
         }
-        else if (now - _gateLastLoudUtc > GateHangover)
+        else
         {
-            _gateOpen = false;
+            _consecutiveLoudFrames = 0;
+            if (now - _gateLastLoudUtc > GateHangover)
+                _gateOpen = false;
         }
 
         if (!_gateOpen)

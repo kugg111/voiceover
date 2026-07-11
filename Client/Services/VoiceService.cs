@@ -257,12 +257,38 @@ public class VoiceService : IDisposable
         }
     }
 
-    // Called when someone (including a peer already in the channel when we
-    // join) shows up. To avoid both sides sending competing offers, only the
+    // Called when someone new shows up in a channel we're already sitting
+    // in. To avoid both sides sending competing offers, only the
     // participant with the lower user id initiates.
     private async void OnVoiceUserJoined(int userId, string username, int channelId, string? avatarUrl)
     {
         if (channelId != _activeChannelId || userId == _selfUserId) return;
+        await ConnectToPeerAsync(userId, channelId);
+    }
+
+    // Connects to everyone who was already in the channel *before* we
+    // joined. The server excludes the joining connection from the
+    // "VoiceUserJoined" broadcast (Clients.OthersInGroup), so OnVoiceUserJoined
+    // above only ever fires on the *other* side - a client that just joined
+    // never otherwise learns it needs to talk to anyone already there, and
+    // was depending entirely on the pre-existing member happening to have
+    // the lower user id and initiating on its own. When it was the other
+    // way around, neither side ever sent an offer and the pair silently
+    // never connected - no error, just no audio between those two. Calling
+    // this from the joining side too, with the same lower-id-initiates
+    // rule, makes each pair connect regardless of who joined first or
+    // which id is higher.
+    public async Task ConnectToExistingMembersAsync(IEnumerable<int> userIds, int channelId)
+    {
+        foreach (var userId in userIds)
+        {
+            if (userId == _selfUserId) continue;
+            await ConnectToPeerAsync(userId, channelId);
+        }
+    }
+
+    private async Task ConnectToPeerAsync(int userId, int channelId)
+    {
         if (_peerConnections.ContainsKey(userId)) return;
 
         if (_selfUserId < userId)

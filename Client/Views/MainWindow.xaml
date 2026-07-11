@@ -35,11 +35,9 @@
                 <Button DockPanel.Dock="Bottom" Content="⎋" FontSize="18" Height="32" Width="48"
                         Margin="12,0,12,12" Background="Transparent" Foreground="{StaticResource TextMuted}"
                         BorderThickness="0" Click="LogOutButton_Click" ToolTip="Log out"/>
-                <Button DockPanel.Dock="Bottom" Height="48" Width="48" Margin="12,0,12,4" Padding="0"
-                        Background="Transparent" BorderThickness="0"
-                        Click="MyAvatarButton_Click" ToolTip="Change your avatar">
+                <Border DockPanel.Dock="Bottom" Height="48" Width="48" Margin="12,0,12,4">
                     <local:AvatarView x:Name="MyAvatarView" Size="44"/>
-                </Button>
+                </Border>
                 <Button DockPanel.Dock="Bottom" Content="+" FontSize="20" Height="48" Width="48"
                         Margin="12,4,12,4" Background="{StaticResource BgSidebar}" Foreground="LightGreen"
                         BorderThickness="0" Click="AddServerButton_Click" ToolTip="Create or join a server"/>
@@ -66,7 +64,6 @@
                                     <local:AvatarView Size="48" DisplayName="{Binding Name}" ImageUrl="{Binding IconUrl}"/>
                                     <Button.ContextMenu>
                                         <ContextMenu>
-                                            <MenuItem Header="Change Server Icon" Tag="{Binding Id}" Click="ChangeServerIconMenuItem_Click"/>
                                             <MenuItem Header="Add Channel" Tag="{Binding Id}" Click="AddChannelMenuItem_Click"/>
                                             <MenuItem Header="Leave Server" Tag="{Binding Id}" Click="LeaveServerMenuItem_Click"/>
                                         </ContextMenu>

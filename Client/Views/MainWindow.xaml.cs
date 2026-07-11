@@ -396,16 +396,30 @@ public partial class MainWindow : FluentWindow
         if (sender is not FrameworkElement { Tag: int channelId }) return;
         if (_voice is null) return;
 
+        // Re-clicking the channel you're already in used to tear down and
+        // re-establish the whole voice connection for no reason - harmless
+        // most of the time, but a rapid double-click could land the leave
+        // and the rejoin close enough together to leave the audio endpoint
+        // (and everyone else's view of this connection) in a half-torn-down
+        // state, breaking capture/playback for the whole channel.
+        if (_currentVoiceChannelId == channelId) return;
+
         if (_currentVoiceChannelId.HasValue)
         {
             await _hub.LeaveVoiceChannelAsync(_currentVoiceChannelId.Value);
             await _voice.LeaveAllAsync();
-            FindVoiceChannelItem(_currentVoiceChannelId.Value)?.Members.Clear();
+            RemoveSelfFromVoiceRoster(_currentVoiceChannelId.Value);
         }
 
         _currentVoiceChannelId = channelId;
         _voice.SetActiveChannel(channelId);
         var existingMembers = await _hub.JoinVoiceChannelAsync(channelId);
+
+        // Connects to everyone already in the channel from our side too -
+        // see ConnectToExistingMembersAsync for why this can't be left to
+        // the pre-existing members alone (whether a pair actually connects
+        // used to depend on which of the two had the lower user id).
+        await _voice.ConnectToExistingMembersAsync(existingMembers.Select(m => m.UserId), channelId);
 
         var item = FindVoiceChannelItem(channelId);
         if (item is not null)
@@ -508,38 +522,6 @@ public partial class MainWindow : FluentWindow
         }
     }
 
-    private async void ChangeServerIconMenuItem_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is not System.Windows.Controls.MenuItem { Tag: int serverId }) return;
-
-        var dialog = new OpenFileDialog
-        {
-            Filter = "Images (*.png;*.jpg;*.jpeg;*.gif;*.webp)|*.png;*.jpg;*.jpeg;*.gif;*.webp"
-        };
-        if (dialog.ShowDialog() != true) return;
-
-        var (upload, uploadError) = await _api.UploadFileAsync(dialog.FileName);
-        if (upload is null)
-        {
-            MessageBox.Show(uploadError ?? "Upload failed.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            return;
-        }
-
-        // The server enforces owner-only itself (403) rather than this
-        // client hiding/disabling the menu item for non-owners - simpler,
-        // and matches how kick/role-change already just surface the
-        // server's rejection instead of duplicating the permission logic.
-        var updated = await _api.SetServerIconAsync(serverId, upload.Url);
-        if (updated is null)
-        {
-            MessageBox.Show("Could not change the server icon (you may lack permission - only the owner can).",
-                "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            return;
-        }
-
-        await LoadServersAsync();
-    }
-
     private async void AddChannelMenuItem_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not System.Windows.Controls.MenuItem { Tag: int serverId }) return;
@@ -637,7 +619,7 @@ public partial class MainWindow : FluentWindow
 
         await _hub.LeaveVoiceChannelAsync(_currentVoiceChannelId.Value);
         await _voice.LeaveAllAsync();
-        FindVoiceChannelItem(_currentVoiceChannelId.Value)?.Members.Clear();
+        RemoveSelfFromVoiceRoster(_currentVoiceChannelId.Value);
         _currentVoiceChannelId = null;
         LeaveVoiceButton.Visibility = Visibility.Collapsed;
         MuteMicButton.Visibility = Visibility.Collapsed;
@@ -645,35 +627,20 @@ public partial class MainWindow : FluentWindow
         ConnectionStatusText.Text = "";
     }
 
-    private async void MyAvatarButton_Click(object sender, RoutedEventArgs e)
+    // Removes just the local user's own entry from a voice channel's roster.
+    // The old code called Members.Clear() here, which wiped out everyone
+    // else still in the channel too - visible as "the whole list disappears"
+    // the moment you leave, even though other people are still in the call.
+    // Anyone else's departure is already handled correctly (one at a time)
+    // by OnVoiceUserLeft reacting to the server's broadcast; this covers the
+    // one case that broadcast doesn't reliably beat the UI update for - our
+    // own leave, applied immediately rather than waiting on the round trip.
+    private void RemoveSelfFromVoiceRoster(int channelId)
     {
-        var dialog = new OpenFileDialog
-        {
-            Filter = "Images (*.png;*.jpg;*.jpeg;*.gif;*.webp)|*.png;*.jpg;*.jpeg;*.gif;*.webp"
-        };
-        if (dialog.ShowDialog() != true) return;
-
-        var (upload, uploadError) = await _api.UploadFileAsync(dialog.FileName);
-        if (upload is null)
-        {
-            MessageBox.Show(uploadError ?? "Upload failed.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            return;
-        }
-
-        if (!await _api.SetMyAvatarAsync(upload.Url))
-        {
-            MessageBox.Show("Could not set your avatar.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            return;
-        }
-
-        // Update the cached value directly rather than a full reload - it's
-        // consumed everywhere else too (voice member self-row, message
-        // authoring, etc.) via App.ResolveUploadUrl at each construction
-        // site, so this alone doesn't retroactively fix already-rendered
-        // rows, only ones built from here on (new messages, rejoining
-        // voice) - acceptable, matches how other live state here behaves.
-        _api.CurrentUserAvatarUrl = App.ResolveUploadUrl(upload.Url);
-        MyAvatarView.ImageUrl = _api.CurrentUserAvatarUrl;
+        if (_api.CurrentUserId is null) return;
+        var item = FindVoiceChannelItem(channelId);
+        var self = item?.Members.FirstOrDefault(m => m.UserId == _api.CurrentUserId);
+        if (item is not null && self is not null) item.Members.Remove(self);
     }
 
     private void LogOutButton_Click(object sender, RoutedEventArgs e)
@@ -1024,24 +991,43 @@ public partial class MainWindow : FluentWindow
     {
         Dispatcher.Invoke(() =>
         {
-            if (msg.ChannelId == _currentChannelId)
+            var isOwnMessage = msg.AuthorId == _api.CurrentUserId;
+            var isCurrentlyOpen = msg.ChannelId == _currentChannelId;
+
+            if (isCurrentlyOpen)
             {
                 _messages.Add(ToListItem(msg));
                 ScrollToBottom();
-                return;
+            }
+            else if (!isOwnMessage)
+            {
+                // Someone else's message landed in a channel that isn't open
+                // right now - flag it with an unread dot rather than just
+                // dropping it. _unreadTextChannelIds is the source of truth
+                // (survives even if that channel's server has never been
+                // opened, so there's no ChannelListItem yet to mark); also
+                // update the item directly if it happens to already be
+                // loaded, for an instant UI update.
+                _unreadTextChannelIds.Add(msg.ChannelId);
+                var item = FindTextChannelItem(msg.ChannelId);
+                if (item is not null) item.HasUnread = true;
             }
 
-            // Someone else's message landed in a channel that isn't open right
-            // now - flag it with an unread dot rather than just dropping it.
-            // _unreadTextChannelIds is the source of truth (survives even if
-            // that channel's server has never been opened, so there's no
-            // ChannelListItem yet to mark); also update the item directly if
-            // it happens to already be loaded, for an instant UI update.
-            if (msg.AuthorId == _api.CurrentUserId) return;
-
-            _unreadTextChannelIds.Add(msg.ChannelId);
-            var item = FindTextChannelItem(msg.ChannelId);
-            if (item is not null) item.HasUnread = true;
+            // Plays whenever you're not actually looking at this channel
+            // right now - either a different channel/view is open, or this
+            // one is open but the window itself isn't focused. Being on a
+            // different view is the common case (e.g. sitting in Friends or
+            // another channel) and was previously silent because this only
+            // checked window focus, not which view was open.
+            if (!isOwnMessage && (!isCurrentlyOpen || !IsActive))
+            {
+                NotificationService.PlayMessageSound();
+                if (!isCurrentlyOpen)
+                {
+                    var preview = msg.Content.Length > 80 ? msg.Content[..80] + "…" : msg.Content;
+                    NotificationService.ShowToast(FindChannelDisplayName(msg.ChannelId) ?? "New message", preview);
+                }
+            }
         });
     }
 
@@ -1076,7 +1062,10 @@ public partial class MainWindow : FluentWindow
 
             UpdateMessagesUnreadBadge();
 
-            if (!isOwnMessage && !IsActive)
+            // Same "not actually looking at this conversation" logic as
+            // OnMessageReceived - either a different view is open, or this
+            // DM is open but the window itself isn't focused.
+            if (!isOwnMessage && (!isCurrentlyOpen || !IsActive))
             {
                 NotificationService.PlayMessageSound();
                 var preview = dm.Content.Length > 80 ? dm.Content[..80] + "…" : dm.Content;
