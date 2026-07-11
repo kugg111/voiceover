@@ -276,7 +276,18 @@ public partial class MainWindow : FluentWindow
             _ = OnLocalMutedChangedAsync(isMuted);
         };
         _voice.DeafenedChanged += isDeafened => _ = OnLocalDeafenedChangedAsync(isDeafened);
+        // Fire-and-forget - a slow/offline version check should never delay
+        // getting into the app.
+        _ = CheckForUpdatesAsync();
         await LoadServersAsync();
+    }
+
+    private async Task CheckForUpdatesAsync()
+    {
+        var latest = await _api.GetLatestVersionAsync();
+        if (latest is null || !UpdateChecker.IsNewer(latest.Version)) return;
+
+        Dispatcher.Invoke(() => new UpdateAvailableDialog(latest) { Owner = this }.ShowDialog());
     }
 
     private async Task LoadServersAsync()

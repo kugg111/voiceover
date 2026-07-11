@@ -189,4 +189,23 @@ public class ApiService
         var error = (await response.Content.ReadAsStringAsync()).Trim('"');
         return (null, string.IsNullOrWhiteSpace(error) ? "Upload failed." : error);
     }
+
+    // --- Auto-update ---
+
+    // Plain unauthenticated GET against the same static-file hosting the
+    // downloads themselves already use (Server/Site/downloads/version.json) -
+    // no controller/endpoint needed server-side. Swallows every failure
+    // (offline, 404, malformed json) since a background update check should
+    // never surface an error or block startup.
+    public async Task<VersionInfo?> GetLatestVersionAsync()
+    {
+        try
+        {
+            return await _http.GetFromJsonAsync<VersionInfo>("downloads/version.json");
+        }
+        catch
+        {
+            return null;
+        }
+    }
 }
