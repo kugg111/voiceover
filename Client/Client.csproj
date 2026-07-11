@@ -16,6 +16,12 @@
          member avatars). -->
     <Resource Include="Assets\AppIcon.ico" />
     <Resource Include="Assets\AppIcon.png" />
+    <!-- Custom notification sounds (NotificationService) - short synthesized
+         tones, not the OS's own notification sound, so Voiceover doesn't
+         sound identical to every other Windows app pinging you. -->
+    <Resource Include="Assets\Sounds\message.wav" />
+    <Resource Include="Assets\Sounds\voice-join.wav" />
+    <Resource Include="Assets\Sounds\voice-leave.wav" />
   </ItemGroup>
 
   <ItemGroup>

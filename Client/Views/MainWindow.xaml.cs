@@ -423,6 +423,12 @@ public partial class MainWindow : FluentWindow
         UpdateMuteButtonVisual();
         UpdateDeafenButtonVisual();
         ConnectionStatusText.Text = "Joined voice";
+
+        // Unconditional (not gated on window focus like OnVoiceUserJoined's
+        // toast/sound for other people) - this is direct feedback that your
+        // own join went through, so it needs to play even if you're the
+        // only one in the channel and even while the app is focused.
+        NotificationService.PlayVoiceJoinSound();
     }
 
     private void MuteMicButton_Click(object sender, RoutedEventArgs e)

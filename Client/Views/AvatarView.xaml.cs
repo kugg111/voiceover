@@ -83,11 +83,27 @@ public partial class AvatarView : UserControl
         view.AvatarImage.Clip = new EllipseGeometry(new Point(size / 2, size / 2), size / 2, size / 2);
     }
 
+    // string.GetHashCode() is randomized per-process in .NET (a DoS-
+    // hardening feature, on by default since .NET Core) - using it here
+    // meant the same server/username got a different fallback color on
+    // every client and every relaunch, instead of a stable one. This is a
+    // plain deterministic hash so "the same name always gets the same
+    // color" actually holds across processes.
+    private static int StableHash(string s)
+    {
+        unchecked
+        {
+            int hash = 23;
+            foreach (var c in s) hash = hash * 31 + c;
+            return hash;
+        }
+    }
+
     private void Refresh()
     {
         var name = string.IsNullOrEmpty(DisplayName) ? "?" : DisplayName;
         InitialText.Text = char.ToUpperInvariant(name[0]).ToString();
-        FallbackCircle.Fill = Palette[(uint)name.GetHashCode() % Palette.Length];
+        FallbackCircle.Fill = Palette[(uint)StableHash(name) % Palette.Length];
 
         if (string.IsNullOrEmpty(ImageUrl))
         {
