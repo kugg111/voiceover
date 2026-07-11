@@ -37,6 +37,15 @@
          explicitly since VoiceService/AudioDeviceService reference NAudio's
          device-enumeration APIs directly for mic/speaker selection. -->
     <PackageReference Include="NAudio" Version="2.2.1" />
+    <!-- Real noise suppression (OpusAudioEndPoint.ApplyNoiseSuppression) -
+         Google's WebRTC Audio Processing Module via SoundFlow's wrapper.
+         Used standalone (AudioProcessingModule.ProcessStream) - none of
+         SoundFlow's own capture/playback engine is used, NAudio still owns
+         that; SoundFlow is only pulled in because the APM extension package
+         depends on it. Replaces the old hand-rolled RMS-threshold gate,
+         which couldn't tell a keyboard click from speech because it had no
+         actual model of what noise looks like, just "loud or not". -->
+    <PackageReference Include="SoundFlow.Extensions.WebRtc.Apm" Version="1.4.0" />
     <!-- Fluent Design controls/theming for a modern, Discord-like look -
          rounded window chrome, restyled standard controls (Button, TextBox,
          etc. get the new look automatically once the theme dictionaries are
