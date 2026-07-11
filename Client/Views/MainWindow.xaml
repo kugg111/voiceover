@@ -45,9 +45,13 @@
                     <Button x:Name="MessagesButton" Content="💬" FontSize="18" Height="48" Width="48"
                             Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
                             BorderThickness="0" Click="MessagesButton_Click" ToolTip="Messages"/>
-                    <Ellipse x:Name="MessagesUnreadDot" Width="10" Height="10" Fill="{StaticResource AccentBlurple}"
-                             HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-2,-2,0"
-                             Visibility="Collapsed" IsHitTestVisible="False"/>
+                    <Border x:Name="MessagesUnreadBadge" MinWidth="16" Height="16" CornerRadius="8"
+                            Background="{StaticResource AccentBlurple}" Padding="4,0"
+                            HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-4,-4,0"
+                            Visibility="Collapsed" IsHitTestVisible="False">
+                        <TextBlock x:Name="MessagesUnreadBadgeText" Text="0" FontSize="10" FontWeight="Bold"
+                                   Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
                 </Grid>
                 <Button DockPanel.Dock="Top" x:Name="FriendsButton" Content="👥" FontSize="18" Height="48" Width="48"
                         Margin="12,0,12,8" Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
@@ -111,8 +115,12 @@
                                             Click="ChannelButton_Click" HorizontalContentAlignment="Left"
                                             Background="Transparent" Foreground="{StaticResource TextMuted}"
                                             BorderThickness="0" Padding="14,6" Height="32"/>
-                                    <Ellipse Grid.Column="1" Width="8" Height="8" Margin="0,0,8,0" VerticalAlignment="Center"
-                                             Fill="{StaticResource AccentBlurple}" Visibility="{Binding UnreadDotVisibility}"/>
+                                    <Border Grid.Column="1" MinWidth="16" Height="16" CornerRadius="8" Margin="0,0,8,0"
+                                            Background="{StaticResource AccentBlurple}" Padding="4,0"
+                                            VerticalAlignment="Center" Visibility="{Binding UnreadBadgeVisibility}">
+                                        <TextBlock Text="{Binding UnreadCountDisplay}" FontSize="10" FontWeight="Bold"
+                                                   Foreground="White" HorizontalAlignment="Center"/>
+                                    </Border>
                                     <Button Grid.Column="2" Content="✕" Tag="{Binding Id}"
                                             Click="DeleteChannelButton_Click" ToolTip="Delete channel"
                                             Width="24" Height="24" Margin="0,0,8,0"
@@ -231,8 +239,12 @@
                                                        Foreground="{StaticResource TextMuted}"
                                                        TextTrimming="CharacterEllipsis"/>
                                         </StackPanel>
-                                        <Ellipse Grid.Column="2" Width="8" Height="8" VerticalAlignment="Center" Margin="8,0,0,0"
-                                                 Fill="{StaticResource AccentBlurple}" Visibility="{Binding UnreadDotVisibility}"/>
+                                        <Border Grid.Column="2" MinWidth="16" Height="16" CornerRadius="8" Margin="8,0,0,0"
+                                                Background="{StaticResource AccentBlurple}" Padding="4,0"
+                                                VerticalAlignment="Center" Visibility="{Binding UnreadBadgeVisibility}">
+                                            <TextBlock Text="{Binding UnreadCountDisplay}" FontSize="10" FontWeight="Bold"
+                                                       Foreground="White" HorizontalAlignment="Center"/>
+                                        </Border>
                                     </Grid>
                                 </Button>
                             </DataTemplate>

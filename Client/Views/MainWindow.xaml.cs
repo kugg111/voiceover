@@ -92,20 +92,24 @@ public class ChannelListItem : INotifyPropertyChanged
     // Only populated/shown for voice channels - who's currently connected.
     public ObservableCollection<VoiceMemberItem> Members { get; } = new();
 
-    private bool _hasUnread;
-    public bool HasUnread
+    private int _unreadCount;
+    public int UnreadCount
     {
-        get => _hasUnread;
+        get => _unreadCount;
         set
         {
-            if (_hasUnread == value) return;
-            _hasUnread = value;
+            if (_unreadCount == value) return;
+            _unreadCount = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(UnreadCount)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasUnread)));
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(UnreadDotVisibility)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(UnreadCountDisplay)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(UnreadBadgeVisibility)));
         }
     }
 
-    public Visibility UnreadDotVisibility => HasUnread ? Visibility.Visible : Visibility.Collapsed;
+    public bool HasUnread => UnreadCount > 0;
+    public string UnreadCountDisplay => UnreadCount > 99 ? "99+" : UnreadCount.ToString();
+    public Visibility UnreadBadgeVisibility => UnreadCount > 0 ? Visibility.Visible : Visibility.Collapsed;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 }
@@ -140,20 +144,24 @@ public class DmConversationListItem : INotifyPropertyChanged
 
     public string PreviewDisplay => LastMessagePreview;
 
-    private bool _hasUnread;
-    public bool HasUnread
+    private int _unreadCount;
+    public int UnreadCount
     {
-        get => _hasUnread;
+        get => _unreadCount;
         set
         {
-            if (_hasUnread == value) return;
-            _hasUnread = value;
+            if (_unreadCount == value) return;
+            _unreadCount = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(UnreadCount)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasUnread)));
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(UnreadDotVisibility)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(UnreadCountDisplay)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(UnreadBadgeVisibility)));
         }
     }
 
-    public Visibility UnreadDotVisibility => HasUnread ? Visibility.Visible : Visibility.Collapsed;
+    public bool HasUnread => UnreadCount > 0;
+    public string UnreadCountDisplay => UnreadCount > 99 ? "99+" : UnreadCount.ToString();
+    public Visibility UnreadBadgeVisibility => UnreadCount > 0 ? Visibility.Visible : Visibility.Collapsed;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 }
@@ -199,12 +207,12 @@ public partial class MainWindow : FluentWindow
     private readonly ObservableCollection<FriendRequestListItem> _friendRequests = new();
     private readonly ObservableCollection<UserSearchResultItem> _friendSearchResults = new();
 
-    // Source of truth for text-channel unread state, kept independent of
+    // Source of truth for text-channel unread counts, kept independent of
     // _textChannels - a message can arrive for a channel before that
     // channel's server has ever been opened (so no ChannelListItem exists
     // yet to mark), unlike DM conversations, which get created fresh on
-    // arrival regardless of prior UI state.
-    private readonly HashSet<int> _unreadTextChannelIds = new();
+    // arrival regardless of prior UI state. channelId -> unread count.
+    private readonly Dictionary<int, int> _unreadTextChannelCounts = new();
 
     private DateTime _lastTypingNotify = DateTime.MinValue;
 
@@ -305,7 +313,7 @@ public partial class MainWindow : FluentWindow
             {
                 Id = c.Id,
                 DisplayName = c.Type == "Text" ? $"# {c.Name}" : $"🔊 {c.Name}",
-                HasUnread = c.Type == "Text" && _unreadTextChannelIds.Contains(c.Id)
+                UnreadCount = c.Type == "Text" ? _unreadTextChannelCounts.GetValueOrDefault(c.Id) : 0
             };
             if (c.Type == "Text") _textChannels.Add(item);
             else _voiceChannels.Add(item);
@@ -373,9 +381,9 @@ public partial class MainWindow : FluentWindow
         _currentChannelId = channelId;
         await _hub.JoinChannelAsync(channelId);
 
-        _unreadTextChannelIds.Remove(channelId);
+        _unreadTextChannelCounts.Remove(channelId);
         var thisChannelItem = FindTextChannelItem(channelId);
-        if (thisChannelItem is not null) thisChannelItem.HasUnread = false;
+        if (thisChannelItem is not null) thisChannelItem.UnreadCount = 0;
 
         var channelItem = FindChannelDisplayName(channelId);
         ChannelNameText.Text = channelItem ?? "# channel";
@@ -682,16 +690,17 @@ public partial class MainWindow : FluentWindow
         DmSearchBox.Clear();
         _dmSearchResults.Clear();
 
-        // Re-clicking the Messages icon shouldn't silently clear unread dots
-        // nobody's actually read yet - carry them over by conversation partner.
-        var previouslyUnread = _dmConversations.Where(c => c.HasUnread).Select(c => c.OtherUserId).ToHashSet();
+        // Re-clicking the Messages icon shouldn't silently clear unread
+        // counts nobody's actually read yet - carry them over by
+        // conversation partner.
+        var previouslyUnread = _dmConversations.Where(c => c.HasUnread).ToDictionary(c => c.OtherUserId, c => c.UnreadCount);
 
         var conversations = await _api.GetDmConversationsAsync();
         _dmConversations.Clear();
         foreach (var c in conversations.OrderByDescending(c => c.LastMessageAt))
         {
             var item = ToDmConversationItem(c);
-            item.HasUnread = previouslyUnread.Contains(c.OtherUserId);
+            item.UnreadCount = previouslyUnread.GetValueOrDefault(c.OtherUserId);
             _dmConversations.Add(item);
         }
         UpdateMessagesUnreadBadge();
@@ -796,7 +805,7 @@ public partial class MainWindow : FluentWindow
         ChannelNameText.Text = $"@{username}";
 
         var convo = _dmConversations.FirstOrDefault(c => c.OtherUserId == userId);
-        if (convo is not null) convo.HasUnread = false;
+        if (convo is not null) convo.UnreadCount = 0;
         UpdateMessagesUnreadBadge();
 
         DmSearchBox.Clear();
@@ -998,15 +1007,16 @@ public partial class MainWindow : FluentWindow
             else if (!isOwnMessage)
             {
                 // Someone else's message landed in a channel that isn't open
-                // right now - flag it with an unread dot rather than just
-                // dropping it. _unreadTextChannelIds is the source of truth
-                // (survives even if that channel's server has never been
-                // opened, so there's no ChannelListItem yet to mark); also
-                // update the item directly if it happens to already be
+                // right now - bump its unread count rather than just
+                // dropping it. _unreadTextChannelCounts is the source of
+                // truth (survives even if that channel's server has never
+                // been opened, so there's no ChannelListItem yet to mark);
+                // also update the item directly if it happens to already be
                 // loaded, for an instant UI update.
-                _unreadTextChannelIds.Add(msg.ChannelId);
+                var newCount = _unreadTextChannelCounts.GetValueOrDefault(msg.ChannelId) + 1;
+                _unreadTextChannelCounts[msg.ChannelId] = newCount;
                 var item = FindTextChannelItem(msg.ChannelId);
-                if (item is not null) item.HasUnread = true;
+                if (item is not null) item.UnreadCount = newCount;
             }
 
             // Plays whenever you're not actually looking at this channel
@@ -1040,6 +1050,7 @@ public partial class MainWindow : FluentWindow
             if (existing is not null) _dmConversations.Remove(existing);
 
             var isCurrentlyOpen = _dmActiveUserId == otherUserId;
+            var newUnreadCount = !isOwnMessage && !isCurrentlyOpen ? (existing?.UnreadCount ?? 0) + 1 : 0;
             _dmConversations.Insert(0, new DmConversationListItem
             {
                 OtherUserId = otherUserId,
@@ -1047,7 +1058,7 @@ public partial class MainWindow : FluentWindow
                 OtherUserAvatarUrl = existing?.OtherUserAvatarUrl,
                 LastMessagePreview = dm.Content,
                 LastMessageAt = dm.SentAt,
-                HasUnread = !isOwnMessage && !isCurrentlyOpen
+                UnreadCount = newUnreadCount
             });
 
             if (isCurrentlyOpen)
@@ -1075,7 +1086,9 @@ public partial class MainWindow : FluentWindow
     // (not just by visiting the Messages view), same as most chat apps.
     private void UpdateMessagesUnreadBadge()
     {
-        MessagesUnreadDot.Visibility = _dmConversations.Any(c => c.HasUnread) ? Visibility.Visible : Visibility.Collapsed;
+        var total = _dmConversations.Sum(c => c.UnreadCount);
+        MessagesUnreadBadge.Visibility = total > 0 ? Visibility.Visible : Visibility.Collapsed;
+        MessagesUnreadBadgeText.Text = total > 99 ? "99+" : total.ToString();
     }
 
     private void OnUserTyping(string username, int channelId)
