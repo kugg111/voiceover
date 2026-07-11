@@ -94,8 +94,10 @@ public class ChatHub : Hub
         await Clients.User(CurrentUserId.ToString()).SendAsync("ReceiveDirectMessage", response);
     }
 
-    // --- Voice channel presence (signaling only; audio itself is handled
-    // separately, see notes on SIPSorcery/WebRTC integration) ---
+    // --- Voice channel presence (roster/mute/deafen/speaking signaling only -
+    // audio itself flows through a separate self-hosted LiveKit deployment,
+    // see LiveKitTokenService/GetLiveKitToken below; this server never
+    // touches the media plane) ---
 
     // Returns the roster of who was already in the channel, so the joining
     // client can display the full member list immediately instead of waiting
@@ -138,15 +140,6 @@ public class ChatHub : Hub
 
         if (left is not null)
             await Clients.Group(ServerPresenceGroupName(left.Value.ServerId)).SendAsync("VoiceUserLeft", CurrentUserId, CurrentUsername, channelId);
-    }
-
-    // Relays WebRTC SDP offers/answers and ICE candidates between two specific
-    // peers in a voice channel (mesh topology - each pair negotiates directly).
-    // signalType is one of: "offer", "answer", "ice-candidate".
-    public async Task SendVoiceSignal(int targetUserId, int channelId, string signalType, string payload)
-    {
-        await Clients.User(targetUserId.ToString())
-            .SendAsync("VoiceSignal", CurrentUserId, channelId, signalType, payload);
     }
 
     // Client-side voice-activity detection pushes state changes here (not raw

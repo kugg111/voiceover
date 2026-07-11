@@ -6,9 +6,9 @@ namespace Voiceover.Server.Services;
 // media transport (SFU) is a separate self-hosted LiveKit deployment (see
 // REDEPLOY.txt) - this server never touches audio itself, only vouches for
 // who's allowed into which room. Not required at startup (unlike
-// DATABASE_URL) since this is being introduced ahead of the client actually
-// using it - a local dev session without LiveKit credentials configured can
-// still run everything else.
+// DATABASE_URL) so a local dev session without LiveKit credentials
+// configured can still run everything else - only actually joining voice
+// fails, with a clear error, until LIVEKIT_API_KEY/SECRET are set.
 public class LiveKitTokenService
 {
     private readonly string? _apiKey;

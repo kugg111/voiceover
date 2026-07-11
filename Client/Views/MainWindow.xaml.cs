@@ -247,10 +247,7 @@ public partial class MainWindow : FluentWindow
     private async void MainWindow_Closed(object? sender, EventArgs e)
     {
         if (_voice is not null)
-        {
-            await _voice.LeaveAllAsync();
-            _voice.Dispose();
-        }
+            await _voice.DisposeAsync();
         await _hub.DisconnectAsync();
     }
 
@@ -412,14 +409,13 @@ public partial class MainWindow : FluentWindow
         }
 
         _currentVoiceChannelId = channelId;
-        _voice.SetActiveChannel(channelId);
         var existingMembers = await _hub.JoinVoiceChannelAsync(channelId);
 
-        // Connects to everyone already in the channel from our side too -
-        // see ConnectToExistingMembersAsync for why this can't be left to
-        // the pre-existing members alone (whether a pair actually connects
-        // used to depend on which of the two had the lower user id).
-        await _voice.ConnectToExistingMembersAsync(existingMembers.Select(m => m.UserId), channelId);
+        // JoinVoiceChannelAsync above is presence/roster bookkeeping only
+        // (unchanged from the mesh days - still SignalR, still drives the
+        // member list below); this is the actual audio connection, to the
+        // separate LiveKit deployment.
+        await _voice.JoinChannelAsync(channelId);
 
         var item = FindVoiceChannelItem(channelId);
         if (item is not null)

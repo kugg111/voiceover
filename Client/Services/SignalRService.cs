@@ -12,7 +12,6 @@ public class SignalRService
     public event Action<string, int>? UserTyping;
     public event Action<int, string, int, string?>? VoiceUserJoined;
     public event Action<int, string, int>? VoiceUserLeft;
-    public event Action<int, int, string, string>? VoiceSignalReceived;
     public event Action<int, int, bool>? UserSpeaking;
     public event Action<int, int, bool>? UserMuted;
     public event Action<int, int, bool>? UserDeafened;
@@ -40,7 +39,6 @@ public class SignalRService
         _connection.On<string, int>("UserTyping", (username, channelId) => UserTyping?.Invoke(username, channelId));
         _connection.On<int, string, int, string?>("VoiceUserJoined", (userId, username, channelId, avatarUrl) => VoiceUserJoined?.Invoke(userId, username, channelId, avatarUrl));
         _connection.On<int, string, int>("VoiceUserLeft", (userId, username, channelId) => VoiceUserLeft?.Invoke(userId, username, channelId));
-        _connection.On<int, int, string, string>("VoiceSignal", (fromUserId, channelId, signalType, payload) => VoiceSignalReceived?.Invoke(fromUserId, channelId, signalType, payload));
         _connection.On<int, int, bool>("UserSpeaking", (userId, channelId, isSpeaking) => UserSpeaking?.Invoke(userId, channelId, isSpeaking));
         _connection.On<int, int, bool>("UserMuted", (userId, channelId, isMuted) => UserMuted?.Invoke(userId, channelId, isMuted));
         _connection.On<int, int, bool>("UserDeafened", (userId, channelId, isDeafened) => UserDeafened?.Invoke(userId, channelId, isDeafened));
@@ -62,8 +60,7 @@ public class SignalRService
     public Task SendDirectMessageAsync(int recipientId, string content) => _connection!.InvokeAsync("SendDirectMessage", recipientId, content);
     public Task<List<VoiceParticipant>> JoinVoiceChannelAsync(int channelId) => _connection!.InvokeAsync<List<VoiceParticipant>>("JoinVoiceChannel", channelId);
     public Task LeaveVoiceChannelAsync(int channelId) => _connection!.InvokeAsync("LeaveVoiceChannel", channelId);
-    public Task SendVoiceSignalAsync(int targetUserId, int channelId, string signalType, string payload)
-        => _connection!.InvokeAsync("SendVoiceSignal", targetUserId, channelId, signalType, payload);
+    public Task<LiveKitJoinResponse> GetLiveKitTokenAsync(int channelId) => _connection!.InvokeAsync<LiveKitJoinResponse>("GetLiveKitToken", channelId);
     public Task SendSpeakingAsync(int channelId, bool isSpeaking) => _connection!.InvokeAsync("NotifySpeaking", channelId, isSpeaking);
     public Task SendMutedAsync(int channelId, bool isMuted) => _connection!.InvokeAsync("NotifyMuted", channelId, isMuted);
     public Task SendDeafenedAsync(int channelId, bool isDeafened) => _connection!.InvokeAsync("NotifyDeafened", channelId, isDeafened);
