@@ -18,6 +18,12 @@ public class ServerListItem
     public int Id { get; set; }
     public string Name { get; set; } = string.Empty;
     public string? IconUrl { get; set; }
+
+    // Owner/Moderator only, matching InvitesController's own
+    // CanManageServerAsync check server-side - gates the "Invites" context
+    // menu item so people who'd just get a 403 never see it in the first place.
+    public bool CanManageInvites { get; set; }
+    public Visibility InvitesMenuVisibility => CanManageInvites ? Visibility.Visible : Visibility.Collapsed;
 }
 
 public class VoiceMemberItem : INotifyPropertyChanged
@@ -199,6 +205,26 @@ public class FriendRequestListItem
     public string SecondaryActionLabel => Direction == "Incoming" ? "Decline" : "Cancel";
 }
 
+public class MemberListItem
+{
+    public int UserId { get; set; }
+    public string Username { get; set; } = string.Empty;
+    public string? AvatarUrl { get; set; }
+    public string Role { get; set; } = string.Empty;
+
+    // Only the owner can promote/demote (matches the old Members popup);
+    // owner and moderator can both kick (matches KickMember's own
+    // CanManageServerAsync check) - neither ever applies to the owner's own row.
+    public bool CanChangeRole { get; set; }
+    public bool CanKick { get; set; }
+
+    public string RoleButtonLabel => Role == "Moderator" ? "Demote" : "Promote";
+    public string NextRole => Role == "Moderator" ? "Member" : "Moderator";
+    public Visibility RoleButtonVisibility => CanChangeRole ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility KickButtonVisibility => CanKick ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility AnyActionVisibility => CanChangeRole || CanKick ? Visibility.Visible : Visibility.Collapsed;
+}
+
 public partial class MainWindow : FluentWindow
 {
     private readonly ApiService _api;
@@ -212,6 +238,7 @@ public partial class MainWindow : FluentWindow
     private string? _dmActiveUsername;
 
     private readonly ObservableCollection<ServerListItem> _servers = new();
+    private readonly ObservableCollection<MemberListItem> _members = new();
     private readonly ObservableCollection<ChannelListItem> _textChannels = new();
     private readonly ObservableCollection<ChannelListItem> _voiceChannels = new();
     private readonly ObservableCollection<MessageListItem> _messages = new();
@@ -239,6 +266,7 @@ public partial class MainWindow : FluentWindow
         MyAvatarView.ImageUrl = _api.CurrentUserAvatarUrl;
 
         ServerList.ItemsSource = _servers;
+        MemberList.ItemsSource = _members;
         TextChannelList.ItemsSource = _textChannels;
         VoiceChannelList.ItemsSource = _voiceChannels;
         MessageList.ItemsSource = _messages;
@@ -304,7 +332,7 @@ public partial class MainWindow : FluentWindow
         var servers = await _api.GetMyServersAsync();
         _servers.Clear();
         foreach (var s in servers)
-            _servers.Add(new ServerListItem { Id = s.Id, Name = s.Name, IconUrl = App.ResolveUploadUrl(s.IconUrl) });
+            _servers.Add(new ServerListItem { Id = s.Id, Name = s.Name, IconUrl = App.ResolveUploadUrl(s.IconUrl), CanManageInvites = s.CanManageInvites });
 
         // Join every text channel's SignalR group across every server the
         // user belongs to - not just whichever one happens to be open right
@@ -368,6 +396,63 @@ public partial class MainWindow : FluentWindow
 
         await RefreshChannelsAsync(serverId);
         await LoadVoiceRostersAsync(serverId);
+        await LoadMembersPanelAsync(serverId);
+    }
+
+    private async Task LoadMembersPanelAsync(int serverId)
+    {
+        var members = await _api.GetMembersAsync(serverId);
+        var self = members.FirstOrDefault(m => m.UserId == _api.CurrentUserId);
+        var isOwner = self?.Role == "Owner";
+        var canManageServer = isOwner || self?.Role == "Moderator";
+
+        _members.Clear();
+        foreach (var m in members)
+            _members.Add(new MemberListItem
+            {
+                UserId = m.UserId,
+                Username = m.Username,
+                AvatarUrl = App.ResolveUploadUrl(m.AvatarUrl),
+                Role = m.Role,
+                CanChangeRole = isOwner && m.Role != "Owner",
+                CanKick = canManageServer && m.Role != "Owner"
+            });
+    }
+
+    private async void MemberRoleButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: int userId } || _currentServerId is null) return;
+
+        var item = _members.FirstOrDefault(m => m.UserId == userId);
+        if (item is null) return;
+
+        var success = await _api.ChangeRoleAsync(_currentServerId.Value, userId, item.NextRole);
+        if (!success)
+        {
+            MessageBox.Show("Could not change this member's role.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        await LoadMembersPanelAsync(_currentServerId.Value);
+    }
+
+    private async void MemberKickButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: int userId } || _currentServerId is null) return;
+
+        var confirm = MessageBox.Show("Remove this member from the server?", "Confirm Kick",
+            MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (confirm != MessageBoxResult.Yes) return;
+
+        var success = await _api.KickMemberAsync(_currentServerId.Value, userId);
+        if (!success)
+        {
+            MessageBox.Show("Could not kick this member (you may lack permission, or they're the owner).",
+                "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        await LoadMembersPanelAsync(_currentServerId.Value);
     }
 
     // Populates each voice channel's member list from a server-wide snapshot,
@@ -576,6 +661,23 @@ public partial class MainWindow : FluentWindow
             await RefreshChannelsAsync(serverId);
     }
 
+    private async void GenerateInviteMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.MenuItem { Tag: int serverId }) return;
+
+        var invite = await _api.CreateInviteAsync(serverId, expiresInHours: 24 * 7); // 1 week
+        if (invite is null)
+        {
+            MessageBox.Show("Could not generate an invite (you may lack permission).", "Error",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        Clipboard.SetText(invite.Code);
+        MessageBox.Show($"Invite code generated and copied to clipboard:\n\n{invite.Code}\n\nExpires in 7 days.",
+            "Invite Generated", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
     private async void LeaveServerMenuItem_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not System.Windows.Controls.MenuItem { Tag: int serverId }) return;
@@ -689,28 +791,6 @@ public partial class MainWindow : FluentWindow
         Close();
     }
 
-    private async void MembersButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (_currentServerId is null)
-        {
-            MessageBox.Show("Select a server first.");
-            return;
-        }
-
-        var window = new MembersWindow(_api, _currentServerId.Value);
-        window.Owner = this;
-        window.ShowDialog();
-    }
-
-    private void VoiceSettingsButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (_voice is null) return;
-
-        var window = new VoiceSettingsWindow(_voice);
-        window.Owner = this;
-        window.ShowDialog();
-    }
-
     private void MyAvatarBorder_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
         new SettingsWindow(_api, _voice) { Owner = this }.ShowDialog();
@@ -777,8 +857,7 @@ public partial class MainWindow : FluentWindow
         ServerSidebarPanel.Visibility = Visibility.Visible;
         MessagesSidebarPanel.Visibility = Visibility.Collapsed;
         FriendsSidebarPanel.Visibility = Visibility.Collapsed;
-        MembersNavButton.Visibility = Visibility.Visible;
-        VoiceSettingsNavButton.Visibility = Visibility.Visible;
+        MembersPanel.Visibility = Visibility.Visible;
 
         if (_dmActiveUserId.HasValue || ChannelNameText.Text != "# select-a-channel")
         {
@@ -794,8 +873,7 @@ public partial class MainWindow : FluentWindow
         ServerSidebarPanel.Visibility = Visibility.Collapsed;
         MessagesSidebarPanel.Visibility = Visibility.Visible;
         FriendsSidebarPanel.Visibility = Visibility.Collapsed;
-        MembersNavButton.Visibility = Visibility.Collapsed;
-        VoiceSettingsNavButton.Visibility = Visibility.Collapsed;
+        MembersPanel.Visibility = Visibility.Collapsed;
     }
 
     private void ShowFriendsSidebar()
@@ -803,8 +881,7 @@ public partial class MainWindow : FluentWindow
         ServerSidebarPanel.Visibility = Visibility.Collapsed;
         MessagesSidebarPanel.Visibility = Visibility.Collapsed;
         FriendsSidebarPanel.Visibility = Visibility.Visible;
-        MembersNavButton.Visibility = Visibility.Collapsed;
-        VoiceSettingsNavButton.Visibility = Visibility.Collapsed;
+        MembersPanel.Visibility = Visibility.Collapsed;
     }
 
     private async void DmSearchBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)

@@ -27,6 +27,7 @@
             <ColumnDefinition Width="72"/>   <!-- server rail -->
             <ColumnDefinition Width="220"/>  <!-- channel sidebar -->
             <ColumnDefinition Width="*"/>    <!-- messages -->
+            <ColumnDefinition Width="220"/>  <!-- members (server view only) -->
         </Grid.ColumnDefinitions>
 
         <!-- SERVER RAIL -->
@@ -71,6 +72,9 @@
                                     <Button.ContextMenu>
                                         <ContextMenu>
                                             <MenuItem Header="Add Channel" Tag="{Binding Id}" Click="AddChannelMenuItem_Click"/>
+                                            <MenuItem Header="Invites" Visibility="{Binding InvitesMenuVisibility}">
+                                                <MenuItem Header="Generate" Tag="{Binding Id}" Click="GenerateInviteMenuItem_Click"/>
+                                            </MenuItem>
                                             <MenuItem Header="Leave Server" Tag="{Binding Id}" Click="LeaveServerMenuItem_Click"/>
                                         </ContextMenu>
                                     </Button.ContextMenu>
@@ -354,10 +358,6 @@
                 <DockPanel>
                     <TextBlock x:Name="ConnectionStatusText" DockPanel.Dock="Right" Text=""
                                Foreground="#F0B232" FontSize="12" VerticalAlignment="Center" Margin="0,0,12,0"/>
-                    <Button DockPanel.Dock="Right" x:Name="VoiceSettingsNavButton" Content="Voice Settings" Click="VoiceSettingsButton_Click"
-                            Background="Transparent" Foreground="{StaticResource TextMuted}" BorderThickness="0" Margin="0,0,8,0"/>
-                    <Button DockPanel.Dock="Right" x:Name="MembersNavButton" Content="Members" Click="MembersButton_Click"
-                            Background="Transparent" Foreground="{StaticResource TextMuted}" BorderThickness="0" Margin="0,0,8,0"/>
                     <TextBlock x:Name="ChannelNameText" Text="# select-a-channel"
                                Foreground="{StaticResource TextNormal}" FontWeight="Bold"
                                VerticalAlignment="Center" Margin="16,0,0,0"/>
@@ -413,6 +413,42 @@
                         BorderThickness="0" Click="SendButton_Click"/>
             </Grid>
         </Grid>
+
+        <!-- MEMBERS (server view only, see ShowServerSidebar/ShowMessagesSidebar/ShowFriendsSidebar) -->
+        <Border x:Name="MembersPanel" Grid.Column="3" Background="{StaticResource BgSidebar}" Visibility="Collapsed">
+            <DockPanel Margin="12">
+                <TextBlock DockPanel.Dock="Top" Text="MEMBERS" FontSize="11" FontWeight="Bold"
+                           Foreground="{StaticResource TextMuted}" Margin="4,4,0,8"/>
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <ItemsControl x:Name="MemberList">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Margin="0,4,0,4">
+                                    <StackPanel Orientation="Horizontal">
+                                        <local:AvatarView Size="28" DisplayName="{Binding Username}"
+                                                           ImageUrl="{Binding AvatarUrl}" Margin="0,0,8,0"/>
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Username}" Foreground="{StaticResource TextNormal}" FontSize="13"/>
+                                            <TextBlock Text="{Binding Role}" Foreground="{StaticResource TextMuted}" FontSize="11"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="36,4,0,0"
+                                                Visibility="{Binding AnyActionVisibility}">
+                                        <Button Content="{Binding RoleButtonLabel}" Tag="{Binding UserId}"
+                                                Click="MemberRoleButton_Click" Visibility="{Binding RoleButtonVisibility}"
+                                                Background="{StaticResource BgDarker}" Foreground="{StaticResource TextNormal}"
+                                                BorderThickness="0" Padding="8,2" FontSize="11" Margin="0,0,6,0"/>
+                                        <Button Content="Kick" Tag="{Binding UserId}" Click="MemberKickButton_Click"
+                                                Visibility="{Binding KickButtonVisibility}"
+                                                Background="#F23F42" Foreground="White" BorderThickness="0" Padding="8,2" FontSize="11"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
         </Grid>
     </Grid>
 </ui:FluentWindow>

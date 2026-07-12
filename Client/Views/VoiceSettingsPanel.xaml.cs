@@ -7,11 +7,10 @@ using Voiceover.Client.Services;
 
 namespace Voiceover.Client.Views;
 
-// Voice device/input-mode/hotkey settings, factored out of the old
-// standalone VoiceSettingsWindow so the same UI+logic can be hosted both
-// there (the top-bar "Voice Settings" button, a dedicated popup) and inline
-// as a tab in the unified Settings window (opened from the avatar) -
-// without duplicating either the XAML or the event handlers.
+// Voice device/input-mode/hotkey settings - embedded as the Sound Options
+// tab of the unified Settings window (opened from the avatar). Kept as its
+// own UserControl (rather than inlined into SettingsWindow directly) so it
+// isn't tied to one specific host window.
 public partial class VoiceSettingsPanel : UserControl
 {
     private VoiceService? _voice;
