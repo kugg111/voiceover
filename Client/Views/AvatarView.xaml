@@ -5,7 +5,6 @@
         <Ellipse x:Name="FallbackCircle" Width="32" Height="32"/>
         <TextBlock x:Name="InitialText" Foreground="White" FontWeight="Bold"
                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
-        <Image x:Name="AvatarImage" Stretch="UniformToFill" Visibility="Collapsed"
-               ImageFailed="AvatarImage_ImageFailed"/>
+        <Image x:Name="AvatarImage" Stretch="UniformToFill" Visibility="Collapsed"/>
     </Grid>
 </UserControl>

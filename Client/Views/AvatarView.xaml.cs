@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using Voiceover.Client.Services;
 
 namespace Voiceover.Client.Views;
 
@@ -105,34 +106,38 @@ public partial class AvatarView : UserControl
         InitialText.Text = char.ToUpperInvariant(name[0]).ToString();
         FallbackCircle.Fill = Palette[(uint)StableHash(name) % Palette.Length];
 
-        if (string.IsNullOrEmpty(ImageUrl))
+        var url = ImageUrl;
+        if (string.IsNullOrEmpty(url))
         {
             AvatarImage.Visibility = Visibility.Collapsed;
             AvatarImage.Source = null;
             return;
         }
 
-        try
-        {
-            var bitmap = new BitmapImage();
-            bitmap.BeginInit();
-            bitmap.UriSource = new Uri(ImageUrl, UriKind.Absolute);
-            bitmap.CacheOption = BitmapCacheOption.OnLoad;
-            bitmap.EndInit();
-            AvatarImage.Source = bitmap;
-            AvatarImage.Visibility = Visibility.Visible;
-        }
-        catch
-        {
-            // Malformed URL - fall back to the initial instead of crashing.
-            AvatarImage.Visibility = Visibility.Collapsed;
-            AvatarImage.Source = null;
-        }
+        _ = LoadImageAsync(url);
     }
 
-    // Loaded successfully as a BitmapImage but failed asynchronously (404,
-    // network error, corrupt file) - fall back to the initial instead of
-    // WPF's broken-image icon.
-    private void AvatarImage_ImageFailed(object sender, ExceptionRoutedEventArgs e) =>
-        AvatarImage.Visibility = Visibility.Collapsed;
+    // Fire-and-forget from Refresh() - every list this renders in
+    // (messages, members, friends, DMs, server rail) recreates AvatarView
+    // instances on every refresh, so this needs to tolerate ImageUrl having
+    // already moved on (a different row reusing this instance, or a fast
+    // second Refresh landing before the first finishes) by the time the
+    // cache lookup/download completes.
+    private async Task LoadImageAsync(string url)
+    {
+        var image = await AvatarImageCache.GetAsync(url);
+        if (url != ImageUrl) return;
+
+        if (image is null)
+        {
+            // Bad URL, 404, network error - fall back to the initial
+            // instead of WPF's broken-image icon.
+            AvatarImage.Visibility = Visibility.Collapsed;
+            AvatarImage.Source = null;
+            return;
+        }
+
+        AvatarImage.Source = image;
+        AvatarImage.Visibility = Visibility.Visible;
+    }
 }

@@ -9,23 +9,61 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
 using Npgsql;
+using NpgsqlTypes;
 using Serilog;
 using Serilog.Events;
 using Serilog.Formatting.Compact;
+using Serilog.Sinks.PostgreSQL;
+using Serilog.Sinks.PostgreSQL.ColumnWriters;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// One compact JSON object per log line (CLEF format) instead of plain text -
-// Railway's log viewer/export gets actual queryable fields (level, request
-// path, user id, exception, etc.), and it's the format a real log
-// aggregator (Seq, Better Stack, ...) would expect if one gets wired in
-// later - just add a second WriteTo, nothing here needs to change.
+// DATABASE_URL is a standard Postgres URI (postgresql://user:pass@host:port/db) -
+// the format Railway (and most PaaS hosts) inject for their managed Postgres
+// add-ons. ASP.NET Core's configuration picks up the env var automatically;
+// for local dev, set the same key via `dotnet user-secrets set DATABASE_URL
+// "..."` (see DEPLOYMENT.txt for the actual connection string - it's a live
+// credential, so it's not committed to the repo). Computed up front (rather
+// than down in the --- Services --- section below, where it used to live)
+// since the Serilog Postgres sink needs it too.
+var databaseUrl = builder.Configuration["DATABASE_URL"]
+    ?? throw new InvalidOperationException(
+        "DATABASE_URL is not configured. Set it as an env var (Railway) or via " +
+        "`dotnet user-secrets set DATABASE_URL \"...\"` for local dev - see DEPLOYMENT.txt.");
+var npgsqlConnectionString = BuildNpgsqlConnectionString(databaseUrl);
+
+// Two sinks: Console (one compact JSON object per line - CLEF format - so
+// Railway's log viewer/export gets actual queryable fields instead of plain
+// text) and Postgres (the same database everything else already lives in -
+// no extra infra, and it's what makes these actually queryable/alertable
+// rather than just prettier console output). No file sink - Railway's
+// container filesystem doesn't persist across restarts anyway, so a log
+// file there would just disappear.
+var logColumns = new Dictionary<string, ColumnWriterBase>
+{
+    { "message", new RenderedMessageColumnWriter() },
+    { "message_template", new MessageTemplateColumnWriter() },
+    { "level", new LevelColumnWriter(true, NpgsqlDbType.Varchar) },
+    { "timestamp", new TimestampColumnWriter() },
+    { "exception", new ExceptionColumnWriter() },
+    // Everything enriched onto the event (UserId, RequestPath, StatusCode,
+    // Elapsed, RemoteIp, ...) as one JSONB blob - Postgres can query into it
+    // directly (e.g. `properties->>'UserId'`) without a fixed column per
+    // enricher.
+    { "properties", new LogEventSerializedColumnWriter(NpgsqlDbType.Jsonb) }
+};
+
 builder.Host.UseSerilog((context, config) => config
     .MinimumLevel.Information()
     .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
     .MinimumLevel.Override("Microsoft.EntityFrameworkCore", LogEventLevel.Warning)
     .Enrich.FromLogContext()
-    .WriteTo.Console(new CompactJsonFormatter()));
+    .WriteTo.Console(new CompactJsonFormatter())
+    .WriteTo.PostgreSQL(
+        connectionString: npgsqlConnectionString,
+        tableName: "logs",
+        columnOptions: logColumns,
+        needAutoCreateTable: true));
 
 // Railway (and most PaaS hosts) inject the port to listen on via $PORT rather
 // than a fixed config value. Note: appsettings.json's Kestrel:Endpoints config
@@ -55,19 +93,8 @@ var sitePath = Path.Combine(builder.Environment.ContentRootPath, "Site");
 
 // --- Services ---
 
-// DATABASE_URL is a standard Postgres URI (postgresql://user:pass@host:port/db) -
-// the format Railway (and most PaaS hosts) inject for their managed Postgres
-// add-ons. ASP.NET Core's configuration picks up the env var automatically;
-// for local dev, set the same key via `dotnet user-secrets set DATABASE_URL
-// "..."` (see DEPLOYMENT.txt for the actual connection string - it's a live
-// credential, so it's not committed to the repo).
-var databaseUrl = builder.Configuration["DATABASE_URL"]
-    ?? throw new InvalidOperationException(
-        "DATABASE_URL is not configured. Set it as an env var (Railway) or via " +
-        "`dotnet user-secrets set DATABASE_URL \"...\"` for local dev - see DEPLOYMENT.txt.");
-
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(BuildNpgsqlConnectionString(databaseUrl)));
+    options.UseNpgsql(npgsqlConnectionString));
 
 builder.Services.AddSingleton(new UploadsPathOptions(uploadsDir));
 builder.Services.AddSingleton<JwtTokenService>();
