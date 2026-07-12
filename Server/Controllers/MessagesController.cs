@@ -18,12 +18,14 @@ public class MessagesController : ControllerBase
     private readonly AppDbContext _db;
     private readonly PermissionService _permissions;
     private readonly IHubContext<ChatHub> _hub;
+    private readonly MessageEncryptionService _messageEncryption;
 
-    public MessagesController(AppDbContext db, PermissionService permissions, IHubContext<ChatHub> hub)
+    public MessagesController(AppDbContext db, PermissionService permissions, IHubContext<ChatHub> hub, MessageEncryptionService messageEncryption)
     {
         _db = db;
         _permissions = permissions;
         _hub = hub;
+        _messageEncryption = messageEncryption;
     }
 
     // Must match ChatHub's private GroupName(channelId) - every text
@@ -48,10 +50,17 @@ public class MessagesController : ControllerBase
             .OrderByDescending(m => m.SentAt)
             .Take(take)
             .OrderBy(m => m.SentAt)
-            .Select(m => new MessageResponse(m.Id, m.Content, m.ChannelId, m.AuthorId, m.Author!.Username, m.SentAt, m.AttachmentUrl, m.Author!.AvatarUrl, m.EditedAt))
+            .Include(m => m.Author)
             .ToListAsync();
 
-        return Ok(messages);
+        // Decryption can't happen inside the EF query above (it'd try to
+        // translate MessageEncryptionService.Decrypt into SQL) - projecting
+        // to the response DTO happens here, in memory, after materializing.
+        var response = messages
+            .Select(m => new MessageResponse(m.Id, _messageEncryption.Decrypt(m.Content), m.ChannelId, m.AuthorId, m.Author!.Username, m.SentAt, m.AttachmentUrl, m.Author!.AvatarUrl, m.EditedAt))
+            .ToList();
+
+        return Ok(response);
     }
 
     // Author-only - unlike Delete, moderators can remove someone else's
@@ -68,11 +77,13 @@ public class MessagesController : ControllerBase
         if (message is null) return NotFound();
         if (message.AuthorId != CurrentUserId) return Forbid();
 
-        message.Content = request.Content;
+        message.Content = _messageEncryption.Encrypt(request.Content);
         message.EditedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
 
-        var response = new MessageResponse(message.Id, message.Content, channelId, message.AuthorId, message.Author!.Username, message.SentAt, message.AttachmentUrl, message.Author.AvatarUrl, message.EditedAt);
+        // Broadcasts the plaintext we were handed, not message.Content - see
+        // ChatHub.SendMessage for why.
+        var response = new MessageResponse(message.Id, request.Content, channelId, message.AuthorId, message.Author!.Username, message.SentAt, message.AttachmentUrl, message.Author.AvatarUrl, message.EditedAt);
         await _hub.Clients.Group(GroupName(channelId)).SendAsync("MessageEdited", response);
 
         return Ok(response);

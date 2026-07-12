@@ -16,13 +16,13 @@ namespace Voiceover.Server.Controllers;
 public class DirectMessagesController : ControllerBase
 {
     private readonly AppDbContext _db;
-    private readonly DmEncryptionService _dmEncryption;
+    private readonly MessageEncryptionService _messageEncryption;
     private readonly IHubContext<ChatHub> _hub;
 
-    public DirectMessagesController(AppDbContext db, DmEncryptionService dmEncryption, IHubContext<ChatHub> hub)
+    public DirectMessagesController(AppDbContext db, MessageEncryptionService messageEncryption, IHubContext<ChatHub> hub)
     {
         _db = db;
-        _dmEncryption = dmEncryption;
+        _messageEncryption = messageEncryption;
         _hub = hub;
     }
 
@@ -57,7 +57,7 @@ public class DirectMessagesController : ControllerBase
                 return new DmConversationResponse(
                     c.OtherUserId,
                     info?.Username ?? "Unknown",
-                    _dmEncryption.Decrypt(c.Last.Content),
+                    _messageEncryption.Decrypt(c.Last.Content),
                     c.Last.SentAt,
                     info?.AvatarUrl);
             })
@@ -81,10 +81,10 @@ public class DirectMessagesController : ControllerBase
             .ToListAsync();
 
         // Decryption can't happen inside the EF query above (it'd try to
-        // translate DmEncryptionService.Decrypt into SQL) - projecting to
+        // translate MessageEncryptionService.Decrypt into SQL) - projecting to
         // the response DTO happens here, in memory, after materializing.
         var response = messages
-            .Select(m => new DirectMessageResponse(m.Id, _dmEncryption.Decrypt(m.Content), m.SenderId, m.RecipientId, m.SentAt, m.EditedAt))
+            .Select(m => new DirectMessageResponse(m.Id, _messageEncryption.Decrypt(m.Content), m.SenderId, m.RecipientId, m.SentAt, m.EditedAt))
             .ToList();
 
         return Ok(response);
@@ -101,7 +101,7 @@ public class DirectMessagesController : ControllerBase
         if (message is null) return NotFound();
         if (message.SenderId != CurrentUserId) return Forbid();
 
-        message.Content = _dmEncryption.Encrypt(request.Content);
+        message.Content = _messageEncryption.Encrypt(request.Content);
         message.EditedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
 
