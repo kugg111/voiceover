@@ -1,10 +1,12 @@
 using System.Security.Claims;
 using Voiceover.Server.Data;
 using Voiceover.Server.Dtos;
+using Voiceover.Server.Hubs;
 using Voiceover.Server.Models;
 using Voiceover.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
 namespace Voiceover.Server.Controllers;
@@ -20,12 +22,14 @@ public class ServersController : ControllerBase
     private readonly AppDbContext _db;
     private readonly PermissionService _permissions;
     private readonly PresenceService _presence;
+    private readonly IHubContext<ChatHub> _hub;
 
-    public ServersController(AppDbContext db, PermissionService permissions, PresenceService presence)
+    public ServersController(AppDbContext db, PermissionService permissions, PresenceService presence, IHubContext<ChatHub> hub)
     {
         _db = db;
         _permissions = permissions;
         _presence = presence;
+        _hub = hub;
     }
 
     private int CurrentUserId => int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -166,6 +170,84 @@ public class ServersController : ControllerBase
             : MemberRole.Member;
 
         await _db.SaveChangesAsync();
+        return Ok();
+    }
+
+    // --- E2EE server key (shared, wrapped per member - see ServerMemberKey) ---
+
+    // GET /api/servers/{serverId}/keys/me -> this member's own wrapped copy,
+    // or a null WrappedKey if nobody's granted them one yet (brand new
+    // member - the client falls back to ChatHub.RequestServerKey to ask an
+    // online peer to onboard them).
+    [HttpGet("{serverId}/keys/me")]
+    public async Task<ActionResult<ServerKeyResponse>> GetMyServerKey(int serverId)
+    {
+        if (!await _permissions.IsMemberAsync(CurrentUserId, serverId)) return Forbid();
+
+        var row = await _db.ServerMemberKeys.FirstOrDefaultAsync(k => k.GuildServerId == serverId && k.UserId == CurrentUserId);
+        return Ok(new ServerKeyResponse(row?.WrappedKey, row?.WrappedByUserId));
+    }
+
+    // PUT /api/servers/{serverId}/keys/{targetUserId} - either a member
+    // wrapping the key for themselves (targetUserId == caller) or an
+    // existing member who already has the key wrapping a copy for a
+    // fellow member who doesn't yet (onboarding a new joiner, or the
+    // requester of ChatHub.RequestServerKey). WrappedByUserId is always the
+    // caller, never client-supplied, so the unwrapping side always redoes
+    // ECDH against a public key it can actually trust came from the caller.
+    [HttpPut("{serverId}/keys/{targetUserId}")]
+    public async Task<ActionResult> SetServerKey(int serverId, int targetUserId, SetServerKeyRequest req)
+    {
+        if (!await _permissions.IsMemberAsync(CurrentUserId, serverId)) return Forbid();
+        if (!await _permissions.IsMemberAsync(targetUserId, serverId)) return NotFound();
+
+        // Immutable once set - same reasoning as user identity key material
+        // (UsersController.SetMyKeys): a bad/foreign overwrite would just
+        // strand that one member, so simplest to disallow overwriting
+        // entirely rather than trying to authenticate "is this a legitimate
+        // correction."
+        if (await _db.ServerMemberKeys.AnyAsync(k => k.GuildServerId == serverId && k.UserId == targetUserId))
+            return Conflict("A key is already set for this member.");
+
+        var anyKeyExistsForServer = await _db.ServerMemberKeys.AnyAsync(k => k.GuildServerId == serverId);
+
+        if (targetUserId == CurrentUserId)
+        {
+            // Self-bootstrap - only ever the very first key for a server
+            // (no member, including this one, has one yet). Restricted to
+            // the owner so two members can't each notice "no key exists"
+            // at the same moment and generate two different keys,
+            // permanently splitting the server's history in two. If keys
+            // already exist for OTHER members but not this caller (e.g. a
+            // pre-E2EE server where onboarding hasn't reached them yet),
+            // this correctly refuses rather than letting them self-generate
+            // an incompatible key - they need a copy of the real one from
+            // an existing member (ChatHub.RequestServerKey), not a new one.
+            if (anyKeyExistsForServer)
+                return Conflict("A key already exists for this server - request a copy from an existing member instead of self-generating one.");
+            if (!await _permissions.IsOwnerAsync(CurrentUserId, serverId))
+                return Forbid();
+        }
+        // Wrapping a copy for a fellow member (onboarding) is open to any
+        // existing member, same trust level already granted for creating
+        // invites - the "target has no row yet" check above already
+        // prevents clobbering a working key.
+
+        _db.ServerMemberKeys.Add(new ServerMemberKey
+        {
+            GuildServerId = serverId,
+            UserId = targetUserId,
+            WrappedByUserId = CurrentUserId,
+            WrappedKey = req.WrappedKey
+        });
+        await _db.SaveChangesAsync();
+
+        // Lets the target's client (if it's the one that just asked via
+        // RequestServerKey and is sitting on a locked/placeholder view)
+        // pick this up immediately instead of waiting for its next poll.
+        if (targetUserId != CurrentUserId)
+            await _hub.Clients.User(targetUserId.ToString()).SendAsync("ServerKeyProvisioned", serverId);
+
         return Ok();
     }
 }

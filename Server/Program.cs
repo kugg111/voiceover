@@ -101,7 +101,6 @@ builder.Services.AddSingleton<JwtTokenService>();
 builder.Services.AddSingleton<VoicePresenceService>();
 builder.Services.AddSingleton<PresenceService>();
 builder.Services.AddSingleton<LiveKitTokenService>();
-builder.Services.AddSingleton<MessageEncryptionService>();
 builder.Services.AddScoped<PermissionService>();
 // SendMessage/SendDirectMessage anti-spam - see MessageRateLimiter for why
 // this can't just be the HTTP rate limiter below (SignalR hub calls don't

@@ -22,6 +22,8 @@ public class SignalRService
     public event Action<int, int, string>? FriendRequestReceived;
     public event Action<int, int>? FriendRequestAccepted;
     public event Action<int, string>? PresenceChanged;
+    public event Action<int, int>? ServerKeyRequested; // serverId, requestingUserId
+    public event Action<int>? ServerKeyProvisioned; // serverId
 
     // Connection lifecycle events, surfaced so the UI can show a status banner
     // instead of silently failing when the connection drops.
@@ -59,6 +61,8 @@ public class SignalRService
         _connection.On<int, int, string>("FriendRequestReceived", (friendshipId, requesterId, requesterUsername) => FriendRequestReceived?.Invoke(friendshipId, requesterId, requesterUsername));
         _connection.On<int, int>("FriendRequestAccepted", (friendshipId, accepterId) => FriendRequestAccepted?.Invoke(friendshipId, accepterId));
         _connection.On<int, string>("PresenceChanged", (userId, state) => PresenceChanged?.Invoke(userId, state));
+        _connection.On<int, int>("ServerKeyRequested", (serverId, requestingUserId) => ServerKeyRequested?.Invoke(serverId, requestingUserId));
+        _connection.On<int>("ServerKeyProvisioned", serverId => ServerKeyProvisioned?.Invoke(serverId));
 
         _connection.Reconnecting += _ => { Reconnecting?.Invoke(); return Task.CompletedTask; };
         _connection.Reconnected += _ => { Reconnected?.Invoke(); return Task.CompletedTask; };
@@ -83,6 +87,7 @@ public class SignalRService
     public Task LeaveServerPresenceAsync(int serverId) => _connection!.InvokeAsync("LeaveServerPresence", serverId);
     public Task<List<ChannelVoiceRoster>> GetVoiceRostersForServerAsync(int serverId) => _connection!.InvokeAsync<List<ChannelVoiceRoster>>("GetVoiceRostersForServer", serverId);
     public Task SetPresenceStateAsync(string state) => _connection!.InvokeAsync("SetPresenceState", state);
+    public Task RequestServerKeyAsync(int serverId) => _connection!.InvokeAsync("RequestServerKey", serverId);
 
     public bool IsConnected => _connection?.State == HubConnectionState.Connected;
 

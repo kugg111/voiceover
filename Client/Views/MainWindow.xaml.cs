@@ -18,6 +18,7 @@ public class ServerListItem
     public int Id { get; set; }
     public string Name { get; set; } = string.Empty;
     public string? IconUrl { get; set; }
+    public int OwnerId { get; set; }
 }
 
 public class VoiceMemberItem : INotifyPropertyChanged
@@ -383,6 +384,14 @@ public partial class MainWindow : FluentWindow
     // arrival regardless of prior UI state. channelId -> unread count.
     private readonly Dictionary<int, int> _unreadTextChannelCounts = new();
 
+    // channelId -> the server it belongs to - needed to decrypt a channel
+    // message's E2EE content (the per-server key is looked up by server id,
+    // not channel id) for messages that arrive for a server other than the
+    // one currently open, same reasoning as _unreadTextChannelCounts above.
+    // Populated in LoadServersAsync (every server up front) and
+    // RefreshChannelsAsync (safety net for channels created afterward).
+    private readonly Dictionary<int, int> _channelServerIds = new();
+
     private DateTime _lastTypingNotify = DateTime.MinValue;
 
     public MainWindow(ApiService api)
@@ -410,6 +419,8 @@ public partial class MainWindow : FluentWindow
         _hub.DirectMessageReceived += OnDirectMessageReceived;
         _hub.DirectMessageEdited += OnDirectMessageEdited;
         _hub.DirectMessageDeleted += OnDirectMessageDeleted;
+        _hub.ServerKeyRequested += OnServerKeyRequested;
+        _hub.ServerKeyProvisioned += OnServerKeyProvisioned;
         _hub.UserTyping += OnUserTyping;
         _hub.VoiceUserJoined += OnVoiceUserJoined;
         _hub.VoiceUserLeft += OnVoiceUserLeft;
@@ -521,7 +532,7 @@ public partial class MainWindow : FluentWindow
         var servers = await _api.GetMyServersAsync();
         _servers.Clear();
         foreach (var s in servers)
-            _servers.Add(new ServerListItem { Id = s.Id, Name = s.Name, IconUrl = App.ResolveUploadUrl(s.IconUrl) });
+            _servers.Add(new ServerListItem { Id = s.Id, Name = s.Name, IconUrl = App.ResolveUploadUrl(s.IconUrl), OwnerId = s.OwnerId });
 
         // Join every text channel's SignalR group across every server the
         // user belongs to - not just whichever one happens to be open right
@@ -534,6 +545,9 @@ public partial class MainWindow : FluentWindow
         foreach (var server in servers)
         {
             var channels = await _api.GetChannelsAsync(server.Id);
+            foreach (var c in channels)
+                _channelServerIds[c.Id] = c.GuildServerId;
+
             foreach (var c in channels.Where(c => c.Type == "Text"))
                 await _hub.JoinChannelAsync(c.Id);
         }
@@ -546,6 +560,8 @@ public partial class MainWindow : FluentWindow
         _voiceChannels.Clear();
         foreach (var c in channels)
         {
+            _channelServerIds[c.Id] = c.GuildServerId;
+
             var item = new ChannelListItem
             {
                 Id = c.Id,
@@ -696,10 +712,39 @@ public partial class MainWindow : FluentWindow
         var channelItem = FindChannelDisplayName(channelId);
         ChannelNameText.Text = channelItem ?? "# channel";
 
+        await LoadChannelHistoryAsync(channelId);
+    }
+
+    // Split out from ChannelButton_Click so OnServerKeyProvisioned can
+    // re-run it once this device receives a key it didn't have yet -
+    // messages that showed the "waiting for access" placeholder resolve to
+    // their real content without needing the user to reopen the channel.
+    private async Task LoadChannelHistoryAsync(int channelId)
+    {
+        if (_currentServerId is not { } serverId) return;
+
+        if (await _api.E2ee.GetServerKeyAsync(serverId) is null)
+        {
+            // If this device is the server's owner, this could be a server
+            // that predates the E2EE feature (or the moment right after
+            // creation, if creation-time generation somehow didn't run) -
+            // try self-bootstrapping. The server only accepts this when
+            // truly no key exists anywhere yet for the server (see
+            // ServersController.SetServerKey), so it's a safe no-op if a
+            // real key already exists among other members - this device
+            // just falls through to asking them instead. Otherwise (or if
+            // bootstrap wasn't accepted), ask peers - the response, if
+            // any, arrives asynchronously via OnServerKeyProvisioned,
+            // which reloads this same history.
+            var isOwner = _servers.FirstOrDefault(s => s.Id == serverId)?.OwnerId == _api.CurrentUserId;
+            if (!isOwner || !await _api.E2ee.GenerateAndUploadServerKeyAsync(serverId))
+                await _hub.RequestServerKeyAsync(serverId);
+        }
+
         var history = await _api.GetMessageHistoryAsync(channelId);
         _messages.Clear();
         foreach (var m in history)
-            _messages.Add(ToListItem(m));
+            _messages.Add(ToListItem(m, await _api.E2ee.DecryptForServerAsync(serverId, m.Content)));
 
         ScrollToBottom();
     }
@@ -850,7 +895,15 @@ public partial class MainWindow : FluentWindow
 
             var server = await _api.CreateServerAsync(name);
             if (server is not null)
+            {
+                // This is the one moment a device can be sure no key exists
+                // for the server anywhere yet - see E2eeService.
+                // GenerateAndUploadServerKeyAsync for why that certainty
+                // matters. Every other member (there are none yet) will
+                // request a copy from this device once they join.
+                await _api.E2ee.GenerateAndUploadServerKeyAsync(server.Id);
                 await LoadServersAsync();
+            }
         }
         else if (dialog.CreateSelected == false)
         {
@@ -1300,7 +1353,19 @@ public partial class MainWindow : FluentWindow
             return;
         }
 
-        await _hub.SendMessageAsync(_currentChannelId.Value, string.Empty, upload.Url);
+        if (_currentServerId is not { } serverId) return;
+
+        // Content is always encrypted, even when empty (attachment-only) -
+        // so the receive/history paths never need to guess whether a given
+        // row is ciphertext or genuinely plaintext-empty.
+        var encrypted = await _api.E2ee.EncryptForServerAsync(serverId, string.Empty);
+        if (encrypted is null)
+        {
+            MessageBox.Show("Couldn't send - encryption isn't ready for this server yet.", "Encryption unavailable", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        await _hub.SendMessageAsync(_currentChannelId.Value, encrypted, upload.Url);
     }
 
     private void AttachmentLink_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
@@ -1355,9 +1420,19 @@ public partial class MainWindow : FluentWindow
             return;
         }
 
-        if (_currentChannelId is null) return;
+        if (_currentChannelId is null || _currentServerId is not { } serverId) return;
 
-        await _hub.SendMessageAsync(_currentChannelId.Value, MessageInput.Text.Trim());
+        var encryptedChannelMessage = await _api.E2ee.EncryptForServerAsync(serverId, MessageInput.Text.Trim());
+        if (encryptedChannelMessage is null)
+        {
+            MessageBox.Show(
+                "Couldn't send an encrypted message right now - this device doesn't have this server's encryption key yet. It's waiting for another online member to grant access.",
+                "Encryption unavailable", MessageBoxButton.OK, MessageBoxImage.Warning);
+            await _hub.RequestServerKeyAsync(serverId);
+            return;
+        }
+
+        await _hub.SendMessageAsync(_currentChannelId.Value, encryptedChannelMessage);
         MessageInput.Clear();
     }
 
@@ -1427,11 +1502,15 @@ public partial class MainWindow : FluentWindow
         DateTime? editedAt = null;
         string? newContentFromServer = null;
 
-        if (_currentChannelId.HasValue)
+        if (_currentChannelId.HasValue && _currentServerId is { } serverId)
         {
-            var updated = await _api.EditMessageAsync(_currentChannelId.Value, messageId, newContent);
-            newContentFromServer = updated?.Content;
-            editedAt = updated?.EditedAt;
+            var encryptedEdit = await _api.E2ee.EncryptForServerAsync(serverId, newContent);
+            if (encryptedEdit is not null)
+            {
+                var updated = await _api.EditMessageAsync(_currentChannelId.Value, messageId, encryptedEdit);
+                newContentFromServer = updated is not null ? await _api.E2ee.DecryptForServerAsync(serverId, updated.Content) : null;
+                editedAt = updated?.EditedAt;
+            }
         }
         else if (_dmActiveUserId.HasValue)
         {
@@ -1456,112 +1535,156 @@ public partial class MainWindow : FluentWindow
         if (item is not null) item.IsEditing = false;
     }
 
-    private void OnMessageReceived(MessageResponse msg)
+    // async void - invoked directly from a SignalR background thread, not
+    // the UI thread, so an uncaught exception here would crash the whole
+    // process rather than being caught by App.xaml.cs's
+    // DispatcherUnhandledException (which only sees exceptions raised on
+    // the UI thread's Dispatcher). Every async-void hub handler in this
+    // file wraps its body the same way for that reason.
+    private async void OnMessageReceived(MessageResponse msg)
     {
-        Dispatcher.Invoke(() =>
+        try
         {
             var isOwnMessage = msg.AuthorId == _api.CurrentUserId;
-            var isCurrentlyOpen = msg.ChannelId == _currentChannelId;
 
-            if (isCurrentlyOpen)
-            {
-                _messages.Add(ToListItem(msg));
-                ScrollToBottom();
-            }
-            else if (!isOwnMessage)
-            {
-                // Someone else's message landed in a channel that isn't open
-                // right now - bump its unread count rather than just
-                // dropping it. _unreadTextChannelCounts is the source of
-                // truth (survives even if that channel's server has never
-                // been opened, so there's no ChannelListItem yet to mark);
-                // also update the item directly if it happens to already be
-                // loaded, for an instant UI update.
-                var newCount = _unreadTextChannelCounts.GetValueOrDefault(msg.ChannelId) + 1;
-                _unreadTextChannelCounts[msg.ChannelId] = newCount;
-                var item = FindTextChannelItem(msg.ChannelId);
-                if (item is not null) item.UnreadCount = newCount;
-            }
+            // Pushed straight from the hub, so still opaque ciphertext (see
+            // ChatHub.SendMessage) - decrypt before this touches any UI-bound
+            // state. _channelServerIds resolves which server's key to use -
+            // this can arrive for a channel far from whatever's open right now
+            // (that's the whole point of the unread-count path below).
+            var content = _channelServerIds.TryGetValue(msg.ChannelId, out var serverId)
+                ? await _api.E2ee.DecryptForServerAsync(serverId, msg.Content)
+                : "[Encrypted message]";
 
-            // Plays whenever you're not actually looking at this channel
-            // right now - either a different channel/view is open, or this
-            // one is open but the window itself isn't focused. Being on a
-            // different view is the common case (e.g. sitting in Friends or
-            // another channel) and was previously silent because this only
-            // checked window focus, not which view was open.
-            if (!isOwnMessage && (!isCurrentlyOpen || !IsActive))
+            Dispatcher.Invoke(() =>
             {
-                NotificationService.PlayMessageSound();
-                if (!isCurrentlyOpen)
+                var isCurrentlyOpen = msg.ChannelId == _currentChannelId;
+
+                if (isCurrentlyOpen)
                 {
-                    var preview = msg.Content.Length > 80 ? msg.Content[..80] + "…" : msg.Content;
-                    NotificationService.ShowToast(FindChannelDisplayName(msg.ChannelId) ?? "New message", preview);
+                    _messages.Add(ToListItem(msg, content));
+                    ScrollToBottom();
                 }
-            }
-        });
+                else if (!isOwnMessage)
+                {
+                    // Someone else's message landed in a channel that isn't open
+                    // right now - bump its unread count rather than just
+                    // dropping it. _unreadTextChannelCounts is the source of
+                    // truth (survives even if that channel's server has never
+                    // been opened, so there's no ChannelListItem yet to mark);
+                    // also update the item directly if it happens to already be
+                    // loaded, for an instant UI update.
+                    var newCount = _unreadTextChannelCounts.GetValueOrDefault(msg.ChannelId) + 1;
+                    _unreadTextChannelCounts[msg.ChannelId] = newCount;
+                    var item = FindTextChannelItem(msg.ChannelId);
+                    if (item is not null) item.UnreadCount = newCount;
+                }
+
+                // Plays whenever you're not actually looking at this channel
+                // right now - either a different channel/view is open, or this
+                // one is open but the window itself isn't focused. Being on a
+                // different view is the common case (e.g. sitting in Friends or
+                // another channel) and was previously silent because this only
+                // checked window focus, not which view was open.
+                if (!isOwnMessage && (!isCurrentlyOpen || !IsActive))
+                {
+                    NotificationService.PlayMessageSound();
+                    if (!isCurrentlyOpen)
+                    {
+                        var preview = content.Length > 80 ? content[..80] + "…" : content;
+                        NotificationService.ShowToast(FindChannelDisplayName(msg.ChannelId) ?? "New message", preview);
+                    }
+                }
+            });
+        }
+        catch
+        {
+            // Best-effort - a dropped/failed live-message update isn't worth
+            // taking the app down for (the next history reload will show it).
+        }
     }
 
     private async void OnDirectMessageReceived(DirectMessageResponse dm)
     {
-        var otherUserId = dm.SenderId == _api.CurrentUserId ? dm.RecipientId : dm.SenderId;
-        var isOwnMessage = dm.SenderId == _api.CurrentUserId;
-
-        // Pushed straight from the hub, so still opaque ciphertext (see
-        // ChatHub.SendDirectMessage) - decrypt before this touches any
-        // UI-bound state, same as the REST paths in ApiService already do
-        // transparently for history/conversation loads.
-        var content = await _api.E2ee.DecryptAsync(otherUserId, dm.Content);
-
-        Dispatcher.Invoke(() =>
+        try
         {
-            // Bump/update the conversation list regardless of whether it's
-            // currently visible, so it's accurate next time Messages is opened.
-            var existing = _dmConversations.FirstOrDefault(c => c.OtherUserId == otherUserId);
-            if (existing is not null) _dmConversations.Remove(existing);
+            var otherUserId = dm.SenderId == _api.CurrentUserId ? dm.RecipientId : dm.SenderId;
+            var isOwnMessage = dm.SenderId == _api.CurrentUserId;
 
-            var isCurrentlyOpen = _dmActiveUserId == otherUserId;
-            var newUnreadCount = !isOwnMessage && !isCurrentlyOpen ? (existing?.UnreadCount ?? 0) + 1 : 0;
-            _dmConversations.Insert(0, new DmConversationListItem
+            // Pushed straight from the hub, so still opaque ciphertext (see
+            // ChatHub.SendDirectMessage) - decrypt before this touches any
+            // UI-bound state, same as the REST paths in ApiService already do
+            // transparently for history/conversation loads.
+            var content = await _api.E2ee.DecryptAsync(otherUserId, dm.Content);
+
+            Dispatcher.Invoke(() =>
             {
-                OtherUserId = otherUserId,
-                OtherUsername = existing?.OtherUsername ?? _dmActiveUsername ?? "user",
-                OtherUserAvatarUrl = existing?.OtherUserAvatarUrl,
-                LastMessagePreview = content,
-                LastMessageAt = dm.SentAt,
-                UnreadCount = newUnreadCount
+                // Bump/update the conversation list regardless of whether it's
+                // currently visible, so it's accurate next time Messages is opened.
+                var existing = _dmConversations.FirstOrDefault(c => c.OtherUserId == otherUserId);
+                if (existing is not null) _dmConversations.Remove(existing);
+
+                var isCurrentlyOpen = _dmActiveUserId == otherUserId;
+                var newUnreadCount = !isOwnMessage && !isCurrentlyOpen ? (existing?.UnreadCount ?? 0) + 1 : 0;
+                _dmConversations.Insert(0, new DmConversationListItem
+                {
+                    OtherUserId = otherUserId,
+                    OtherUsername = existing?.OtherUsername ?? _dmActiveUsername ?? "user",
+                    OtherUserAvatarUrl = existing?.OtherUserAvatarUrl,
+                    LastMessagePreview = content,
+                    LastMessageAt = dm.SentAt,
+                    UnreadCount = newUnreadCount
+                });
+
+                if (isCurrentlyOpen)
+                {
+                    _messages.Add(ToDmListItem(dm, content));
+                    ScrollToBottom();
+                }
+
+                UpdateMessagesUnreadBadge();
+
+                // Same "not actually looking at this conversation" logic as
+                // OnMessageReceived - either a different view is open, or this
+                // DM is open but the window itself isn't focused.
+                if (!isOwnMessage && (!isCurrentlyOpen || !IsActive))
+                {
+                    NotificationService.PlayMessageSound();
+                    var preview = content.Length > 80 ? content[..80] + "…" : content;
+                    NotificationService.ShowToast($"{existing?.OtherUsername ?? _dmActiveUsername ?? "New message"}", preview);
+                }
             });
-
-            if (isCurrentlyOpen)
-            {
-                _messages.Add(ToDmListItem(dm, content));
-                ScrollToBottom();
-            }
-
-            UpdateMessagesUnreadBadge();
-
-            // Same "not actually looking at this conversation" logic as
-            // OnMessageReceived - either a different view is open, or this
-            // DM is open but the window itself isn't focused.
-            if (!isOwnMessage && (!isCurrentlyOpen || !IsActive))
-            {
-                NotificationService.PlayMessageSound();
-                var preview = content.Length > 80 ? content[..80] + "…" : content;
-                NotificationService.ShowToast($"{existing?.OtherUsername ?? _dmActiveUsername ?? "New message"}", preview);
-            }
-        });
+        }
+        catch
+        {
+            // Best-effort - see OnMessageReceived.
+        }
     }
 
-    private void OnMessageEdited(MessageResponse msg)
+    private async void OnMessageEdited(MessageResponse msg)
     {
-        Dispatcher.Invoke(() =>
+        try
         {
+            // Only worth decrypting if this channel is actually open below
+            // (matches the early-return this had before) - still has to happen
+            // before Dispatcher.Invoke since it's async.
             if (msg.ChannelId != _currentChannelId) return;
-            var item = _messages.FirstOrDefault(m => m.Id == msg.Id);
-            if (item is null) return;
+            if (!_channelServerIds.TryGetValue(msg.ChannelId, out var serverId)) return;
+            var content = await _api.E2ee.DecryptForServerAsync(serverId, msg.Content);
 
-            item.Content = msg.Content;
-            item.IsEdited = msg.EditedAt is not null;
-        });
+            Dispatcher.Invoke(() =>
+            {
+                var item = _messages.FirstOrDefault(m => m.Id == msg.Id);
+                if (item is null) return;
+
+                item.Content = content;
+                item.IsEdited = msg.EditedAt is not null;
+            });
+        }
+        catch
+        {
+            // Best-effort - see OnMessageReceived.
+        }
     }
 
     private void OnMessageDeleted(int messageId, int channelId)
@@ -1576,22 +1699,29 @@ public partial class MainWindow : FluentWindow
 
     private async void OnDirectMessageEdited(DirectMessageResponse dm)
     {
-        var otherUserId = dm.SenderId == _api.CurrentUserId ? dm.RecipientId : dm.SenderId;
-
-        // Only worth decrypting if this conversation is actually open below
-        // (matches the early-return this had before) - still has to happen
-        // before Dispatcher.Invoke since it's async.
-        if (otherUserId != _dmActiveUserId) return;
-        var content = await _api.E2ee.DecryptAsync(otherUserId, dm.Content);
-
-        Dispatcher.Invoke(() =>
+        try
         {
-            var item = _messages.FirstOrDefault(m => m.Id == dm.Id);
-            if (item is null) return;
+            var otherUserId = dm.SenderId == _api.CurrentUserId ? dm.RecipientId : dm.SenderId;
 
-            item.Content = content;
-            item.IsEdited = dm.EditedAt is not null;
-        });
+            // Only worth decrypting if this conversation is actually open below
+            // (matches the early-return this had before) - still has to happen
+            // before Dispatcher.Invoke since it's async.
+            if (otherUserId != _dmActiveUserId) return;
+            var content = await _api.E2ee.DecryptAsync(otherUserId, dm.Content);
+
+            Dispatcher.Invoke(() =>
+            {
+                var item = _messages.FirstOrDefault(m => m.Id == dm.Id);
+                if (item is null) return;
+
+                item.Content = content;
+                item.IsEdited = dm.EditedAt is not null;
+            });
+        }
+        catch
+        {
+            // Best-effort - see OnMessageReceived.
+        }
     }
 
     private void OnDirectMessageDeleted(int messageId, int senderId, int recipientId)
@@ -1604,6 +1734,45 @@ public partial class MainWindow : FluentWindow
             var item = _messages.FirstOrDefault(m => m.Id == messageId);
             if (item is not null) _messages.Remove(item);
         });
+    }
+
+    // A fellow member's device just asked for a copy of this server's
+    // shared key (ChatHub.RequestServerKey) - if this device already has
+    // it unlocked, hand over a copy wrapped for them. Best-effort and
+    // silent: if this device doesn't have the key cached either, some
+    // other online member may still answer, and if nobody does, the
+    // requester just stays locked until someone is (see E2eeService for
+    // why that's the standard tradeoff for group E2EE).
+    private async void OnServerKeyRequested(int serverId, int requestingUserId)
+    {
+        try
+        {
+            await _api.E2ee.ProvisionServerKeyForPeerAsync(serverId, requestingUserId);
+        }
+        catch
+        {
+            // Best-effort - see OnMessageReceived. Some other online
+            // member may still answer the same request.
+        }
+    }
+
+    // This device just received a wrapped copy of a server key it didn't
+    // have before (see OnServerKeyRequested on whichever peer answered).
+    // If the channel that triggered the original request is still the one
+    // open, reload it so the "waiting for access" placeholders resolve to
+    // real content without the user needing to reopen anything.
+    private async void OnServerKeyProvisioned(int serverId)
+    {
+        try
+        {
+            if (_currentServerId != serverId || _currentChannelId is not { } channelId) return;
+            await LoadChannelHistoryAsync(channelId);
+        }
+        catch
+        {
+            // Best-effort - see OnMessageReceived. Worst case the
+            // placeholder text just stays until the channel is reopened.
+        }
     }
 
     // The Messages icon itself lights up while any conversation has an
@@ -1775,13 +1944,17 @@ public partial class MainWindow : FluentWindow
         });
     }
 
-    private MessageListItem ToListItem(MessageResponse m) => new()
+    // contentOverride lets a caller that already decrypted m.Content itself
+    // (OnMessageReceived, working with a raw hub push) supply the plaintext
+    // directly - callers going through LoadChannelHistoryAsync already
+    // decrypt inline and pass the result the same way.
+    private MessageListItem ToListItem(MessageResponse m, string? contentOverride = null) => new()
     {
         Id = m.Id,
         AuthorId = m.AuthorId,
         AuthorUsername = m.AuthorUsername,
         AuthorAvatarUrl = App.ResolveUploadUrl(m.AuthorAvatarUrl),
-        Content = m.Content,
+        Content = contentOverride ?? m.Content,
         TimeDisplay = m.SentAt.ToLocalTime().ToString("t"),
         AttachmentUrl = m.AttachmentUrl,
         IsEdited = m.EditedAt is not null,

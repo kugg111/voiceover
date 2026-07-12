@@ -17,16 +17,14 @@ public class ChatHub : Hub
     private readonly LiveKitTokenService _liveKitTokens;
     private readonly PresenceService _presence;
     private readonly MessageRateLimiter _messageRateLimiter;
-    private readonly MessageEncryptionService _messageEncryption;
 
-    public ChatHub(AppDbContext db, VoicePresenceService voicePresence, LiveKitTokenService liveKitTokens, PresenceService presence, MessageRateLimiter messageRateLimiter, MessageEncryptionService messageEncryption)
+    public ChatHub(AppDbContext db, VoicePresenceService voicePresence, LiveKitTokenService liveKitTokens, PresenceService presence, MessageRateLimiter messageRateLimiter)
     {
         _db = db;
         _voicePresence = voicePresence;
         _liveKitTokens = liveKitTokens;
         _presence = presence;
         _messageRateLimiter = messageRateLimiter;
-        _messageEncryption = messageEncryption;
     }
 
     private int CurrentUserId => int.Parse(Context.User!.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -44,6 +42,11 @@ public class ChatHub : Hub
         await Groups.RemoveFromGroupAsync(Context.ConnectionId, GroupName(channelId));
     }
 
+    // content is already E2EE ciphertext by the time it gets here - the
+    // client encrypts client-side under that server's shared key before
+    // calling this (see Client/Services/E2eeService.cs and
+    // ServerMemberKey). This hub relays opaque bytes; it can't decrypt
+    // channel messages even if it wanted to.
     public async Task SendMessage(int channelId, string content, string? attachmentUrl = null)
     {
         if (string.IsNullOrWhiteSpace(content) && string.IsNullOrWhiteSpace(attachmentUrl)) return;
@@ -60,7 +63,7 @@ public class ChatHub : Hub
         {
             ChannelId = channelId,
             AuthorId = CurrentUserId,
-            Content = _messageEncryption.Encrypt(content ?? string.Empty),
+            Content = content ?? string.Empty,
             AttachmentUrl = attachmentUrl,
             SentAt = DateTime.UtcNow
         };
@@ -74,17 +77,36 @@ public class ChatHub : Hub
         // lookup here rather than reusing those.
         var authorAvatarUrl = (await _db.Users.FindAsync(CurrentUserId))?.AvatarUrl;
 
-        // Broadcasts the plaintext we were already handed, not
-        // message.Content - same reasoning as SendDirectMessage below (no
-        // need to decrypt what was just encrypted, and channel members only
-        // ever see plaintext over the wire, never the stored ciphertext).
-        var response = new MessageResponse(message.Id, content ?? string.Empty, channelId, CurrentUserId, CurrentUsername, message.SentAt, message.AttachmentUrl, authorAvatarUrl);
+        var response = new MessageResponse(message.Id, message.Content, channelId, CurrentUserId, CurrentUsername, message.SentAt, message.AttachmentUrl, authorAvatarUrl);
         await Clients.Group(GroupName(channelId)).SendAsync("ReceiveMessage", response);
     }
 
     public async Task NotifyTyping(int channelId)
     {
         await Clients.OthersInGroup(GroupName(channelId)).SendAsync("UserTyping", CurrentUsername, channelId);
+    }
+
+    // Called by a client that just joined a server (or opened one for the
+    // first time since E2EE shipped) and doesn't have a wrapped copy of its
+    // shared message key yet. Fans the request out to every other member's
+    // currently-connected sessions (not just whoever has the server "open"
+    // right now - Clients.Users reaches every connection that member has),
+    // so whichever of them already has the key unlocked in memory can wrap
+    // a copy for the requester and PUT it via ServersController.SetServerKey.
+    // If nobody who has the key happens to be online right now, the
+    // requester just stays locked until someone is - the same tradeoff
+    // every group-E2EE app (Signal, Matrix) makes, since nothing server-side
+    // can hand out a key it never has.
+    public async Task RequestServerKey(int serverId)
+    {
+        var otherMemberIds = await _db.Memberships
+            .Where(m => m.GuildServerId == serverId && m.UserId != CurrentUserId)
+            .Select(m => m.UserId)
+            .ToListAsync();
+
+        if (otherMemberIds.Count == 0) return;
+
+        await Clients.Users(otherMemberIds.Select(id => id.ToString())).SendAsync("ServerKeyRequested", serverId, CurrentUserId);
     }
 
     // --- Direct messages ---

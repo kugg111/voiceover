@@ -10,6 +10,9 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Voiceover.Server.Controllers;
 
+// Message content is always opaque E2EE ciphertext (see Dtos.MessageResponse
+// and ServerMemberKey) - this controller just stores/relays it, it never
+// decrypts.
 [ApiController]
 [Authorize]
 [Route("api/channels/{channelId}/[controller]")]
@@ -18,14 +21,12 @@ public class MessagesController : ControllerBase
     private readonly AppDbContext _db;
     private readonly PermissionService _permissions;
     private readonly IHubContext<ChatHub> _hub;
-    private readonly MessageEncryptionService _messageEncryption;
 
-    public MessagesController(AppDbContext db, PermissionService permissions, IHubContext<ChatHub> hub, MessageEncryptionService messageEncryption)
+    public MessagesController(AppDbContext db, PermissionService permissions, IHubContext<ChatHub> hub)
     {
         _db = db;
         _permissions = permissions;
         _hub = hub;
-        _messageEncryption = messageEncryption;
     }
 
     // Must match ChatHub's private GroupName(channelId) - every text
@@ -53,11 +54,8 @@ public class MessagesController : ControllerBase
             .Include(m => m.Author)
             .ToListAsync();
 
-        // Decryption can't happen inside the EF query above (it'd try to
-        // translate MessageEncryptionService.Decrypt into SQL) - projecting
-        // to the response DTO happens here, in memory, after materializing.
         var response = messages
-            .Select(m => new MessageResponse(m.Id, _messageEncryption.Decrypt(m.Content), m.ChannelId, m.AuthorId, m.Author!.Username, m.SentAt, m.AttachmentUrl, m.Author!.AvatarUrl, m.EditedAt))
+            .Select(m => new MessageResponse(m.Id, m.Content, m.ChannelId, m.AuthorId, m.Author!.Username, m.SentAt, m.AttachmentUrl, m.Author!.AvatarUrl, m.EditedAt))
             .ToList();
 
         return Ok(response);
@@ -77,13 +75,14 @@ public class MessagesController : ControllerBase
         if (message is null) return NotFound();
         if (message.AuthorId != CurrentUserId) return Forbid();
 
-        message.Content = _messageEncryption.Encrypt(request.Content);
+        // request.Content is already E2EE ciphertext by the time it gets
+        // here - the client always encrypts before calling this (see
+        // ApiService/MainWindow's channel-edit path).
+        message.Content = request.Content;
         message.EditedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
 
-        // Broadcasts the plaintext we were handed, not message.Content - see
-        // ChatHub.SendMessage for why.
-        var response = new MessageResponse(message.Id, request.Content, channelId, message.AuthorId, message.Author!.Username, message.SentAt, message.AttachmentUrl, message.Author.AvatarUrl, message.EditedAt);
+        var response = new MessageResponse(message.Id, message.Content, channelId, message.AuthorId, message.Author!.Username, message.SentAt, message.AttachmentUrl, message.Author.AvatarUrl, message.EditedAt);
         await _hub.Clients.Group(GroupName(channelId)).SendAsync("MessageEdited", response);
 
         return Ok(response);

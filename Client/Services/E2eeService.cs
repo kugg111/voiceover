@@ -31,8 +31,25 @@ public class E2eeService
     private readonly ApiService _api;
     private ECDiffieHellman? _privateKey;
     private byte[]? _wrappingKey;
-    private readonly Dictionary<int, byte[]> _peerPublicKeyCache = new();
-    private readonly Dictionary<int, byte[]> _derivedPairKeyCache = new();
+
+    // Concurrent, not plain Dictionary - this service is called from
+    // multiple SignalR hub-event callbacks that can genuinely fire on
+    // different background threads at the same time (a message arriving
+    // while a key request is being handled, two messages back to back,
+    // etc.), and a plain Dictionary isn't safe under concurrent
+    // read/write. A torn dictionary read here doesn't just corrupt state -
+    // it throws, and since these are called from async void event
+    // handlers on non-UI threads, an uncaught exception there crashes the
+    // whole process (WPF's DispatcherUnhandledException only catches
+    // exceptions raised on the UI thread's Dispatcher, not this).
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, byte[]> _peerPublicKeyCache = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, byte[]> _derivedPairKeyCache = new();
+
+    // Serializes the ECDH/HKDF derivation itself, not just the caches
+    // above - ECDiffieHellman wraps a native crypto handle that isn't
+    // documented as safe for concurrent use from multiple threads, and
+    // _privateKey is shared across every concurrent call into this class.
+    private readonly SemaphoreSlim _cryptoLock = new(1, 1);
 
     public bool IsUnlocked => _privateKey is not null;
     public string? CurrentWrappingKeyBase64 => _wrappingKey is null ? null : Convert.ToBase64String(_wrappingKey);
@@ -84,7 +101,7 @@ public class E2eeService
             _wrappingKey = wrappingKey;
             return E2eeUnlockResult.Ok;
         }
-        catch (CryptographicException)
+        catch (Exception ex) when (ex is CryptographicException or FormatException)
         {
             // Wrong password (or wrong cached key) - the AES-GCM tag check
             // fails cleanly rather than producing garbage plaintext, so this
@@ -124,20 +141,7 @@ public class E2eeService
     {
         var key = await GetOrDerivePairKeyAsync(otherUserId);
         if (key is null) return null;
-
-        var nonce = RandomNumberGenerator.GetBytes(NonceSizeBytes);
-        var plaintextBytes = Encoding.UTF8.GetBytes(plaintext);
-        var ciphertext = new byte[plaintextBytes.Length];
-        var tag = new byte[TagSizeBytes];
-
-        using var aesGcm = new AesGcm(key, TagSizeBytes);
-        aesGcm.Encrypt(nonce, plaintextBytes, ciphertext, tag);
-
-        var packed = new byte[nonce.Length + tag.Length + ciphertext.Length];
-        Buffer.BlockCopy(nonce, 0, packed, 0, nonce.Length);
-        Buffer.BlockCopy(tag, 0, packed, nonce.Length, tag.Length);
-        Buffer.BlockCopy(ciphertext, 0, packed, nonce.Length + tag.Length, ciphertext.Length);
-        return Convert.ToBase64String(packed);
+        return Convert.ToBase64String(WrapBytes(Encoding.UTF8.GetBytes(plaintext), key));
     }
 
     // Decrypts ciphertext from a specific DM peer. Never throws - a locked
@@ -157,6 +161,115 @@ public class E2eeService
             return "[Unable to decrypt message]";
         }
     }
+
+    // --- Server (channel-message) keys - one shared AES-256 key per
+    // GuildServer, asymmetrically wrapped per member (see
+    // Server/Models/ServerMemberKey.cs). Unlike a DM's key, this one can't
+    // be derived on demand from a peer's public key alone - it's a random
+    // secret that has to be handed off member-to-member, wrapped so only
+    // the intended recipient can open it (see GetServerKeyAsync/
+    // ProvisionServerKeyForPeerAsync). Same tradeoff every group-E2EE app
+    // makes: a brand new member can't read history until an already-online
+    // member with the key hands them a copy. ---
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, byte[]> _serverKeyCache = new();
+
+    public bool HasServerKeyCached(int serverId) => _serverKeyCache.ContainsKey(serverId);
+
+    // Fetches and unwraps this device's copy of a server's shared key, if
+    // it has one yet. Returns null when no copy is available right now -
+    // the caller (MainWindow) should show a locked/placeholder state and
+    // call ChatHub.RequestServerKey to ask an online peer to grant access,
+    // then retry this after a ServerKeyProvisioned push comes in.
+    public async Task<byte[]?> GetServerKeyAsync(int serverId)
+    {
+        if (_serverKeyCache.TryGetValue(serverId, out var cached)) return cached;
+        if (_privateKey is null) return null;
+
+        var material = await _api.GetMyServerKeyAsync(serverId);
+        if (material?.WrappedKey is null || material.WrappedByUserId is null) return null;
+
+        var wrapKey = await DerivePeerKeyAsync(material.WrappedByUserId.Value, ServerKeyWrapInfoPrefix(serverId));
+        if (wrapKey is null) return null;
+
+        try
+        {
+            var keyBytes = UnwrapBytes(Convert.FromBase64String(material.WrappedKey), wrapKey);
+            _serverKeyCache[serverId] = keyBytes;
+            return keyBytes;
+        }
+        catch (Exception ex) when (ex is FormatException or CryptographicException or ArgumentException)
+        {
+            // Corrupted or foreign blob - shouldn't happen in normal
+            // operation (the server never lets an existing row be
+            // overwritten), but fail closed rather than crash.
+            return null;
+        }
+    }
+
+    // Generates a brand new server key and self-wraps it - call this right
+    // after creating a server, the one moment a device can be certain no
+    // key exists for it yet anywhere (see ServersController.SetServerKey's
+    // owner-only bootstrap guard for why that certainty matters: two
+    // members each generating their own "first" key would permanently
+    // split the server's history in two).
+    public async Task<bool> GenerateAndUploadServerKeyAsync(int serverId)
+    {
+        if (_privateKey is null) return false;
+
+        var key = RandomNumberGenerator.GetBytes(32);
+        var myUserId = _api.CurrentUserId!.Value;
+        var wrapKey = await DerivePeerKeyAsync(myUserId, ServerKeyWrapInfoPrefix(serverId));
+        if (wrapKey is null) return false;
+
+        var uploaded = await _api.SetServerKeyAsync(serverId, myUserId, Convert.ToBase64String(WrapBytes(key, wrapKey)));
+        if (!uploaded) return false;
+
+        _serverKeyCache[serverId] = key;
+        return true;
+    }
+
+    // Wraps this device's already-unlocked copy of a server key for a
+    // fellow member who just asked for one (ChatHub.RequestServerKey) -
+    // the actual "onboarding" step. No-ops if this device doesn't have the
+    // key cached itself (nothing to hand over) - some other online member
+    // may still answer the same request.
+    public async Task<bool> ProvisionServerKeyForPeerAsync(int serverId, int requesterUserId)
+    {
+        if (!_serverKeyCache.TryGetValue(serverId, out var key)) return false;
+
+        var wrapKey = await DerivePeerKeyAsync(requesterUserId, ServerKeyWrapInfoPrefix(serverId));
+        if (wrapKey is null) return false;
+
+        return await _api.SetServerKeyAsync(serverId, requesterUserId, Convert.ToBase64String(WrapBytes(key, wrapKey)));
+    }
+
+    public async Task<string?> EncryptForServerAsync(int serverId, string plaintext)
+    {
+        var key = await GetServerKeyAsync(serverId);
+        if (key is null) return null;
+        return Convert.ToBase64String(WrapBytes(Encoding.UTF8.GetBytes(plaintext), key));
+    }
+
+    public async Task<string> DecryptForServerAsync(int serverId, string packedBase64)
+    {
+        var key = await GetServerKeyAsync(serverId);
+        if (key is null) return "[Encrypted message - waiting for a member to grant this device access]";
+
+        try
+        {
+            return DecryptPacked(packedBase64, key);
+        }
+        catch (Exception ex) when (ex is FormatException or CryptographicException or ArgumentException)
+        {
+            return "[Unable to decrypt message]";
+        }
+    }
+
+    // Distinct info namespace per server so the same two users' ECDH
+    // shared secret can never collide with (or be confused for) their DM
+    // message key, or their wrap key in a different shared server.
+    private static string ServerKeyWrapInfoPrefix(int serverId) => $"voiceover-serverkey-wrap:{serverId}";
 
     // Span-based work pulled into its own non-async method - ref structs
     // (Span<T>/ReadOnlySpan<T>) can't be used as locals inside an async
@@ -181,6 +294,22 @@ public class E2eeService
     private async Task<byte[]?> GetOrDerivePairKeyAsync(int otherUserId)
     {
         if (_derivedPairKeyCache.TryGetValue(otherUserId, out var cached)) return cached;
+
+        var derived = await DerivePeerKeyAsync(otherUserId, "voiceover-dm");
+        if (derived is not null) _derivedPairKeyCache[otherUserId] = derived;
+        return derived;
+    }
+
+    // Shared ECDH+HKDF derivation between this device and otherUserId - used
+    // both for DM message keys (infoPrefix "voiceover-dm") and for server-key
+    // wrap keys (infoPrefix includes the server id, see ServerKeyWrapInfoPrefix).
+    // otherUserId may equal this account's own id (a "self" derivation, used
+    // to wrap a server key for storage under a key only this account's own
+    // private key can reproduce) - ECDH(myPriv, myPub) is well-defined and
+    // only computable by whoever holds the private key, so this works
+    // unmodified for that case too.
+    private async Task<byte[]?> DerivePeerKeyAsync(int otherUserId, string infoPrefix)
+    {
         if (_privateKey is null) return null;
 
         if (!_peerPublicKeyCache.TryGetValue(otherUserId, out var peerPublicKeyBytes))
@@ -188,24 +317,52 @@ public class E2eeService
             var publicKeyBase64 = await _api.GetPublicKeyAsync(otherUserId);
             if (publicKeyBase64 is null) return null;
 
-            peerPublicKeyBytes = Convert.FromBase64String(publicKeyBase64);
+            try
+            {
+                peerPublicKeyBytes = Convert.FromBase64String(publicKeyBase64);
+            }
+            catch (FormatException)
+            {
+                // Shouldn't happen (the server only ever stores what a
+                // client uploaded as a real SPKI-encoded key), but this
+                // value came over the network - never let a malformed
+                // blob throw out of an async void event handler and take
+                // the whole process down with it.
+                return null;
+            }
+
             _peerPublicKeyCache[otherUserId] = peerPublicKeyBytes;
         }
 
-        using var peerEcdh = ECDiffieHellman.Create();
-        peerEcdh.ImportSubjectPublicKeyInfo(peerPublicKeyBytes, out _);
+        // Only the actual crypto section is serialized - ECDiffieHellman
+        // wraps a native handle not documented as safe for concurrent use,
+        // and _privateKey is shared across every concurrent caller.
+        await _cryptoLock.WaitAsync();
+        try
+        {
+            using var peerEcdh = ECDiffieHellman.Create();
+            peerEcdh.ImportSubjectPublicKeyInfo(peerPublicKeyBytes, out _);
 
-        var sharedSecret = _privateKey.DeriveRawSecretAgreement(peerEcdh.PublicKey);
+            var sharedSecret = _privateKey.DeriveRawSecretAgreement(peerEcdh.PublicKey);
 
-        // Sorted so both participants build the identical info string
-        // regardless of who's "self" and who's "other" for a given call.
-        var myUserId = _api.CurrentUserId!.Value;
-        var (loId, hiId) = myUserId < otherUserId ? (myUserId, otherUserId) : (otherUserId, myUserId);
-        var info = Encoding.UTF8.GetBytes($"voiceover-dm:{loId}:{hiId}");
+            // Sorted so both participants build the identical info string
+            // regardless of who's "self" and who's "other" for a given call.
+            var myUserId = _api.CurrentUserId!.Value;
+            var (loId, hiId) = myUserId < otherUserId ? (myUserId, otherUserId) : (otherUserId, myUserId);
+            var info = Encoding.UTF8.GetBytes($"{infoPrefix}:{loId}:{hiId}");
 
-        var derived = HKDF.DeriveKey(HashAlgorithmName.SHA256, sharedSecret, outputLength: 32, salt: null, info: info);
-        _derivedPairKeyCache[otherUserId] = derived;
-        return derived;
+            return HKDF.DeriveKey(HashAlgorithmName.SHA256, sharedSecret, outputLength: 32, salt: null, info: info);
+        }
+        catch (CryptographicException)
+        {
+            // Malformed/foreign public key bytes - fail closed instead of
+            // crashing.
+            return null;
+        }
+        finally
+        {
+            _cryptoLock.Release();
+        }
     }
 
     private static byte[] DeriveWrappingKey(string password, byte[] salt) =>

@@ -11,6 +11,8 @@ public record DmConversationResponse(int OtherUserId, string OtherUsername, stri
 public record SetKeyMaterialRequest(string PublicKey, string WrappedPrivateKey, string PrivateKeySalt);
 public record PublicKeyResponse(int UserId, string? PublicKey);
 public record OwnKeyMaterialResponse(string? PublicKey, string? WrappedPrivateKey, string? PrivateKeySalt);
+public record SetServerKeyRequest(string WrappedKey);
+public record ServerKeyResponse(string? WrappedKey, int? WrappedByUserId);
 public record UserSummaryResponse(int Id, string Username, string? AvatarUrl = null);
 public record InviteResponse(string Code, DateTime? ExpiresAt, int? MaxUses, int UseCount);
 public record MemberResponse(int UserId, string Username, string Role, string? AvatarUrl = null, string PresenceState = "Offline");

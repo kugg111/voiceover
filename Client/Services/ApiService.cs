@@ -335,6 +335,22 @@ public class ApiService
         }
     }
 
+    // --- E2EE server (channel-message) keys ---
+    public async Task<ServerKeyResponse?> GetMyServerKeyAsync(int serverId)
+    {
+        try
+        {
+            return await _http.GetFromJsonAsync<ServerKeyResponse>($"api/servers/{serverId}/keys/me");
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<bool> SetServerKeyAsync(int serverId, int targetUserId, string wrappedKey)
+        => (await _http.PutAsJsonAsync($"api/servers/{serverId}/keys/{targetUserId}", new SetServerKeyRequest(wrappedKey))).IsSuccessStatusCode;
+
     // --- Friends ---
     public async Task<List<FriendResponse>> GetFriendsAsync()
         => await _http.GetFromJsonAsync<List<FriendResponse>>("api/friends") ?? new();

@@ -16,6 +16,7 @@ public class AppDbContext : DbContext
     public DbSet<DirectMessage> DirectMessages => Set<DirectMessage>();
     public DbSet<Friendship> Friendships => Set<Friendship>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<ServerMemberKey> ServerMemberKeys => Set<ServerMemberKey>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -96,5 +97,11 @@ public class AppDbContext : DbContext
             .HasOne(r => r.User)
             .WithMany()
             .HasForeignKey(r => r.UserId);
+
+        // One wrapped copy of the server key per member - GetMyServerKey/
+        // SetServerKey both look up by this pair.
+        modelBuilder.Entity<ServerMemberKey>()
+            .HasIndex(k => new { k.GuildServerId, k.UserId })
+            .IsUnique();
     }
 }
