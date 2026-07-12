@@ -324,16 +324,19 @@ public class ApiService
 
     // --- Auto-update ---
 
-    // Plain unauthenticated GET against the same static-file hosting the
-    // downloads themselves already use (Server/Site/downloads/version.json) -
-    // no controller/endpoint needed server-side. Swallows every failure
-    // (offline, 404, malformed json) since a background update check should
-    // never surface an error or block startup.
+    // Uses _authHttp (plain, no AuthRefreshHandler) rather than _http -
+    // this hits our own server's static file hosting and doesn't need
+    // auth, but more importantly DownloadFileAsync below hits an external
+    // GitHub URL and must never carry this app's bearer token.
+    //
+    // Swallows every failure (offline, 404, malformed json) since a
+    // background update check should never surface an error or block
+    // startup.
     public async Task<VersionInfo?> GetLatestVersionAsync()
     {
         try
         {
-            return await _http.GetFromJsonAsync<VersionInfo>("downloads/version.json");
+            return await _authHttp.GetFromJsonAsync<VersionInfo>("downloads/version.json");
         }
         catch
         {
@@ -346,9 +349,18 @@ public class ApiService
     // Content-Length (absent on a chunked/compressed response, in which
     // case progress just never fires - the caller's own status text still
     // shows something is happening).
+    //
+    // Uses _authHttp, not _http: since v1.0.5 this URL points at a GitHub
+    // Release asset (see REDEPLOY.txt - Railway's own upload has a payload
+    // size limit the client build now exceeds), and _http's
+    // AuthRefreshHandler would attach this app's own bearer token to the
+    // request. .NET does strip Authorization on a cross-host redirect, so
+    // the token never reaches GitHub's actual asset CDN, but the initial
+    // request to github.com itself would still carry it - an internal
+    // token has no business leaving this app's own origin at all.
     public async Task DownloadFileAsync(string url, string destinationPath, IProgress<double>? progress = null)
     {
-        using var response = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+        using var response = await _authHttp.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
         response.EnsureSuccessStatusCode();
 
         var totalBytes = response.Content.Headers.ContentLength;
