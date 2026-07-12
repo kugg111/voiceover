@@ -82,6 +82,30 @@ internal class LadspaHost : IDisposable
     private readonly IntPtr _audioOutBuffer;
     private readonly List<IntPtr> _controlBuffers = new();
 
+    // Attenuation Limit (dB, 0-100) is the one control port exposed as a
+    // user-tunable setting (see VoiceService.DeepFilterAttenuationLimit) -
+    // how aggressively the model suppresses detected noise, matching the
+    // slider DeepFilterNet's own demo video shows. The other 5 control
+    // ports stay fixed to the plugin's own declared defaults. LADSPA
+    // control ports are just a pointer to a float the plugin re-reads on
+    // every run() call, so updating this after connect_port is fine - no
+    // need to reconnect anything.
+    public const float AttenuationLimitMin = 0f;
+    public const float AttenuationLimitMax = 100f;
+
+    private readonly IntPtr _attenuationLimitBuffer;
+    private float _attenuationLimit;
+
+    public float AttenuationLimit
+    {
+        get => _attenuationLimit;
+        set
+        {
+            _attenuationLimit = Math.Clamp(value, AttenuationLimitMin, AttenuationLimitMax);
+            Marshal.Copy(new[] { _attenuationLimit }, 0, _attenuationLimitBuffer, 1);
+        }
+    }
+
     public LadspaHost()
     {
         var descPtr = ladspa_descriptor(0); // index 0 = mono, see get_ladspa_descriptor
@@ -103,6 +127,8 @@ internal class LadspaHost : IDisposable
 
         _audioInBuffer = Marshal.AllocHGlobal(FrameSamples * sizeof(float));
         _audioOutBuffer = Marshal.AllocHGlobal(FrameSamples * sizeof(float));
+        _attenuationLimitBuffer = Marshal.AllocHGlobal(sizeof(float));
+        _controlBuffers.Add(_attenuationLimitBuffer);
 
         // Port order and default values read straight from the plugin's
         // own source (ladspa/src/lib.rs): 0=Audio In, 1=Audio Out,
@@ -110,11 +136,11 @@ internal class LadspaHost : IDisposable
         // threshold, 5=Max DF threshold, 6=Min Processing Buffer,
         // 7=Post Filter Beta. Each control default below is the plugin
         // author's own declared DefaultValue::Maximum/Minimum resolved
-        // against that port's own min/max range - fixed here rather than
-        // exposed as user-tunable settings.
+        // against that port's own min/max range.
         _connectPort(_instance, 0, _audioInBuffer);
         _connectPort(_instance, 1, _audioOutBuffer);
-        ConnectFixedControl(2, 100f);  // Attenuation Limit (dB) - Maximum
+        _connectPort(_instance, 2, _attenuationLimitBuffer);
+        AttenuationLimit = AttenuationLimitMax; // plugin's own DefaultValue::Maximum
         ConnectFixedControl(3, -15f);  // Min processing threshold (dB) - Minimum
         ConnectFixedControl(4, 35f);   // Max ERB processing threshold (dB) - Maximum
         ConnectFixedControl(5, 35f);   // Max DF processing threshold (dB) - Maximum

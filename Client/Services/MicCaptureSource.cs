@@ -27,6 +27,21 @@ public class MicCaptureSource : IDisposable
     public bool NoiseSuppressionEnabled { get; set; } = true;
     public NoiseSuppressionBackend NoiseSuppressionBackend { get; set; } = NoiseSuppressionBackend.WebRtcApm;
 
+    // Only meaningful for the DeepFilterNet backend (see LadspaHost) -
+    // stored here too (not just forwarded) so the value survives even if
+    // _deepFilter failed to load, and is applied to a newly-created
+    // LadspaHost by the constructor below.
+    private float _deepFilterAttenuationLimit = LadspaHost.AttenuationLimitMax;
+    public float DeepFilterAttenuationLimit
+    {
+        get => _deepFilterAttenuationLimit;
+        set
+        {
+            _deepFilterAttenuationLimit = value;
+            if (_deepFilter is not null) _deepFilter.AttenuationLimit = value;
+        }
+    }
+
     // Fires with the fully processed frame (post noise-suppression, post-
     // gain) right before it's handed to LiveKit - used for the local
     // speaking-indicator detection in VoiceService, so it reacts to the same

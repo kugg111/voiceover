@@ -52,6 +52,10 @@ public partial class VoiceSettingsPanel : UserControl
                 WebRtcApmRadio.IsChecked = true;
                 break;
         }
+        DeepFilterOptionsPanel.Visibility = _voice.NoiseSuppressionBackend == NoiseSuppressionBackend.DeepFilterNet
+            ? Visibility.Visible : Visibility.Collapsed;
+        AttenuationLimitSlider.Value = _voice.DeepFilterAttenuationLimit;
+        UpdateAttenuationLimitDisplay();
 
         HotkeyRecordButton.Content = FormatTriggerName();
 
@@ -124,7 +128,19 @@ public partial class VoiceSettingsPanel : UserControl
             _ when sender == DeepFilterNetRadio => NoiseSuppressionBackend.DeepFilterNet,
             _ => NoiseSuppressionBackend.WebRtcApm
         };
+        DeepFilterOptionsPanel.Visibility = _voice.NoiseSuppressionBackend == NoiseSuppressionBackend.DeepFilterNet
+            ? Visibility.Visible : Visibility.Collapsed;
     }
+
+    private void AttenuationLimitSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        UpdateAttenuationLimitDisplay();
+        if (!_loaded) return;
+        _voice!.DeepFilterAttenuationLimit = (float)e.NewValue;
+    }
+
+    private void UpdateAttenuationLimitDisplay() =>
+        AttenuationLimitDisplay.Text = $"{AttenuationLimitSlider.Value:0} dB";
 
     private void InputModeRadio_Changed(object sender, RoutedEventArgs e)
     {

@@ -12,7 +12,8 @@ public record SavedVoiceSettings(
     VoiceInputMode InputMode,
     Key? PushToTalkKey,
     MouseButton? PushToTalkMouseButton = null,
-    NoiseSuppressionBackend NoiseSuppressionBackend = NoiseSuppressionBackend.WebRtcApm);
+    NoiseSuppressionBackend NoiseSuppressionBackend = NoiseSuppressionBackend.WebRtcApm,
+    float DeepFilterAttenuationLimit = LadspaHost.AttenuationLimitMax);
 
 // Persists voice preferences (devices, noise suppression, input mode, PTT/
 // push-to-mute hotkey) locally so they survive a log out/in - these are

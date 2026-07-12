@@ -376,9 +376,26 @@ public partial class MainWindow : FluentWindow
         // a server fast enough after login could read your own presence
         // back as still Offline (GetMembers/GetFriends are one-shot reads
         // of PresenceService, not something that waits for the flag to land).
-        await _hub.SetPresenceStateAsync("Online");
+        await SetPresenceStateSafeAsync("Online");
 
         await LoadServersAsync();
+    }
+
+    // Presence reporting is best-effort - if the hub call fails for any
+    // reason (an older/mismatched server that doesn't have this method
+    // yet, a transient network issue), the app must keep working normally
+    // rather than surfacing an error dialog for what's a non-critical
+    // background update.
+    private async Task SetPresenceStateSafeAsync(string state)
+    {
+        try
+        {
+            await _hub.SetPresenceStateAsync(state);
+        }
+        catch
+        {
+            // Best-effort - see comment above.
+        }
     }
 
     // Away is suppressed while actively in a voice channel - being
@@ -389,7 +406,7 @@ public partial class MainWindow : FluentWindow
     private async Task OnIdleChangedAsync(bool isIdle)
     {
         if (isIdle && _currentVoiceChannelId is not null) return;
-        await _hub.SetPresenceStateAsync(isIdle ? "Away" : "Online");
+        await SetPresenceStateSafeAsync(isIdle ? "Away" : "Online");
     }
 
     private void OnPresenceChanged(int userId, string state)

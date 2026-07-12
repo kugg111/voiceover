@@ -130,6 +130,22 @@ public class VoiceService : IAsyncDisposable
         }
     }
 
+    // Only meaningful for the DeepFilterNet backend - how aggressively it
+    // suppresses detected noise (0-100dB, matching the slider DeepFilterNet's
+    // own demo shows). See LadspaHost.AttenuationLimit for the LADSPA
+    // control-port plumbing this ultimately drives.
+    private float _deepFilterAttenuationLimit = LadspaHost.AttenuationLimitMax;
+    public float DeepFilterAttenuationLimit
+    {
+        get => _deepFilterAttenuationLimit;
+        set
+        {
+            _deepFilterAttenuationLimit = value;
+            if (_micCapture is not null) _micCapture.DeepFilterAttenuationLimit = value;
+            SaveSettings();
+        }
+    }
+
     // Not persisted (see SaveSettings) - deafen/mute are session states
     // like Discord's, not preferences, so a fresh login always starts
     // undeafened/unmuted regardless of how a previous session ended.
@@ -192,7 +208,7 @@ public class VoiceService : IAsyncDisposable
     // this existed they'd silently reset to defaults every login.
     private void SaveSettings() =>
         VoiceSettingsStorage.Save(new SavedVoiceSettings(
-            InputDeviceIndex, OutputDeviceIndex, NoiseSuppressionEnabled, _inputMode, PushToTalkKey, PushToTalkMouseButton, _noiseSuppressionBackend));
+            InputDeviceIndex, OutputDeviceIndex, NoiseSuppressionEnabled, _inputMode, PushToTalkKey, PushToTalkMouseButton, _noiseSuppressionBackend, _deepFilterAttenuationLimit));
 
     private void LoadSettings()
     {
@@ -203,6 +219,7 @@ public class VoiceService : IAsyncDisposable
         _outputDeviceIndex = saved.OutputDeviceIndex;
         _noiseSuppressionEnabled = saved.NoiseSuppressionEnabled;
         _noiseSuppressionBackend = saved.NoiseSuppressionBackend;
+        _deepFilterAttenuationLimit = saved.DeepFilterAttenuationLimit;
 
         // Mouse button takes priority if somehow both are set in the saved
         // file (shouldn't happen given the mutual-exclusivity setters, but
@@ -302,7 +319,8 @@ public class VoiceService : IAsyncDisposable
         {
             MicMuted = IsMicMuted,
             NoiseSuppressionEnabled = NoiseSuppressionEnabled,
-            NoiseSuppressionBackend = NoiseSuppressionBackend
+            NoiseSuppressionBackend = NoiseSuppressionBackend,
+            DeepFilterAttenuationLimit = DeepFilterAttenuationLimit
         };
         // Local speaking-indicator detection, straight off the fully
         // processed PCM MicCaptureSource already produces (post noise-

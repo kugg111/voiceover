@@ -29,7 +29,20 @@
                          Foreground="{StaticResource TextNormal}" Margin="0,0,0,4"
                          Checked="NoiseSuppressionBackendRadio_Changed"/>
             <TextBlock Text="RNNoise is a lightweight neural denoiser - lighter on CPU, sometimes more aggressive on background noise. DeepFilterNet is a heavier deep-learning model that handles complex/changing noise (rain, keyboard clicks, background chatter) more cleanly, at the cost of a bit more CPU and latency. Try them and pick whichever sounds better on your mic."
-                       FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}"/>
+                       FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}" Margin="0,0,0,12"/>
+
+            <StackPanel x:Name="DeepFilterOptionsPanel" Visibility="Collapsed">
+                <TextBlock Text="Attenuation Limit" FontWeight="Bold"
+                           Foreground="{StaticResource TextNormal}" Margin="0,0,0,4"/>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                    <Slider x:Name="AttenuationLimitSlider" Width="200" Minimum="0" Maximum="100"
+                            ValueChanged="AttenuationLimitSlider_ValueChanged"/>
+                    <TextBlock x:Name="AttenuationLimitDisplay" Width="46" Margin="6,0,0,0"
+                               VerticalAlignment="Center" Foreground="{StaticResource TextMuted}"/>
+                </StackPanel>
+                <TextBlock Text="How aggressively DeepFilterNet suppresses detected noise, in dB. Higher removes more noise but can start to affect your voice; lower is gentler."
+                           FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}"/>
+            </StackPanel>
         </StackPanel>
 
         <TextBlock Text="Changes take effect the next time you join a voice channel."
