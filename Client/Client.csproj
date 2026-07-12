@@ -30,6 +30,7 @@
     <Resource Include="Assets\Sounds\voice-leave.wav" />
     <Resource Include="Assets\Sounds\mute.wav" />
     <Resource Include="Assets\Sounds\unmute.wav" />
+    <None Include="native\deep_filter_ladspa.dll" Link="deep_filter_ladspa.dll" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
@@ -62,6 +63,14 @@
          MIT licensed. Lighter on CPU than the APM; some mics do better with
          one or the other, hence selectable rather than a hard swap. -->
     <PackageReference Include="YellowDogMan.RRNoise.NET" Version="0.1.9" />
+    <!-- A second, higher-quality alternative noise-suppression engine
+         (DeepFilterNet3, also selectable in Voice Settings). No NuGet
+         package exists for this - it's DeepFilterNet's own official
+         prebuilt LADSPA plugin DLL, vendored directly from
+         https://github.com/Rikorose/DeepFilterNet/releases/tag/v0.5.6
+         (MIT/Apache-2.0), driven from C# via a small P/Invoke LADSPA host
+         (see Client/Services/LadspaHost.cs) since it isn't a simple
+         function-call library like RNNoise. -->
     <!-- Fluent Design controls/theming for a modern, Discord-like look -
          rounded window chrome, restyled standard controls (Button, TextBox,
          etc. get the new look automatically once the theme dictionaries are

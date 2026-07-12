@@ -66,6 +66,16 @@ public class MicCaptureSource : IDisposable
     private readonly Denoiser? _rnnoise;
     private readonly float[] _rnnoiseBuffer = new float[SamplesPerFrame];
 
+    // --- DeepFilterNet3 (deep-learning denoiser, selectable alternative
+    // to the two above - see NoiseSuppressionBackend). Unlike RNNoise's
+    // simple function-call library, this is a LADSPA plugin, so it's
+    // driven through LadspaHost (a small P/Invoke LADSPA host, see that
+    // class for why). It only accepts its own fixed hop_size per call, so
+    // this needs the same manual sub-chunking loop as the APM path above,
+    // not RNNoise's any-length convenience. ---
+    private readonly LadspaHost? _deepFilter;
+    private readonly float[] _deepFilterBuffer = new float[LadspaHost.FrameSamples];
+
     public MicCaptureSource(int inputDeviceIndex)
     {
         _inputDeviceIndex = inputDeviceIndex;
@@ -100,6 +110,20 @@ public class MicCaptureSource : IDisposable
         catch
         {
             _rnnoise = null;
+        }
+
+        // Same defensive construction as RNNoise above - an even newer,
+        // less-proven native dependency (a hand-rolled LADSPA host against
+        // a third-party plugin DLL, not a published/tested NuGet package),
+        // so a failure to load it must never break voice joining for
+        // people who never select it.
+        try
+        {
+            _deepFilter = new LadspaHost();
+        }
+        catch
+        {
+            _deepFilter = null;
         }
 
         _waveIn = new WaveInEvent
@@ -168,10 +192,18 @@ public class MicCaptureSource : IDisposable
     {
         if (!NoiseSuppressionEnabled) return;
 
-        if (NoiseSuppressionBackend == NoiseSuppressionBackend.RNNoise)
-            ApplyRNNoise(pcm);
-        else
-            ApplyWebRtcApm(pcm);
+        switch (NoiseSuppressionBackend)
+        {
+            case NoiseSuppressionBackend.RNNoise:
+                ApplyRNNoise(pcm);
+                break;
+            case NoiseSuppressionBackend.DeepFilterNet:
+                ApplyDeepFilterNet(pcm);
+                break;
+            default:
+                ApplyWebRtcApm(pcm);
+                break;
+        }
     }
 
     private void ApplyWebRtcApm(short[] pcm)
@@ -203,6 +235,22 @@ public class MicCaptureSource : IDisposable
             pcm[i] = (short)Math.Clamp(_rnnoiseBuffer[i] * short.MaxValue, short.MinValue, short.MaxValue);
     }
 
+    private void ApplyDeepFilterNet(short[] pcm)
+    {
+        if (_deepFilter is null) return;
+
+        for (int offset = 0; offset < pcm.Length; offset += LadspaHost.FrameSamples)
+        {
+            for (int i = 0; i < LadspaHost.FrameSamples; i++)
+                _deepFilterBuffer[i] = pcm[offset + i] / (float)short.MaxValue;
+
+            _deepFilter.Denoise(_deepFilterBuffer);
+
+            for (int i = 0; i < LadspaHost.FrameSamples; i++)
+                pcm[offset + i] = (short)Math.Clamp(_deepFilterBuffer[i] * short.MaxValue, short.MinValue, short.MaxValue);
+        }
+    }
+
     public void Dispose()
     {
         if (_waveIn is not null)
@@ -215,6 +263,7 @@ public class MicCaptureSource : IDisposable
         _apmConfig?.Dispose();
         _apm?.Dispose();
         _rnnoise?.Dispose();
+        _deepFilter?.Dispose();
         Source.Dispose();
     }
 }

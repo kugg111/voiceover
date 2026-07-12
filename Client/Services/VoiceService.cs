@@ -19,7 +19,8 @@ public enum VoiceInputMode
 public enum NoiseSuppressionBackend
 {
     WebRtcApm,
-    RNNoise
+    RNNoise,
+    DeepFilterNet
 }
 
 // Connects to the self-hosted LiveKit SFU (see REDEPLOY.txt) for voice

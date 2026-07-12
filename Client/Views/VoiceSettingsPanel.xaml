@@ -25,7 +25,10 @@
             <RadioButton x:Name="RNNoiseRadio" Content="RNNoise" GroupName="NoiseBackend"
                          Foreground="{StaticResource TextNormal}" Margin="0,0,0,4"
                          Checked="NoiseSuppressionBackendRadio_Changed"/>
-            <TextBlock Text="RNNoise is a lightweight neural denoiser - lighter on CPU, sometimes more aggressive on background noise. Try both and pick whichever sounds better on your mic."
+            <RadioButton x:Name="DeepFilterNetRadio" Content="DeepFilterNet (higher quality)" GroupName="NoiseBackend"
+                         Foreground="{StaticResource TextNormal}" Margin="0,0,0,4"
+                         Checked="NoiseSuppressionBackendRadio_Changed"/>
+            <TextBlock Text="RNNoise is a lightweight neural denoiser - lighter on CPU, sometimes more aggressive on background noise. DeepFilterNet is a heavier deep-learning model that handles complex/changing noise (rain, keyboard clicks, background chatter) more cleanly, at the cost of a bit more CPU and latency. Try them and pick whichever sounds better on your mic."
                        FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}"/>
         </StackPanel>
 
