@@ -49,6 +49,15 @@ public partial class App : Application
             // a normal login same as if there'd been no saved session.
             if (await api.RestoreSessionAsync(session.RefreshToken, session.UserId, session.Username, session.AvatarUrl))
             {
+                // No password was entered this launch, so E2EE can only be
+                // unlocked from the wrapping key cached alongside the
+                // refresh token (see SessionStorage) - absent for sessions
+                // saved before E2EE shipped, in which case DMs stay locked
+                // (clear placeholder text, see E2eeService.DecryptAsync)
+                // until the next interactive login.
+                if (session.E2eeWrappingKey is not null)
+                    await api.E2ee.UnlockWithCachedKeyAsync(Convert.FromBase64String(session.E2eeWrappingKey));
+
                 new MainWindow(api).Show();
                 return;
             }

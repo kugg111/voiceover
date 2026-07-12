@@ -57,9 +57,14 @@ public class DirectMessagesController : ControllerBase
                 return new DmConversationResponse(
                     c.OtherUserId,
                     info?.Username ?? "Unknown",
-                    _messageEncryption.Decrypt(c.Last.Content),
+                    // E2EE rows are opaque to the server by design - only a
+                    // legacy pre-E2EE row (IsE2ee false) still gets decrypted
+                    // here, since the server is the only party that ever
+                    // could read those.
+                    c.Last.IsE2ee ? c.Last.Content : _messageEncryption.Decrypt(c.Last.Content),
                     c.Last.SentAt,
-                    info?.AvatarUrl);
+                    info?.AvatarUrl,
+                    c.Last.IsE2ee);
             })
             .OrderByDescending(c => c.LastMessageAt)
             .ToList();
@@ -83,8 +88,13 @@ public class DirectMessagesController : ControllerBase
         // Decryption can't happen inside the EF query above (it'd try to
         // translate MessageEncryptionService.Decrypt into SQL) - projecting to
         // the response DTO happens here, in memory, after materializing.
+        // Only legacy (IsE2ee false) rows get decrypted server-side - E2EE
+        // rows are relayed as opaque ciphertext for the client to decrypt.
         var response = messages
-            .Select(m => new DirectMessageResponse(m.Id, _messageEncryption.Decrypt(m.Content), m.SenderId, m.RecipientId, m.SentAt, m.EditedAt))
+            .Select(m => new DirectMessageResponse(
+                m.Id,
+                m.IsE2ee ? m.Content : _messageEncryption.Decrypt(m.Content),
+                m.SenderId, m.RecipientId, m.SentAt, m.EditedAt, m.IsE2ee))
             .ToList();
 
         return Ok(response);
@@ -101,14 +111,20 @@ public class DirectMessagesController : ControllerBase
         if (message is null) return NotFound();
         if (message.SenderId != CurrentUserId) return Forbid();
 
-        message.Content = _messageEncryption.Encrypt(request.Content);
+        // request.Content is already E2EE ciphertext by the time it gets
+        // here - the client always encrypts before calling this now (see
+        // ApiService.EditDirectMessageAsync), so editing a legacy
+        // (pre-E2EE) message upgrades it to E2EE going forward rather than
+        // needing separate handling for the two cases.
+        message.Content = request.Content;
+        message.IsE2ee = true;
         message.EditedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
 
-        // Broadcasts the plaintext we were handed, not message.Content - see
-        // ChatHub.SendDirectMessage for why (recipients only ever see
-        // plaintext, the stored ciphertext never leaves the server).
-        var response = new DirectMessageResponse(message.Id, request.Content, message.SenderId, message.RecipientId, message.SentAt, message.EditedAt);
+        // Broadcasts exactly what was stored - both sides decrypt it
+        // themselves client-side (see ChatHub.SendDirectMessage for the
+        // same reasoning on the send path).
+        var response = new DirectMessageResponse(message.Id, message.Content, message.SenderId, message.RecipientId, message.SentAt, message.EditedAt, message.IsE2ee);
 
         // Same dual-send pattern SendDirectMessage already uses - both
         // participants' own connections need the update, there's no shared

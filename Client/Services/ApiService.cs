@@ -28,6 +28,11 @@ public class ApiService
     public string? CurrentUsername { get; private set; }
     public string? CurrentUserAvatarUrl { get; set; }
 
+    // Owns this session's E2EE keypair/derived-key cache once unlocked (see
+    // AuthFlow.TryAuthenticateAsync and App.xaml.cs's "remember me" restore
+    // path) - DM send/receive encrypt and decrypt through this.
+    public E2eeService E2ee { get; }
+
     // Fires when the refresh token itself turns out to be invalid/expired/
     // revoked (not just a transient network hiccup) - the session is truly
     // dead and the UI needs to send the user back to the login window.
@@ -40,6 +45,7 @@ public class ApiService
         {
             BaseAddress = new Uri(baseUrl)
         };
+        E2ee = new E2eeService(this);
     }
 
     public async Task<bool> RegisterAsync(string username, string password)
@@ -260,20 +266,76 @@ public class ApiService
     public async Task<List<UserSummaryResponse>> SearchUsersAsync(string query)
         => await _http.GetFromJsonAsync<List<UserSummaryResponse>>($"api/users/search?username={Uri.EscapeDataString(query)}") ?? new();
 
+    // Decrypts E2EE rows client-side before handing them back - callers
+    // (MainWindow) always see plaintext Content, same as before E2EE
+    // existed. Legacy (IsE2ee false) rows already come back plaintext from
+    // the server (see DirectMessagesController) and pass through untouched.
     public async Task<List<DirectMessageResponse>> GetDmHistoryAsync(int otherUserId)
-        => await _http.GetFromJsonAsync<List<DirectMessageResponse>>($"api/dm/{otherUserId}") ?? new();
+    {
+        var messages = await _http.GetFromJsonAsync<List<DirectMessageResponse>>($"api/dm/{otherUserId}") ?? new();
+        var result = new List<DirectMessageResponse>(messages.Count);
+        foreach (var m in messages)
+            result.Add(m.IsE2ee ? m with { Content = await E2ee.DecryptAsync(otherUserId, m.Content) } : m);
+        return result;
+    }
 
+    // Encrypts content client-side before sending - the server only ever
+    // sees ciphertext for a DM edit. Returns null (rather than sending
+    // plaintext) if this device's E2EE keys aren't unlocked or the
+    // recipient hasn't set up E2EE yet.
     public async Task<DirectMessageResponse?> EditDirectMessageAsync(int otherUserId, int messageId, string content)
     {
-        var response = await _http.PutAsJsonAsync($"api/dm/{otherUserId}/{messageId}", new EditMessageRequest(content));
-        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<DirectMessageResponse>() : null;
+        var encrypted = await E2ee.EncryptAsync(otherUserId, content);
+        if (encrypted is null) return null;
+
+        var response = await _http.PutAsJsonAsync($"api/dm/{otherUserId}/{messageId}", new EditMessageRequest(encrypted));
+        if (!response.IsSuccessStatusCode) return null;
+
+        var updated = await response.Content.ReadFromJsonAsync<DirectMessageResponse>();
+        if (updated is null) return null;
+        return updated.IsE2ee ? updated with { Content = await E2ee.DecryptAsync(otherUserId, updated.Content) } : updated;
     }
 
     public async Task<bool> DeleteDirectMessageAsync(int otherUserId, int messageId)
         => (await _http.DeleteAsync($"api/dm/{otherUserId}/{messageId}")).IsSuccessStatusCode;
 
     public async Task<List<DmConversationResponse>> GetDmConversationsAsync()
-        => await _http.GetFromJsonAsync<List<DmConversationResponse>>("api/dm/conversations") ?? new();
+    {
+        var conversations = await _http.GetFromJsonAsync<List<DmConversationResponse>>("api/dm/conversations") ?? new();
+        var result = new List<DmConversationResponse>(conversations.Count);
+        foreach (var c in conversations)
+            result.Add(c.IsE2ee ? c with { LastMessagePreview = await E2ee.DecryptAsync(c.OtherUserId, c.LastMessagePreview) } : c);
+        return result;
+    }
+
+    // --- E2EE key material ---
+    public async Task<bool> SetMyKeyMaterialAsync(string publicKey, string wrappedPrivateKey, string privateKeySalt)
+        => (await _http.PutAsJsonAsync("api/users/me/keys", new SetKeyMaterialRequest(publicKey, wrappedPrivateKey, privateKeySalt))).IsSuccessStatusCode;
+
+    public async Task<OwnKeyMaterialResponse?> GetMyKeyMaterialAsync()
+    {
+        try
+        {
+            return await _http.GetFromJsonAsync<OwnKeyMaterialResponse>("api/users/me/key-material");
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<string?> GetPublicKeyAsync(int userId)
+    {
+        try
+        {
+            var response = await _http.GetFromJsonAsync<PublicKeyResponse>($"api/users/{userId}/public-key");
+            return response?.PublicKey;
+        }
+        catch
+        {
+            return null;
+        }
+    }
 
     // --- Friends ---
     public async Task<List<FriendResponse>> GetFriendsAsync()

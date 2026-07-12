@@ -12,7 +12,14 @@ namespace Voiceover.Client.Services;
 // fresh access token on startup instead. Unlike the old plain-JWT scheme,
 // this refresh token IS revocable server-side (RefreshToken.RevokedAt) - see
 // AuthController's /logout and /logout-all.
-public record SavedSession(string RefreshToken, int UserId, string Username, string? AvatarUrl = null);
+// E2eeWrappingKey (base64) is the PBKDF2-derived key that unwraps this
+// user's E2EE private key (see E2eeService) - caching it here means a
+// "remember me" relaunch can unlock DMs without re-prompting for the
+// password, using the same DPAPI protection as the refresh token right
+// next to it. Null for sessions saved before E2EE shipped, or if the user
+// unchecked "remember me" - DMs simply stay locked until the next
+// interactive login in that case.
+public record SavedSession(string RefreshToken, int UserId, string Username, string? AvatarUrl = null, string? E2eeWrappingKey = null);
 
 // Persists a "remember me" session to disk, encrypted with DPAPI so the file
 // is unreadable outside this Windows account.
@@ -22,9 +29,9 @@ public static class SessionStorage
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "Voiceover", "session.dat");
 
-    public static void Save(string refreshToken, int userId, string username, string? avatarUrl = null)
+    public static void Save(string refreshToken, int userId, string username, string? avatarUrl = null, string? e2eeWrappingKey = null)
     {
-        var json = JsonSerializer.Serialize(new SavedSession(refreshToken, userId, username, avatarUrl));
+        var json = JsonSerializer.Serialize(new SavedSession(refreshToken, userId, username, avatarUrl, e2eeWrappingKey));
         var plainBytes = Encoding.UTF8.GetBytes(json);
         var protectedBytes = ProtectedData.Protect(plainBytes, optionalEntropy: null, DataProtectionScope.CurrentUser);
 
@@ -59,7 +66,7 @@ public static class SessionStorage
     {
         var saved = Load();
         if (saved is null) return;
-        Save(refreshToken, saved.UserId, saved.Username, saved.AvatarUrl);
+        Save(refreshToken, saved.UserId, saved.Username, saved.AvatarUrl, saved.E2eeWrappingKey);
     }
 
     public static void Clear()

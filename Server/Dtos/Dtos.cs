@@ -18,9 +18,18 @@ public record MessageResponse(int Id, string Content, int ChannelId, int AuthorI
 public record EditMessageRequest(string Content);
 public record UploadResponse(string Url);
 
-public record DirectMessageResponse(int Id, string Content, int SenderId, int RecipientId, DateTime SentAt, DateTime? EditedAt = null);
-public record DmConversationResponse(int OtherUserId, string OtherUsername, string LastMessagePreview, DateTime LastMessageAt, string? OtherUserAvatarUrl = null);
+// IsE2ee tells the client whether Content is opaque E2EE ciphertext it
+// needs to decrypt itself (true, the normal case for anything sent after
+// E2EE shipped) or already-plaintext, decrypted server-side one last time
+// for a legacy pre-E2EE row (false) - see DirectMessage.IsE2ee.
+public record DirectMessageResponse(int Id, string Content, int SenderId, int RecipientId, DateTime SentAt, DateTime? EditedAt = null, bool IsE2ee = false);
+public record DmConversationResponse(int OtherUserId, string OtherUsername, string LastMessagePreview, DateTime LastMessageAt, string? OtherUserAvatarUrl = null, bool IsE2ee = false);
 public record UserSummaryResponse(int Id, string Username, string? AvatarUrl = null);
+
+// --- E2EE key material (DMs only - see Client/Services/E2eeService.cs) ---
+public record SetKeyMaterialRequest(string PublicKey, string WrappedPrivateKey, string PrivateKeySalt);
+public record PublicKeyResponse(int UserId, string? PublicKey);
+public record OwnKeyMaterialResponse(string? PublicKey, string? WrappedPrivateKey, string? PrivateKeySalt);
 public record VoiceParticipant(int UserId, string Username, string? AvatarUrl = null);
 public record ChannelVoiceRoster(int ChannelId, List<VoiceParticipant> Members);
 public record SetAvatarRequest(string Url);

@@ -91,6 +91,11 @@ public class ChatHub : Hub
     // Relies on SignalR's default IUserIdProvider, which maps connections to
     // users via the ClaimTypes.NameIdentifier claim baked into the JWT - so
     // Clients.User(id) reaches every connection (device/window) that user has open.
+    // content is already E2EE ciphertext by the time it gets here - the
+    // client encrypts client-side before calling this (see
+    // Client/Services/E2eeService.cs) using a key derived from both
+    // participants' ECDH keypairs that the server never has. This hub
+    // relays opaque bytes; it can't decrypt DMs even if it wanted to.
     public async Task SendDirectMessage(int recipientId, string content)
     {
         if (string.IsNullOrWhiteSpace(content)) return;
@@ -104,19 +109,14 @@ public class ChatHub : Hub
         {
             SenderId = CurrentUserId,
             RecipientId = recipientId,
-            Content = _messageEncryption.Encrypt(content),
+            Content = content,
             SentAt = DateTime.UtcNow
         };
 
         _db.DirectMessages.Add(dm);
         await _db.SaveChangesAsync();
 
-        // Broadcasts the plaintext we were already handed, not dm.Content -
-        // no need to immediately decrypt what was just encrypted two lines
-        // up, and recipients only ever see plaintext, never the stored
-        // ciphertext (see MessageEncryptionService for why this is at-rest
-        // encryption, not end-to-end - the server still handles plaintext).
-        var response = new Dtos.DirectMessageResponse(dm.Id, content, dm.SenderId, dm.RecipientId, dm.SentAt);
+        var response = new Dtos.DirectMessageResponse(dm.Id, dm.Content, dm.SenderId, dm.RecipientId, dm.SentAt, IsE2ee: dm.IsE2ee);
 
         await Clients.User(recipientId.ToString()).SendAsync("ReceiveDirectMessage", response);
         await Clients.User(CurrentUserId.ToString()).SendAsync("ReceiveDirectMessage", response);

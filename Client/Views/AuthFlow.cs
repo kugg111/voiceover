@@ -24,7 +24,20 @@ internal static class AuthFlow
                 ? await api.RegisterAsync(username, password)
                 : await api.LoginAsync(username, password);
 
-            return success ? null : (isRegister ? "That username is already taken." : "Invalid username or password.");
+            if (!success)
+                return isRegister ? "That username is already taken." : "Invalid username or password.";
+
+            // Best-effort - unlocks (or, for a fresh registration/pre-E2EE
+            // account, generates and uploads) this device's E2EE keys now
+            // while the password is still in hand. A failure here doesn't
+            // fail the login itself (matches this app's existing pattern of
+            // not blocking on non-critical follow-up calls, e.g.
+            // SetPresenceState) - DMs just stay locked and show a clear
+            // placeholder (see E2eeService.DecryptAsync) until the next
+            // successful unlock.
+            await api.E2ee.UnlockAsync(password);
+
+            return null;
         }
         catch (HttpRequestException)
         {
@@ -40,7 +53,7 @@ internal static class AuthFlow
     {
         if (rememberMe)
         {
-            SessionStorage.Save(api.RefreshToken!, api.CurrentUserId!.Value, api.CurrentUsername!, api.CurrentUserAvatarUrl);
+            SessionStorage.Save(api.RefreshToken!, api.CurrentUserId!.Value, api.CurrentUsername!, api.CurrentUserAvatarUrl, api.E2ee.CurrentWrappingKeyBase64);
         }
         else
         {

@@ -1337,7 +1337,20 @@ public partial class MainWindow : FluentWindow
 
         if (_dmActiveUserId.HasValue)
         {
-            await _hub.SendDirectMessageAsync(_dmActiveUserId.Value, MessageInput.Text.Trim());
+            // Encrypted client-side before it ever reaches the hub - see
+            // E2eeService. A null result means this device's keys aren't
+            // unlocked yet or the recipient hasn't set up E2EE (no public
+            // key on file) - surfaced instead of silently sending plaintext.
+            var encrypted = await _api.E2ee.EncryptAsync(_dmActiveUserId.Value, MessageInput.Text.Trim());
+            if (encrypted is null)
+            {
+                MessageBox.Show(
+                    "Couldn't send an encrypted message right now - either your own encryption keys aren't unlocked yet, or this person hasn't logged in since secure messaging was added. Try logging out and back in.",
+                    "Encryption unavailable", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            await _hub.SendDirectMessageAsync(_dmActiveUserId.Value, encrypted);
             MessageInput.Clear();
             return;
         }
@@ -1488,10 +1501,16 @@ public partial class MainWindow : FluentWindow
         });
     }
 
-    private void OnDirectMessageReceived(DirectMessageResponse dm)
+    private async void OnDirectMessageReceived(DirectMessageResponse dm)
     {
         var otherUserId = dm.SenderId == _api.CurrentUserId ? dm.RecipientId : dm.SenderId;
         var isOwnMessage = dm.SenderId == _api.CurrentUserId;
+
+        // Pushed straight from the hub, so still opaque ciphertext for an
+        // E2EE row (see ChatHub.SendDirectMessage) - decrypt before this
+        // touches any UI-bound state, same as the REST paths in ApiService
+        // already do transparently for history/conversation loads.
+        var content = dm.IsE2ee ? await _api.E2ee.DecryptAsync(otherUserId, dm.Content) : dm.Content;
 
         Dispatcher.Invoke(() =>
         {
@@ -1507,14 +1526,14 @@ public partial class MainWindow : FluentWindow
                 OtherUserId = otherUserId,
                 OtherUsername = existing?.OtherUsername ?? _dmActiveUsername ?? "user",
                 OtherUserAvatarUrl = existing?.OtherUserAvatarUrl,
-                LastMessagePreview = dm.Content,
+                LastMessagePreview = content,
                 LastMessageAt = dm.SentAt,
                 UnreadCount = newUnreadCount
             });
 
             if (isCurrentlyOpen)
             {
-                _messages.Add(ToDmListItem(dm));
+                _messages.Add(ToDmListItem(dm, content));
                 ScrollToBottom();
             }
 
@@ -1526,7 +1545,7 @@ public partial class MainWindow : FluentWindow
             if (!isOwnMessage && (!isCurrentlyOpen || !IsActive))
             {
                 NotificationService.PlayMessageSound();
-                var preview = dm.Content.Length > 80 ? dm.Content[..80] + "…" : dm.Content;
+                var preview = content.Length > 80 ? content[..80] + "…" : content;
                 NotificationService.ShowToast($"{existing?.OtherUsername ?? _dmActiveUsername ?? "New message"}", preview);
             }
         });
@@ -1555,17 +1574,22 @@ public partial class MainWindow : FluentWindow
         });
     }
 
-    private void OnDirectMessageEdited(DirectMessageResponse dm)
+    private async void OnDirectMessageEdited(DirectMessageResponse dm)
     {
         var otherUserId = dm.SenderId == _api.CurrentUserId ? dm.RecipientId : dm.SenderId;
 
+        // Only worth decrypting if this conversation is actually open below
+        // (matches the early-return this had before) - still has to happen
+        // before Dispatcher.Invoke since it's async.
+        if (otherUserId != _dmActiveUserId) return;
+        var content = dm.IsE2ee ? await _api.E2ee.DecryptAsync(otherUserId, dm.Content) : dm.Content;
+
         Dispatcher.Invoke(() =>
         {
-            if (otherUserId != _dmActiveUserId) return;
             var item = _messages.FirstOrDefault(m => m.Id == dm.Id);
             if (item is null) return;
 
-            item.Content = dm.Content;
+            item.Content = content;
             item.IsEdited = dm.EditedAt is not null;
         });
     }
@@ -1769,7 +1793,12 @@ public partial class MainWindow : FluentWindow
     // already know who you're talking to, unlike a multi-sender channel) -
     // pull it from context instead: our own cached avatar, or the open
     // conversation's cached one for the other side.
-    private MessageListItem ToDmListItem(DirectMessageResponse dm) => new()
+    // contentOverride lets a caller that already decrypted dm.Content itself
+    // (OnDirectMessageReceived, working with a raw hub push that never went
+    // through ApiService's transparent decrypt) supply the plaintext
+    // directly - callers going through ApiService.GetDmHistoryAsync already
+    // get plaintext in dm.Content and don't need it.
+    private MessageListItem ToDmListItem(DirectMessageResponse dm, string? contentOverride = null) => new()
     {
         Id = dm.Id,
         AuthorId = dm.SenderId,
@@ -1777,7 +1806,7 @@ public partial class MainWindow : FluentWindow
         AuthorAvatarUrl = dm.SenderId == _api.CurrentUserId
             ? _api.CurrentUserAvatarUrl
             : _dmConversations.FirstOrDefault(c => c.OtherUserId == _dmActiveUserId)?.OtherUserAvatarUrl,
-        Content = dm.Content,
+        Content = contentOverride ?? dm.Content,
         TimeDisplay = dm.SentAt.ToLocalTime().ToString("t"),
         IsEdited = dm.EditedAt is not null,
         IsOwnMessage = dm.SenderId == _api.CurrentUserId,
