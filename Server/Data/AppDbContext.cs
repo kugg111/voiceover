@@ -52,6 +52,15 @@ public class AppDbContext : DbContext
             .WithMany(u => u.Messages)
             .HasForeignKey(m => m.AuthorId);
 
+        // MessagesController.GetHistory filters by ChannelId and orders by
+        // SentAt on every load - EF's FK convention already indexes
+        // ChannelId alone, but a composite index lets Postgres satisfy both
+        // the filter and the sort from the index directly instead of
+        // sorting the matched rows separately once the channel's history
+        // grows large.
+        modelBuilder.Entity<Message>()
+            .HasIndex(m => new { m.ChannelId, m.SentAt });
+
         modelBuilder.Entity<Invite>()
             .HasIndex(i => i.Code)
             .IsUnique();

@@ -17,14 +17,16 @@ public class ChatHub : Hub
     private readonly LiveKitTokenService _liveKitTokens;
     private readonly PresenceService _presence;
     private readonly MessageRateLimiter _messageRateLimiter;
+    private readonly DmEncryptionService _dmEncryption;
 
-    public ChatHub(AppDbContext db, VoicePresenceService voicePresence, LiveKitTokenService liveKitTokens, PresenceService presence, MessageRateLimiter messageRateLimiter)
+    public ChatHub(AppDbContext db, VoicePresenceService voicePresence, LiveKitTokenService liveKitTokens, PresenceService presence, MessageRateLimiter messageRateLimiter, DmEncryptionService dmEncryption)
     {
         _db = db;
         _voicePresence = voicePresence;
         _liveKitTokens = liveKitTokens;
         _presence = presence;
         _messageRateLimiter = messageRateLimiter;
+        _dmEncryption = dmEncryption;
     }
 
     private int CurrentUserId => int.Parse(Context.User!.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -98,14 +100,19 @@ public class ChatHub : Hub
         {
             SenderId = CurrentUserId,
             RecipientId = recipientId,
-            Content = content,
+            Content = _dmEncryption.Encrypt(content),
             SentAt = DateTime.UtcNow
         };
 
         _db.DirectMessages.Add(dm);
         await _db.SaveChangesAsync();
 
-        var response = new Dtos.DirectMessageResponse(dm.Id, dm.Content, dm.SenderId, dm.RecipientId, dm.SentAt);
+        // Broadcasts the plaintext we were already handed, not dm.Content -
+        // no need to immediately decrypt what was just encrypted two lines
+        // up, and recipients only ever see plaintext, never the stored
+        // ciphertext (see DmEncryptionService for why this is at-rest
+        // encryption, not end-to-end - the server still handles plaintext).
+        var response = new Dtos.DirectMessageResponse(dm.Id, content, dm.SenderId, dm.RecipientId, dm.SentAt);
 
         await Clients.User(recipientId.ToString()).SendAsync("ReceiveDirectMessage", response);
         await Clients.User(CurrentUserId.ToString()).SendAsync("ReceiveDirectMessage", response);

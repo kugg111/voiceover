@@ -16,11 +16,13 @@ public class AuthController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly JwtTokenService _jwt;
+    private readonly ILogger<AuthController> _logger;
 
-    public AuthController(AppDbContext db, JwtTokenService jwt)
+    public AuthController(AppDbContext db, JwtTokenService jwt, ILogger<AuthController> logger)
     {
         _db = db;
         _jwt = jwt;
+        _logger = logger;
     }
 
     [HttpPost("register")]
@@ -49,7 +51,15 @@ public class AuthController : ControllerBase
     {
         var user = await _db.Users.FirstOrDefaultAsync(u => u.Username == req.Username);
         if (user is null || !BCrypt.Net.BCrypt.Verify(req.Password, user.PasswordHash))
+        {
+            // Username only, never the password - a string of these for the
+            // same username/IP in a short window is the actual brute-force
+            // signal worth alerting on, on top of the rate limiter already
+            // throttling the requests themselves.
+            _logger.LogWarning("Failed login attempt for {Username} from {RemoteIp}",
+                req.Username, HttpContext.Connection.RemoteIpAddress);
             return Unauthorized("Invalid username or password.");
+        }
 
         return Ok(await IssueTokensAsync(user));
     }
@@ -67,7 +77,16 @@ public class AuthController : ControllerBase
             .FirstOrDefaultAsync(r => r.TokenHash == hash);
 
         if (existing is null || existing.RevokedAt is not null || existing.ExpiresAt <= DateTime.UtcNow || existing.User is null)
+        {
+            // Never logs the token itself (or its hash) - just that a
+            // rejection happened and from where. A revoked-token reuse in
+            // particular is worth noticing: it means whoever's calling this
+            // has a refresh token that was already rotated out from under
+            // them, which is the exact signature of two parties (a
+            // legitimate client and a copy of its token) racing to use it.
+            _logger.LogWarning("Rejected refresh token attempt from {RemoteIp}", HttpContext.Connection.RemoteIpAddress);
             return Unauthorized("Refresh token is invalid or expired.");
+        }
 
         // Rotate rather than reuse: revoke the token that was just spent and
         // issue a brand new one. Limits how long a copied-but-not-yet-used

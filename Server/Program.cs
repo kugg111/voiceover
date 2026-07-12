@@ -9,8 +9,23 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
 using Npgsql;
+using Serilog;
+using Serilog.Events;
+using Serilog.Formatting.Compact;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// One compact JSON object per log line (CLEF format) instead of plain text -
+// Railway's log viewer/export gets actual queryable fields (level, request
+// path, user id, exception, etc.), and it's the format a real log
+// aggregator (Seq, Better Stack, ...) would expect if one gets wired in
+// later - just add a second WriteTo, nothing here needs to change.
+builder.Host.UseSerilog((context, config) => config
+    .MinimumLevel.Information()
+    .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
+    .MinimumLevel.Override("Microsoft.EntityFrameworkCore", LogEventLevel.Warning)
+    .Enrich.FromLogContext()
+    .WriteTo.Console(new CompactJsonFormatter()));
 
 // Railway (and most PaaS hosts) inject the port to listen on via $PORT rather
 // than a fixed config value. Note: appsettings.json's Kestrel:Endpoints config
@@ -59,6 +74,7 @@ builder.Services.AddSingleton<JwtTokenService>();
 builder.Services.AddSingleton<VoicePresenceService>();
 builder.Services.AddSingleton<PresenceService>();
 builder.Services.AddSingleton<LiveKitTokenService>();
+builder.Services.AddSingleton<DmEncryptionService>();
 builder.Services.AddScoped<PermissionService>();
 // SendMessage/SendDirectMessage anti-spam - see MessageRateLimiter for why
 // this can't just be the HTTP rate limiter below (SignalR hub calls don't
@@ -71,6 +87,18 @@ builder.Services.AddSignalR();
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    // Getting rate-limited is worth knowing about - repeated hits from the
+    // same IP/user are exactly the "someone's hammering login" or
+    // "something's spamming invites" signal structured logging is for.
+    options.OnRejected = (context, _) =>
+    {
+        var logger = context.HttpContext.RequestServices
+            .GetRequiredService<ILoggerFactory>().CreateLogger("RateLimiting");
+        logger.LogWarning("Rate limit exceeded for {Path} from {RemoteIp}",
+            context.HttpContext.Request.Path, context.HttpContext.Connection.RemoteIpAddress);
+        return ValueTask.CompletedTask;
+    };
 
     // Login/register: brute-force protection. Partitioned by client IP since
     // there's no authenticated identity yet at this point.
@@ -148,6 +176,20 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.Migrate();
 }
+
+// First in the pipeline so it wraps every request's full duration,
+// including whatever runs after it - the actual log line is written once
+// the response is ready, by which point UseAuthentication (further down)
+// has already populated HttpContext.User regardless of where in the
+// pipeline this sits.
+app.UseSerilogRequestLogging(options =>
+{
+    options.EnrichDiagnosticContext = (diagnosticContext, httpContext) =>
+    {
+        var userId = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (userId is not null) diagnosticContext.Set("UserId", userId);
+    };
+});
 
 app.UseCors();
 

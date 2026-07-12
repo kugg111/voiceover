@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Voiceover.Server.Data;
 using Voiceover.Server.Dtos;
+using Voiceover.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -13,7 +14,13 @@ namespace Voiceover.Server.Controllers;
 public class DirectMessagesController : ControllerBase
 {
     private readonly AppDbContext _db;
-    public DirectMessagesController(AppDbContext db) => _db = db;
+    private readonly DmEncryptionService _dmEncryption;
+
+    public DirectMessagesController(AppDbContext db, DmEncryptionService dmEncryption)
+    {
+        _db = db;
+        _dmEncryption = dmEncryption;
+    }
 
     private int CurrentUserId => int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
@@ -46,7 +53,7 @@ public class DirectMessagesController : ControllerBase
                 return new DmConversationResponse(
                     c.OtherUserId,
                     info?.Username ?? "Unknown",
-                    c.Last.Content,
+                    _dmEncryption.Decrypt(c.Last.Content),
                     c.Last.SentAt,
                     info?.AvatarUrl);
             })
@@ -67,9 +74,15 @@ public class DirectMessagesController : ControllerBase
             .OrderByDescending(m => m.SentAt)
             .Take(take)
             .OrderBy(m => m.SentAt)
-            .Select(m => new DirectMessageResponse(m.Id, m.Content, m.SenderId, m.RecipientId, m.SentAt))
             .ToListAsync();
 
-        return Ok(messages);
+        // Decryption can't happen inside the EF query above (it'd try to
+        // translate DmEncryptionService.Decrypt into SQL) - projecting to
+        // the response DTO happens here, in memory, after materializing.
+        var response = messages
+            .Select(m => new DirectMessageResponse(m.Id, _dmEncryption.Decrypt(m.Content), m.SenderId, m.RecipientId, m.SentAt))
+            .ToList();
+
+        return Ok(response);
     }
 }
