@@ -76,11 +76,30 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<DirectMessage>()
             .HasIndex(dm => new { dm.SenderId, dm.RecipientId, dm.SentAt });
 
+        // The composite index above leads with SenderId, so it doesn't serve
+        // "messages sent TO me" (RecipientId == X) on its own - every DM
+        // query filters SenderId == X OR RecipientId == X
+        // (DirectMessagesController.GetConversations/GetHistory), and
+        // without this, that side of the OR falls back to a full table
+        // scan. Postgres combines the two single-column indexes with a
+        // bitmap OR for exactly this kind of query.
+        modelBuilder.Entity<DirectMessage>()
+            .HasIndex(dm => dm.RecipientId);
+
         // Same reasoning as DirectMessage above - no FK navigation on User,
         // look participants up by id.
         modelBuilder.Entity<Friendship>()
             .HasIndex(f => new { f.RequesterId, f.AddresseeId })
             .IsUnique();
+
+        // Same "OR across two columns needs both sides indexed" reasoning as
+        // DirectMessage.RecipientId above - the composite unique index only
+        // leads with RequesterId, but every friendship query filters
+        // RequesterId == X OR AddresseeId == X (FriendsController,
+        // ChatHub.BroadcastPresenceChangeAsync - the latter on every single
+        // online/away/offline transition for every user).
+        modelBuilder.Entity<Friendship>()
+            .HasIndex(f => f.AddresseeId);
 
         // Unique so a hash collision (or a bug that generates the same token
         // twice) fails loudly at the DB level instead of silently letting

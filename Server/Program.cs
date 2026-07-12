@@ -100,6 +100,7 @@ builder.Services.AddSingleton(new UploadsPathOptions(uploadsDir));
 builder.Services.AddSingleton<JwtTokenService>();
 builder.Services.AddSingleton<VoicePresenceService>();
 builder.Services.AddSingleton<PresenceService>();
+builder.Services.AddSingleton<UserAvatarCache>();
 builder.Services.AddSingleton<LiveKitTokenService>();
 builder.Services.AddScoped<PermissionService>();
 // SendMessage/SendDirectMessage anti-spam - see MessageRateLimiter for why

@@ -17,14 +17,16 @@ public class ChatHub : Hub
     private readonly LiveKitTokenService _liveKitTokens;
     private readonly PresenceService _presence;
     private readonly MessageRateLimiter _messageRateLimiter;
+    private readonly UserAvatarCache _avatarCache;
 
-    public ChatHub(AppDbContext db, VoicePresenceService voicePresence, LiveKitTokenService liveKitTokens, PresenceService presence, MessageRateLimiter messageRateLimiter)
+    public ChatHub(AppDbContext db, VoicePresenceService voicePresence, LiveKitTokenService liveKitTokens, PresenceService presence, MessageRateLimiter messageRateLimiter, UserAvatarCache avatarCache)
     {
         _db = db;
         _voicePresence = voicePresence;
         _liveKitTokens = liveKitTokens;
         _presence = presence;
         _messageRateLimiter = messageRateLimiter;
+        _avatarCache = avatarCache;
     }
 
     private int CurrentUserId => int.Parse(Context.User!.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -73,9 +75,16 @@ public class ChatHub : Hub
 
         // CurrentUserId/CurrentUsername come straight from JWT claims, but
         // avatar isn't (and shouldn't be - it changes more often than a
-        // token gets refreshed) baked into the token, so it needs an actual
-        // lookup here rather than reusing those.
-        var authorAvatarUrl = (await _db.Users.FindAsync(CurrentUserId))?.AvatarUrl;
+        // token gets refreshed) baked into the token. UserAvatarCache
+        // avoids a DB round trip for this on every single message send -
+        // on a cache miss (first message from this user since the server
+        // started), fall back to the DB once and cache the result.
+        string? authorAvatarUrl;
+        if (!_avatarCache.TryGet(CurrentUserId, out authorAvatarUrl))
+        {
+            authorAvatarUrl = (await _db.Users.FindAsync(CurrentUserId))?.AvatarUrl;
+            _avatarCache.Set(CurrentUserId, authorAvatarUrl);
+        }
 
         var response = new MessageResponse(message.Id, message.Content, channelId, CurrentUserId, CurrentUsername, message.SentAt, message.AttachmentUrl, authorAvatarUrl);
         await Clients.Group(GroupName(channelId)).SendAsync("ReceiveMessage", response);

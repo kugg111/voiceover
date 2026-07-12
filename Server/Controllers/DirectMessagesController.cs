@@ -28,37 +28,60 @@ public class DirectMessagesController : ControllerBase
     private int CurrentUserId => int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
     // GET /api/dm/conversations -> one row per person the current user has
-    // exchanged DMs with, most recent conversation first. Grouping is done
-    // in-memory after fetching (small scale, avoids fighting EF's SQL
-    // translation for "latest row per group").
+    // exchanged DMs with, most recent conversation first.
+    //
+    // Uses raw SQL (Postgres's DISTINCT ON) rather than EF Core LINQ,
+    // deliberately - the natural LINQ expression for "latest row per group"
+    // (GroupBy(computed key).Select(g => g.OrderByDescending(...).First()))
+    // either fails to translate or falls back to loading every group's full
+    // contents into memory, depending on EF Core version/provider maturity;
+    // testing that blindly is exactly the kind of thing that quietly
+    // regresses. DISTINCT ON is the standard, well-understood Postgres
+    // idiom for this and lets the query planner use the SenderId/
+    // RecipientId indexes (see AppDbContext) directly, so this scales with
+    // conversation count, not total message count - the previous version
+    // pulled every DM the user ever sent or received into memory before
+    // grouping in C#.
     [HttpGet("conversations")]
     public async Task<ActionResult<List<DmConversationResponse>>> GetConversations()
     {
-        var messages = await _db.DirectMessages
-            .Where(m => m.SenderId == CurrentUserId || m.RecipientId == CurrentUserId)
-            .OrderByDescending(m => m.SentAt)
+        var currentUserId = CurrentUserId;
+
+        // DISTINCT ON's expression has to be textually identical to ORDER
+        // BY's leading expression - Npgsql turns each {currentUserId}
+        // interpolation into its own separate parameter, so repeating the
+        // CASE expression in both clauses (each with a different parameter
+        // reference) fails Postgres's check even though the value is the
+        // same. Computing other_user_id once in an inner subquery and
+        // referencing that plain column in DISTINCT ON/ORDER BY avoids the
+        // duplication entirely.
+        var latestMessages = await _db.DirectMessages
+            .FromSqlInterpolated($@"
+                SELECT ""Id"", ""Content"", ""SenderId"", ""RecipientId"", ""SentAt"", ""EditedAt""
+                FROM (
+                    SELECT DISTINCT ON (other_user_id)
+                        ""Id"", ""Content"", ""SenderId"", ""RecipientId"", ""SentAt"", ""EditedAt"", other_user_id
+                    FROM (
+                        SELECT ""Id"", ""Content"", ""SenderId"", ""RecipientId"", ""SentAt"", ""EditedAt"",
+                            CASE WHEN ""SenderId"" = {currentUserId} THEN ""RecipientId"" ELSE ""SenderId"" END AS other_user_id
+                        FROM ""DirectMessages""
+                        WHERE ""SenderId"" = {currentUserId} OR ""RecipientId"" = {currentUserId}
+                    ) tagged
+                    ORDER BY other_user_id, ""SentAt"" DESC
+                ) latest")
             .ToListAsync();
 
-        var latestPerOtherUser = messages
-            .GroupBy(m => m.SenderId == CurrentUserId ? m.RecipientId : m.SenderId)
-            .Select(g => new { OtherUserId = g.Key, Last = g.First() })
-            .ToList();
-
-        var otherUserIds = latestPerOtherUser.Select(c => c.OtherUserId).ToList();
+        var otherUserIds = latestMessages.Select(m => m.SenderId == currentUserId ? m.RecipientId : m.SenderId).ToList();
         var userInfo = await _db.Users
             .Where(u => otherUserIds.Contains(u.Id))
             .ToDictionaryAsync(u => u.Id, u => new { u.Username, u.AvatarUrl });
 
-        var result = latestPerOtherUser
-            .Select(c =>
+        var result = latestMessages
+            .Select(m =>
             {
-                var info = userInfo.GetValueOrDefault(c.OtherUserId);
-                return new DmConversationResponse(
-                    c.OtherUserId,
-                    info?.Username ?? "Unknown",
-                    c.Last.Content,
-                    c.Last.SentAt,
-                    info?.AvatarUrl);
+                var otherUserId = m.SenderId == currentUserId ? m.RecipientId : m.SenderId;
+                var info = userInfo.GetValueOrDefault(otherUserId);
+                return new DmConversationResponse(otherUserId, info?.Username ?? "Unknown", m.Content, m.SentAt, info?.AvatarUrl);
             })
             .OrderByDescending(c => c.LastMessageAt)
             .ToList();

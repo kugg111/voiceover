@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Voiceover.Server.Data;
 using Voiceover.Server.Dtos;
+using Voiceover.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -13,7 +14,13 @@ namespace Voiceover.Server.Controllers;
 public class UsersController : ControllerBase
 {
     private readonly AppDbContext _db;
-    public UsersController(AppDbContext db) => _db = db;
+    private readonly UserAvatarCache _avatarCache;
+
+    public UsersController(AppDbContext db, UserAvatarCache avatarCache)
+    {
+        _db = db;
+        _avatarCache = avatarCache;
+    }
 
     private int CurrentUserId => int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
@@ -43,6 +50,12 @@ public class UsersController : ControllerBase
 
         user.AvatarUrl = req.Url;
         await _db.SaveChangesAsync();
+
+        // The one and only place an avatar can change - keep
+        // ChatHub.SendMessage's cache (which exists specifically to avoid
+        // a DB round trip per message) from serving a stale URL.
+        _avatarCache.Set(CurrentUserId, user.AvatarUrl);
+
         return Ok();
     }
 

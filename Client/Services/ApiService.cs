@@ -300,10 +300,17 @@ public class ApiService
     public async Task<List<DmConversationResponse>> GetDmConversationsAsync()
     {
         var conversations = await _http.GetFromJsonAsync<List<DmConversationResponse>>("api/dm/conversations") ?? new();
-        var result = new List<DmConversationResponse>(conversations.Count);
-        foreach (var c in conversations)
-            result.Add(c with { LastMessagePreview = await E2ee.DecryptAsync(c.OtherUserId, c.LastMessagePreview) });
-        return result;
+
+        // Decrypted in parallel, not one at a time - each distinct
+        // conversation partner needs a network round trip the first time
+        // (fetching their public key, see E2eeService.DerivePeerKeyAsync),
+        // so N conversations with N different partners meant N sequential
+        // round trips before. E2eeService's caches are concurrency-safe and
+        // the actual crypto work is already lock-serialized internally, so
+        // parallelizing here only speeds up the network waits, not the math.
+        var decrypted = await Task.WhenAll(conversations.Select(async c =>
+            c with { LastMessagePreview = await E2ee.DecryptAsync(c.OtherUserId, c.LastMessagePreview) }));
+        return decrypted.ToList();
     }
 
     // --- E2EE key material ---

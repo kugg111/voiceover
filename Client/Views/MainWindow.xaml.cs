@@ -366,15 +366,20 @@ public partial class MainWindow : FluentWindow
     private int? _dmActiveUserId;
     private string? _dmActiveUsername;
 
-    private readonly ObservableCollection<ServerListItem> _servers = new();
-    private readonly ObservableCollection<MemberListItem> _members = new();
-    private readonly ObservableCollection<ChannelListItem> _textChannels = new();
-    private readonly ObservableCollection<ChannelListItem> _voiceChannels = new();
-    private readonly ObservableCollection<MessageListItem> _messages = new();
-    private readonly ObservableCollection<DmConversationListItem> _dmConversations = new();
+    // BulkObservableCollection where a Clear()+per-item-Add() reload pattern
+    // is common (see ReplaceAll callers below) - one Reset notification
+    // instead of N+1 individual ones. Plain ObservableCollection for the
+    // rest (search results etc.), which only ever grow/shrink by a couple
+    // of items at a time and don't reload wholesale.
+    private readonly BulkObservableCollection<ServerListItem> _servers = new();
+    private readonly BulkObservableCollection<MemberListItem> _members = new();
+    private readonly BulkObservableCollection<ChannelListItem> _textChannels = new();
+    private readonly BulkObservableCollection<ChannelListItem> _voiceChannels = new();
+    private readonly BulkObservableCollection<MessageListItem> _messages = new();
+    private readonly BulkObservableCollection<DmConversationListItem> _dmConversations = new();
     private readonly ObservableCollection<UserSearchResultItem> _dmSearchResults = new();
-    private readonly ObservableCollection<FriendListItem> _friends = new();
-    private readonly ObservableCollection<FriendRequestListItem> _friendRequests = new();
+    private readonly BulkObservableCollection<FriendListItem> _friends = new();
+    private readonly BulkObservableCollection<FriendRequestListItem> _friendRequests = new();
     private readonly ObservableCollection<UserSearchResultItem> _friendSearchResults = new();
 
     // Source of truth for text-channel unread counts, kept independent of
@@ -391,6 +396,12 @@ public partial class MainWindow : FluentWindow
     // Populated in LoadServersAsync (every server up front) and
     // RefreshChannelsAsync (safety net for channels created afterward).
     private readonly Dictionary<int, int> _channelServerIds = new();
+
+    // Channels this device has already joined the SignalR group for -
+    // JoinChannelAsync is idempotent server-side either way, but tracking
+    // this client-side avoids re-issuing a hub call for every text channel
+    // on every single server switch (see RefreshChannelsAsync).
+    private readonly HashSet<int> _joinedChannelIds = new();
 
     private DateTime _lastTypingNotify = DateTime.MinValue;
 
@@ -530,9 +541,7 @@ public partial class MainWindow : FluentWindow
     private async Task LoadServersAsync()
     {
         var servers = await _api.GetMyServersAsync();
-        _servers.Clear();
-        foreach (var s in servers)
-            _servers.Add(new ServerListItem { Id = s.Id, Name = s.Name, IconUrl = App.ResolveUploadUrl(s.IconUrl), OwnerId = s.OwnerId });
+        _servers.ReplaceAll(servers.Select(s => new ServerListItem { Id = s.Id, Name = s.Name, IconUrl = App.ResolveUploadUrl(s.IconUrl), OwnerId = s.OwnerId }));
 
         // Join every text channel's SignalR group across every server the
         // user belongs to - not just whichever one happens to be open right
@@ -540,15 +549,23 @@ public partial class MainWindow : FluentWindow
         // own group, so without this, unread dots could only ever work while
         // browsing the exact server a message landed in - unlike DMs, which
         // reach you regardless of what you're looking at (Clients.User, not
-        // a group). A handful of servers/channels for a small friends app,
-        // so the extra join calls up front are cheap.
-        foreach (var server in servers)
+        // a group).
+        //
+        // The per-server channel list fetches are independent HTTP calls, so
+        // they run concurrently instead of one at a time (HttpClient is safe
+        // for concurrent use). The actual SignalR joins below stay
+        // sequential - HubConnection isn't documented as safe for concurrent
+        // invocation from multiple threads - but only for channels this
+        // device hasn't already joined (_joinedChannelIds), so a later
+        // reload (e.g. RefreshChannelsAsync) doesn't redo them.
+        var channelLists = await Task.WhenAll(servers.Select(s => _api.GetChannelsAsync(s.Id)));
+
+        foreach (var channels in channelLists)
         {
-            var channels = await _api.GetChannelsAsync(server.Id);
             foreach (var c in channels)
                 _channelServerIds[c.Id] = c.GuildServerId;
 
-            foreach (var c in channels.Where(c => c.Type == "Text"))
+            foreach (var c in channels.Where(c => c.Type == "Text" && _joinedChannelIds.Add(c.Id)))
                 await _hub.JoinChannelAsync(c.Id);
         }
     }
@@ -556,8 +573,9 @@ public partial class MainWindow : FluentWindow
     private async Task RefreshChannelsAsync(int serverId)
     {
         var channels = await _api.GetChannelsAsync(serverId);
-        _textChannels.Clear();
-        _voiceChannels.Clear();
+
+        var textItems = new List<ChannelListItem>();
+        var voiceItems = new List<ChannelListItem>();
         foreach (var c in channels)
         {
             _channelServerIds[c.Id] = c.GuildServerId;
@@ -568,14 +586,17 @@ public partial class MainWindow : FluentWindow
                 DisplayName = c.Type == "Text" ? $"# {c.Name}" : $"🔊 {c.Name}",
                 UnreadCount = c.Type == "Text" ? _unreadTextChannelCounts.GetValueOrDefault(c.Id) : 0
             };
-            if (c.Type == "Text") _textChannels.Add(item);
-            else _voiceChannels.Add(item);
+            if (c.Type == "Text") textItems.Add(item);
+            else voiceItems.Add(item);
         }
+        _textChannels.ReplaceAll(textItems);
+        _voiceChannels.ReplaceAll(voiceItems);
 
         // Safety net for channels created after the initial LoadServersAsync
-        // sweep (e.g. someone else added one) - harmless/idempotent if
-        // already joined.
-        foreach (var c in _textChannels)
+        // sweep (e.g. someone else added one) - only joins ones this device
+        // hasn't already joined, instead of unconditionally rejoining every
+        // text channel on every single server switch.
+        foreach (var c in textItems.Where(c => _joinedChannelIds.Add(c.Id)))
             await _hub.JoinChannelAsync(c.Id);
     }
 
@@ -595,8 +616,10 @@ public partial class MainWindow : FluentWindow
         _currentServerId = serverId;
         await _hub.JoinServerPresenceAsync(serverId);
 
-        var servers = await _api.GetMyServersAsync();
-        var server = servers.Find(s => s.Id == serverId);
+        // _servers is already populated (LoadServersAsync runs at login/
+        // reconnect) - no need to refetch the whole list just to read one
+        // server's name back out of it.
+        var server = _servers.FirstOrDefault(s => s.Id == serverId);
         ServerNameText.Text = server?.Name ?? "Server";
 
         await RefreshChannelsAsync(serverId);
@@ -611,11 +634,10 @@ public partial class MainWindow : FluentWindow
         var isOwner = self?.Role == "Owner";
         var canManageServer = isOwner || self?.Role == "Moderator";
 
-        _members.Clear();
-        foreach (var m in members)
+        _members.ReplaceAll(members.Select(m =>
         {
             var isSelf = m.UserId == _api.CurrentUserId;
-            _members.Add(new MemberListItem
+            return new MemberListItem
             {
                 UserId = m.UserId,
                 Username = m.Username,
@@ -625,8 +647,8 @@ public partial class MainWindow : FluentWindow
                 CanChangeRole = isOwner && m.Role != "Owner" && !isSelf,
                 CanKick = canManageServer && m.Role != "Owner" && !isSelf,
                 PresenceState = m.PresenceState
-            });
-        }
+            };
+        }));
     }
 
     // Even with both menu items hidden, an empty ContextMenu would still
@@ -742,9 +764,10 @@ public partial class MainWindow : FluentWindow
         }
 
         var history = await _api.GetMessageHistoryAsync(channelId);
-        _messages.Clear();
+        var items = new List<MessageListItem>(history.Count);
         foreach (var m in history)
-            _messages.Add(ToListItem(m, await _api.E2ee.DecryptForServerAsync(serverId, m.Content)));
+            items.Add(ToListItem(m, await _api.E2ee.DecryptForServerAsync(serverId, m.Content)));
+        _messages.ReplaceAll(items);
 
         ScrollToBottom();
     }
@@ -1108,13 +1131,12 @@ public partial class MainWindow : FluentWindow
         var previouslyUnread = _dmConversations.Where(c => c.HasUnread).ToDictionary(c => c.OtherUserId, c => c.UnreadCount);
 
         var conversations = await _api.GetDmConversationsAsync();
-        _dmConversations.Clear();
-        foreach (var c in conversations.OrderByDescending(c => c.LastMessageAt))
+        _dmConversations.ReplaceAll(conversations.OrderByDescending(c => c.LastMessageAt).Select(c =>
         {
             var item = ToDmConversationItem(c);
             item.UnreadCount = previouslyUnread.GetValueOrDefault(c.OtherUserId);
-            _dmConversations.Add(item);
-        }
+            return item;
+        }));
         UpdateMessagesUnreadBadge();
     }
 
@@ -1221,9 +1243,7 @@ public partial class MainWindow : FluentWindow
         _dmSearchResults.Clear();
 
         var history = await _api.GetDmHistoryAsync(userId);
-        _messages.Clear();
-        foreach (var m in history)
-            _messages.Add(ToDmListItem(m));
+        _messages.ReplaceAll(history.Select(m => ToDmListItem(m)));
 
         ScrollToBottom();
     }
@@ -1231,17 +1251,13 @@ public partial class MainWindow : FluentWindow
     private async Task LoadFriendsAsync()
     {
         var friends = await _api.GetFriendsAsync();
-        _friends.Clear();
-        foreach (var f in friends)
-            _friends.Add(new FriendListItem { UserId = f.UserId, Username = f.Username, AvatarUrl = App.ResolveUploadUrl(f.AvatarUrl), PresenceState = f.PresenceState });
+        _friends.ReplaceAll(friends.Select(f => new FriendListItem { UserId = f.UserId, Username = f.Username, AvatarUrl = App.ResolveUploadUrl(f.AvatarUrl), PresenceState = f.PresenceState }));
     }
 
     private async Task LoadFriendRequestsAsync()
     {
         var requests = await _api.GetFriendRequestsAsync();
-        _friendRequests.Clear();
-        foreach (var r in requests)
-            _friendRequests.Add(new FriendRequestListItem { Id = r.Id, UserId = r.UserId, Username = r.Username, Direction = r.Direction, AvatarUrl = App.ResolveUploadUrl(r.AvatarUrl) });
+        _friendRequests.ReplaceAll(requests.Select(r => new FriendRequestListItem { Id = r.Id, UserId = r.UserId, Username = r.Username, Direction = r.Direction, AvatarUrl = App.ResolveUploadUrl(r.AvatarUrl) }));
     }
 
     private async void FriendSearchBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
