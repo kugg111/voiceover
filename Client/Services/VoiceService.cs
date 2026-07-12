@@ -52,7 +52,17 @@ public class VoiceService : IAsyncDisposable
     private volatile bool _localIsSpeaking;
     private DateTime _lastLoudSampleUtc = DateTime.MinValue;
     private static readonly TimeSpan SpeakingHangover = TimeSpan.FromMilliseconds(400);
-    private const int SpeakingRmsThreshold = 800; // empirical threshold for 16-bit PCM RMS
+
+    // RMS threshold on the post-noise-suppression, post-gain signal (see
+    // MicCaptureSource.OnProcessedFrame) - i.e. this measures exactly what
+    // actually gets published, so the dot is meant to mean "audible to
+    // others" rather than "detected as speech". Originally 800 (~-32 dBFS),
+    // which was tuned for clear speech and missed quieter but still
+    // noticeable background noise that leaks past noise suppression -
+    // lowered to be more sensitive to that. Still well above the near-silent
+    // noise floor (raw ADC hiss boosted by MicGain typically sits in the
+    // tens), so it shouldn't light up on pure silence.
+    private const int SpeakingRmsThreshold = 300; // ~-41 dBFS
 
     // Device indices from AudioDeviceService (null/-1 = system default). Applied
     // when the mic capture/room connection is (re)created, so a change here
