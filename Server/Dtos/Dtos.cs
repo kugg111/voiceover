@@ -2,7 +2,9 @@ namespace Voiceover.Server.Dtos;
 
 public record RegisterRequest(string Username, string Password);
 public record LoginRequest(string Username, string Password);
-public record AuthResponse(string Token, int UserId, string Username, string? AvatarUrl = null);
+public record AuthResponse(string Token, DateTime ExpiresAtUtc, string RefreshToken, int UserId, string Username, string? AvatarUrl = null);
+public record RefreshRequest(string RefreshToken);
+public record LogoutRequest(string RefreshToken);
 
 public record CreateServerRequest(string Name);
 public record GuildServerResponse(int Id, string Name, string? IconUrl, int OwnerId);

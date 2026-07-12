@@ -1,8 +1,11 @@
+using System.Security.Claims;
+using System.Threading.RateLimiting;
 using Voiceover.Server.Auth;
 using Voiceover.Server.Data;
 using Voiceover.Server.Hubs;
 using Voiceover.Server.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
 using Npgsql;
@@ -57,16 +60,58 @@ builder.Services.AddSingleton<VoicePresenceService>();
 builder.Services.AddSingleton<PresenceService>();
 builder.Services.AddSingleton<LiveKitTokenService>();
 builder.Services.AddScoped<PermissionService>();
+// SendMessage/SendDirectMessage anti-spam - see MessageRateLimiter for why
+// this can't just be the HTTP rate limiter below (SignalR hub calls don't
+// go through the HTTP middleware pipeline at all).
+builder.Services.AddSingleton(new MessageRateLimiter(limit: 10, window: TimeSpan.FromSeconds(10)));
 
 builder.Services.AddControllers();
 builder.Services.AddSignalR();
 
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    // Login/register: brute-force protection. Partitioned by client IP since
+    // there's no authenticated identity yet at this point.
+    options.AddPolicy("auth", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        factory: _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 5,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0
+        }));
+
+    // Invite generation: spam protection. Partitioned by authenticated user
+    // rather than IP, since [Authorize] already guarantees an identity here.
+    options.AddPolicy("invites", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "unknown",
+        factory: _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 10,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0
+        }));
+});
+
+// The WPF client ignores CORS entirely (it's not a browser - CORS is only
+// enforced client-side by browsers), and the landing page has no JS calling
+// this API at all, so this policy currently protects nothing in practice.
+// It exists as a safety net for whenever a browser-based client shows up -
+// allowlisted to this app's own origins rather than reflecting back
+// whatever Origin header a request happens to send. No AllowCredentials():
+// auth here is a bearer JWT (Authorization header / SignalR access_token
+// query param), never cookies, so credentialed CORS isn't needed.
+var allowedOrigins = new[]
+{
+    "https://www.voiceover-app.hu",
+    "https://voiceover-production-c32a.up.railway.app"
+};
 builder.Services.AddCors(options =>
 {
-    // Locked down to the WPF client's needs. Since the client is a desktop
-    // app (not a browser), CORS mainly matters if you add a web client later.
     options.AddDefaultPolicy(policy =>
-        policy.AllowAnyHeader().AllowAnyMethod().SetIsOriginAllowed(_ => true).AllowCredentials());
+        policy.AllowAnyHeader().AllowAnyMethod().WithOrigins(allowedOrigins));
 });
 
 var jwtServiceForAuth = new JwtTokenService(builder.Configuration);
@@ -119,6 +164,9 @@ app.UseStaticFiles(new StaticFileOptions
 });
 app.UseAuthentication();
 app.UseAuthorization();
+// After auth: the "invites" policy partitions by the authenticated user,
+// which needs HttpContext.User already populated by UseAuthentication above.
+app.UseRateLimiter();
 
 app.MapControllers();
 app.MapHub<ChatHub>("/hubs/chat");
@@ -139,7 +187,13 @@ static string BuildNpgsqlConnectionString(string databaseUrl)
         Database = uri.AbsolutePath.TrimStart('/'),
         Username = userInfo[0],
         Password = userInfo[1],
-        SslMode = SslMode.Prefer
+        // Prefer silently falls back to plaintext if TLS negotiation fails -
+        // this DB holds password hashes and message content, so a downgrade
+        // should be a hard failure, not a silent one. Require (not
+        // VerifyFull) still skips certificate validation, since Railway's
+        // managed Postgres is reached through a proxy hostname that full
+        // cert validation could reject.
+        SslMode = SslMode.Require
     }.ConnectionString;
 }
 

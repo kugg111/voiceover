@@ -1,4 +1,5 @@
 using System.IO;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -11,14 +12,34 @@ public class ApiService
 {
     private readonly HttpClient _http;
 
+    // Separate, plain client for the /api/auth/* endpoints themselves
+    // (register/login/refresh/logout) - deliberately NOT wrapped in
+    // AuthRefreshHandler below, since that handler's job is refreshing the
+    // token these very calls are the ones producing/consuming. Sharing one
+    // handler chain here would risk the refresh call itself triggering
+    // another refresh attempt.
+    private readonly HttpClient _authHttp;
+
     public string? Token { get; private set; }
+    private DateTime _accessTokenExpiresAtUtc;
+    private string? _refreshToken;
+    public string? RefreshToken => _refreshToken;
     public int? CurrentUserId { get; private set; }
     public string? CurrentUsername { get; private set; }
     public string? CurrentUserAvatarUrl { get; set; }
 
+    // Fires when the refresh token itself turns out to be invalid/expired/
+    // revoked (not just a transient network hiccup) - the session is truly
+    // dead and the UI needs to send the user back to the login window.
+    public event Action? SessionExpired;
+
     public ApiService(string baseUrl)
     {
-        _http = new HttpClient { BaseAddress = new Uri(baseUrl) };
+        _authHttp = new HttpClient { BaseAddress = new Uri(baseUrl) };
+        _http = new HttpClient(new AuthRefreshHandler(GetFreshAccessTokenAsync) { InnerHandler = new HttpClientHandler() })
+        {
+            BaseAddress = new Uri(baseUrl)
+        };
     }
 
     public async Task<bool> RegisterAsync(string username, string password)
@@ -29,32 +50,125 @@ public class ApiService
 
     private async Task<bool> AuthenticateAsync(string endpoint, string username, string password)
     {
-        var response = await _http.PostAsJsonAsync(endpoint, new { Username = username, Password = password });
+        var response = await _authHttp.PostAsJsonAsync(endpoint, new { Username = username, Password = password });
         if (!response.IsSuccessStatusCode) return false;
 
         var auth = await response.Content.ReadFromJsonAsync<AuthResponse>();
         if (auth is null) return false;
 
+        ApplyAuthResponse(auth);
+        return true;
+    }
+
+    private void ApplyAuthResponse(AuthResponse auth)
+    {
         Token = auth.Token;
+        _accessTokenExpiresAtUtc = auth.ExpiresAtUtc;
+        _refreshToken = auth.RefreshToken;
         CurrentUserId = auth.UserId;
         CurrentUsername = auth.Username;
         CurrentUserAvatarUrl = App.ResolveUploadUrl(auth.AvatarUrl);
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token);
-        return true;
     }
 
-    // Reconstitutes an authenticated session from a previously-saved token
-    // (see SessionStorage), without a fresh login/register round-trip.
-    // avatarUrl here is already a fully-resolved URL (SessionStorage just
+    // Reconstitutes an authenticated session from a previously-saved refresh
+    // token (see SessionStorage) by exchanging it for a fresh access token -
+    // "remember me" sessions can be days old, so there's no point trying to
+    // reuse whatever access token was saved last time; just mint a new one
+    // up front. Returns false if the refresh token itself is no longer
+    // valid, in which case the caller should fall back to LoginWindow.
+    // avatarUrl is already a fully-resolved URL (SessionStorage just
     // round-trips whatever AuthenticateAsync last put in
     // CurrentUserAvatarUrl) - unlike everywhere else, don't resolve it again.
-    public void RestoreSession(string token, int userId, string username, string? avatarUrl = null)
+    public async Task<bool> RestoreSessionAsync(string refreshToken, int userId, string username, string? avatarUrl = null)
     {
-        Token = token;
         CurrentUserId = userId;
         CurrentUsername = username;
         CurrentUserAvatarUrl = avatarUrl;
-        _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token);
+        _refreshToken = refreshToken;
+        return await RefreshAccessTokenAsync();
+    }
+
+    // Exchanges the current refresh token for a new access+refresh token
+    // pair (server-side rotation - see AuthController.Refresh). Only treats
+    // an explicit rejection (401: token invalid/expired/revoked) as a dead
+    // session; a network-level failure returns false without tearing down
+    // local state, since the user might just be offline and could retry.
+    public async Task<bool> RefreshAccessTokenAsync()
+    {
+        if (_refreshToken is null) return false;
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await _authHttp.PostAsJsonAsync("api/auth/refresh", new { RefreshToken = _refreshToken });
+        }
+        catch (HttpRequestException)
+        {
+            return false;
+        }
+        catch (TaskCanceledException)
+        {
+            return false;
+        }
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            _refreshToken = null;
+            Token = null;
+            SessionStorage.Clear();
+            SessionExpired?.Invoke();
+            return false;
+        }
+
+        if (!response.IsSuccessStatusCode) return false;
+
+        var auth = await response.Content.ReadFromJsonAsync<AuthResponse>();
+        if (auth is null) return false;
+
+        ApplyAuthResponse(auth);
+        // The server rotates the refresh token on every use (a stale one is
+        // revoked immediately) - the locally saved "remember me" file must
+        // move to the new one too, or the next app launch would try to
+        // redeem an already-revoked token and force a real re-login.
+        SessionStorage.UpdateRefreshToken(auth.RefreshToken);
+        return true;
+    }
+
+    // Used both by AuthRefreshHandler (before every REST request through
+    // _http) and by SignalRService's AccessTokenProvider (called on every
+    // hub connect/reconnect attempt) - proactively refreshes if the access
+    // token is at or near expiry (a minute of buffer to absorb clock skew
+    // and in-flight request time) rather than waiting to be rejected first.
+    public async Task<string?> GetFreshAccessTokenAsync()
+    {
+        if (Token is null) return null;
+        if (_accessTokenExpiresAtUtc > DateTime.UtcNow.AddMinutes(1)) return Token;
+
+        return await RefreshAccessTokenAsync() ? Token : null;
+    }
+
+    // Best-effort - revokes just this device's refresh token server-side so
+    // it can't be used again, but the local session is cleared regardless
+    // of whether the network call actually succeeds (see SessionStorage.Clear
+    // callers - logging out has to work even if the server is unreachable).
+    public async Task LogoutAsync()
+    {
+        if (_refreshToken is not null)
+        {
+            try
+            {
+                await _authHttp.PostAsJsonAsync("api/auth/logout", new { RefreshToken = _refreshToken });
+            }
+            catch
+            {
+                // Best-effort - see comment above.
+            }
+        }
+
+        Token = null;
+        _refreshToken = null;
+        _http.DefaultRequestHeaders.Authorization = null;
     }
 
     public async Task<List<GuildServerResponse>> GetMyServersAsync()

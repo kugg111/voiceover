@@ -353,6 +353,12 @@ public partial class MainWindow : FluentWindow
         _hub.Reconnected += OnReconnected;
         _hub.ConnectionClosed += () => Dispatcher.Invoke(() => ConnectionStatusText.Text = "Disconnected");
 
+        // Fires if the refresh token turns out to be dead (expired past its
+        // 30-day life, or revoked - e.g. a "log out everywhere" from another
+        // device) the next time ApiService tries to use it, not just at
+        // startup - see ApiService.RefreshAccessTokenAsync.
+        _api.SessionExpired += () => Dispatcher.Invoke(OnSessionExpired);
+
         Loaded += MainWindow_Loaded;
         Closed += MainWindow_Closed;
     }
@@ -367,7 +373,7 @@ public partial class MainWindow : FluentWindow
 
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
-        await _hub.ConnectAsync(App.HubUrl, _api.Token!);
+        await _hub.ConnectAsync(App.HubUrl, _api.GetFreshAccessTokenAsync);
         _voice = new VoiceService(_hub, _api.CurrentUserId!.Value);
         _voice.PeerConnected += userId => Dispatcher.Invoke(() => ConnectionStatusText.Text = "Voice connected");
         _voice.PeerDisconnected += userId => Dispatcher.Invoke(() => ConnectionStatusText.Text = "");
@@ -928,9 +934,25 @@ public partial class MainWindow : FluentWindow
     private static double SavedVolumePercent(int userId) =>
         (UserVolumeStorage.GetVolume(userId) ?? 1.0f) * 100.0;
 
-    private void LogOutButton_Click(object sender, RoutedEventArgs e)
+    // The session is already dead server-side by the time this fires (see
+    // ApiService.SessionExpired) - just get the user back to a login screen,
+    // no server call to make here unlike the normal logout button.
+    private void OnSessionExpired()
+    {
+        SessionStorage.Clear();
+        MessageBox.Show("Your session has expired. Please log in again.", "Signed Out",
+            MessageBoxButton.OK, MessageBoxImage.Information);
+        new LoginWindow().Show();
+        Close();
+    }
+
+    private async void LogOutButton_Click(object sender, RoutedEventArgs e)
     {
         // MainWindow_Closed already handles leaving voice / disconnecting the hub.
+        // Revokes the refresh token server-side (best-effort - see
+        // ApiService.LogoutAsync) so it can't be redeemed again even if
+        // something copied it, not just wiping the local copy.
+        await _api.LogoutAsync();
         SessionStorage.Clear();
         var login = new LoginWindow();
         login.Show();

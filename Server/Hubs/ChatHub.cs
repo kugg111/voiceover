@@ -16,13 +16,15 @@ public class ChatHub : Hub
     private readonly VoicePresenceService _voicePresence;
     private readonly LiveKitTokenService _liveKitTokens;
     private readonly PresenceService _presence;
+    private readonly MessageRateLimiter _messageRateLimiter;
 
-    public ChatHub(AppDbContext db, VoicePresenceService voicePresence, LiveKitTokenService liveKitTokens, PresenceService presence)
+    public ChatHub(AppDbContext db, VoicePresenceService voicePresence, LiveKitTokenService liveKitTokens, PresenceService presence, MessageRateLimiter messageRateLimiter)
     {
         _db = db;
         _voicePresence = voicePresence;
         _liveKitTokens = liveKitTokens;
         _presence = presence;
+        _messageRateLimiter = messageRateLimiter;
     }
 
     private int CurrentUserId => int.Parse(Context.User!.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -43,6 +45,14 @@ public class ChatHub : Hub
     public async Task SendMessage(int channelId, string content, string? attachmentUrl = null)
     {
         if (string.IsNullOrWhiteSpace(content) && string.IsNullOrWhiteSpace(attachmentUrl)) return;
+
+        // Silently dropped rather than throwing - same treatment as the
+        // empty-content no-op above. This is anti-spam, not a security
+        // boundary, so a flooding client just sees its excess messages
+        // never arrive rather than a HubException the client isn't set up
+        // to show useful feedback for (see SetPresenceState's history with
+        // exactly that failure mode).
+        if (!_messageRateLimiter.TryAcquire(CurrentUserId)) return;
 
         var message = new Message
         {
@@ -78,6 +88,11 @@ public class ChatHub : Hub
     public async Task SendDirectMessage(int recipientId, string content)
     {
         if (string.IsNullOrWhiteSpace(content)) return;
+
+        // Shares the same per-user budget as SendMessage above - one spam
+        // allowance across channels and DMs, not double the throughput by
+        // splitting between the two.
+        if (!_messageRateLimiter.TryAcquire(CurrentUserId)) return;
 
         var dm = new Models.DirectMessage
         {

@@ -40,10 +40,7 @@ internal static class AuthFlow
     {
         if (rememberMe)
         {
-            // Matches JwtTokenService.CreateToken's known 7-day expiry -
-            // approximated here rather than parsed out of the JWT itself,
-            // to avoid pulling in a JWT-decoding dependency for one field.
-            SessionStorage.Save(api.Token!, api.CurrentUserId!.Value, api.CurrentUsername!, DateTime.UtcNow.AddDays(7), api.CurrentUserAvatarUrl);
+            SessionStorage.Save(api.RefreshToken!, api.CurrentUserId!.Value, api.CurrentUsername!, api.CurrentUserAvatarUrl);
         }
         else
         {

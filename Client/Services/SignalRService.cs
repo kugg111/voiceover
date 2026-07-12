@@ -25,12 +25,17 @@ public class SignalRService
     public event Action? Reconnected;
     public event Action? ConnectionClosed;
 
-    public async Task ConnectAsync(string hubUrl, string token)
+    // accessTokenProvider is called on the initial connect AND on every
+    // automatic-reconnect attempt (SignalR re-invokes it each time, not just
+    // once) - passing ApiService.GetFreshAccessTokenAsync here means a
+    // reconnect that happens to land after the access token expired still
+    // gets a live one instead of retrying with a stale token forever.
+    public async Task ConnectAsync(string hubUrl, Func<Task<string?>> accessTokenProvider)
     {
         _connection = new HubConnectionBuilder()
             .WithUrl(hubUrl, options =>
             {
-                options.AccessTokenProvider = () => Task.FromResult<string?>(token);
+                options.AccessTokenProvider = accessTokenProvider;
             })
             .WithAutomaticReconnect(new[] { TimeSpan.Zero, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10) })
             .Build();

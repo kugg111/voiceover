@@ -15,6 +15,7 @@ public class AppDbContext : DbContext
     public DbSet<Invite> Invites => Set<Invite>();
     public DbSet<DirectMessage> DirectMessages => Set<DirectMessage>();
     public DbSet<Friendship> Friendships => Set<Friendship>();
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -70,5 +71,21 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Friendship>()
             .HasIndex(f => new { f.RequesterId, f.AddresseeId })
             .IsUnique();
+
+        // Unique so a hash collision (or a bug that generates the same token
+        // twice) fails loudly at the DB level instead of silently letting
+        // two sessions share one row. UserId indexed for the "revoke every
+        // session for this user" logout-all query.
+        modelBuilder.Entity<RefreshToken>()
+            .HasIndex(r => r.TokenHash)
+            .IsUnique();
+
+        modelBuilder.Entity<RefreshToken>()
+            .HasIndex(r => r.UserId);
+
+        modelBuilder.Entity<RefreshToken>()
+            .HasOne(r => r.User)
+            .WithMany()
+            .HasForeignKey(r => r.UserId);
     }
 }

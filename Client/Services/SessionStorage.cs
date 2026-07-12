@@ -5,22 +5,26 @@ using System.Text.Json;
 
 namespace Voiceover.Client.Services;
 
-public record SavedSession(string Token, int UserId, string Username, DateTime ExpiresAtUtc, string? AvatarUrl = null);
+// Stores the long-lived refresh token, not an access token - access tokens
+// are short-lived now (see JwtTokenService.AccessTokenLifetime) and would
+// almost always already be stale by the time a "remember me" session gets
+// reloaded days later. ApiService.RestoreSessionAsync exchanges this for a
+// fresh access token on startup instead. Unlike the old plain-JWT scheme,
+// this refresh token IS revocable server-side (RefreshToken.RevokedAt) - see
+// AuthController's /logout and /logout-all.
+public record SavedSession(string RefreshToken, int UserId, string Username, string? AvatarUrl = null);
 
 // Persists a "remember me" session to disk, encrypted with DPAPI so the file
-// is unreadable outside this Windows account. Tradeoff worth noting: this is
-// a long-lived bearer token (up to 7 days, matching the server's JWT expiry)
-// that isn't revocable server-side since auth is stateless JWT - fine for a
-// friends app, not bank-grade.
+// is unreadable outside this Windows account.
 public static class SessionStorage
 {
     private static readonly string FilePath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "Voiceover", "session.dat");
 
-    public static void Save(string token, int userId, string username, DateTime expiresAtUtc, string? avatarUrl = null)
+    public static void Save(string refreshToken, int userId, string username, string? avatarUrl = null)
     {
-        var json = JsonSerializer.Serialize(new SavedSession(token, userId, username, expiresAtUtc, avatarUrl));
+        var json = JsonSerializer.Serialize(new SavedSession(refreshToken, userId, username, avatarUrl));
         var plainBytes = Encoding.UTF8.GetBytes(json);
         var protectedBytes = ProtectedData.Protect(plainBytes, optionalEntropy: null, DataProtectionScope.CurrentUser);
 
@@ -36,15 +40,7 @@ public static class SessionStorage
         {
             var protectedBytes = File.ReadAllBytes(FilePath);
             var plainBytes = ProtectedData.Unprotect(protectedBytes, optionalEntropy: null, DataProtectionScope.CurrentUser);
-            var session = JsonSerializer.Deserialize<SavedSession>(Encoding.UTF8.GetString(plainBytes));
-
-            if (session is null || session.ExpiresAtUtc <= DateTime.UtcNow)
-            {
-                Clear();
-                return null;
-            }
-
-            return session;
+            return JsonSerializer.Deserialize<SavedSession>(Encoding.UTF8.GetString(plainBytes));
         }
         catch
         {
@@ -54,6 +50,16 @@ public static class SessionStorage
             Clear();
             return null;
         }
+    }
+
+    // The server rotates the refresh token on every use (ApiService.
+    // RefreshAccessTokenAsync) - the saved file has to track that or the
+    // next launch would try to redeem an already-revoked token.
+    public static void UpdateRefreshToken(string refreshToken)
+    {
+        var saved = Load();
+        if (saved is null) return;
+        Save(refreshToken, saved.UserId, saved.Username, saved.AvatarUrl);
     }
 
     public static void Clear()

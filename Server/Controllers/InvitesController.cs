@@ -6,6 +6,7 @@ using Voiceover.Server.Models;
 using Voiceover.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 
 namespace Voiceover.Server.Controllers;
@@ -30,6 +31,7 @@ public class InvitesController : ControllerBase
     private int CurrentUserId => int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
     [HttpPost]
+    [EnableRateLimiting("invites")]
     public async Task<ActionResult<InviteResponse>> Create(int serverId, CreateInviteRequest req)
     {
         // Any member can invite people in and see the invite list - not

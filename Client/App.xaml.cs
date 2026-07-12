@@ -32,7 +32,7 @@ public partial class App : Application
         DispatcherUnhandledException += OnDispatcherUnhandledException;
     }
 
-    protected override void OnStartup(StartupEventArgs e)
+    protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
 
@@ -40,13 +40,21 @@ public partial class App : Application
         if (session is not null)
         {
             var api = new ApiService(ApiBaseUrl);
-            api.RestoreSession(session.Token, session.UserId, session.Username, session.AvatarUrl);
-            new MainWindow(api).Show();
+            // Exchanges the saved refresh token for a fresh access token -
+            // "remember me" sessions can be days old, so there's no point
+            // trying to reuse a short-lived access token from last time.
+            // False means the refresh token itself is no longer valid
+            // (expired past its 30-day life, or revoked via /logout-all) -
+            // RestoreSessionAsync already cleared it, so just fall back to
+            // a normal login same as if there'd been no saved session.
+            if (await api.RestoreSessionAsync(session.RefreshToken, session.UserId, session.Username, session.AvatarUrl))
+            {
+                new MainWindow(api).Show();
+                return;
+            }
         }
-        else
-        {
-            new LoginWindow().Show();
-        }
+
+        new LoginWindow().Show();
     }
 
     private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
