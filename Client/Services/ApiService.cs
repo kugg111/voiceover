@@ -213,6 +213,15 @@ public class ApiService
     public async Task<List<MessageResponse>> GetMessageHistoryAsync(int channelId)
         => await _http.GetFromJsonAsync<List<MessageResponse>>($"api/channels/{channelId}/messages") ?? new();
 
+    public async Task<MessageResponse?> EditMessageAsync(int channelId, int messageId, string content)
+    {
+        var response = await _http.PutAsJsonAsync($"api/channels/{channelId}/messages/{messageId}", new EditMessageRequest(content));
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<MessageResponse>() : null;
+    }
+
+    public async Task<bool> DeleteMessageAsync(int channelId, int messageId)
+        => (await _http.DeleteAsync($"api/channels/{channelId}/messages/{messageId}")).IsSuccessStatusCode;
+
     // --- Invites ---
     public async Task<InviteResponse?> CreateInviteAsync(int serverId, int? expiresInHours = null, int? maxUses = null)
     {
@@ -253,6 +262,15 @@ public class ApiService
 
     public async Task<List<DirectMessageResponse>> GetDmHistoryAsync(int otherUserId)
         => await _http.GetFromJsonAsync<List<DirectMessageResponse>>($"api/dm/{otherUserId}") ?? new();
+
+    public async Task<DirectMessageResponse?> EditDirectMessageAsync(int otherUserId, int messageId, string content)
+    {
+        var response = await _http.PutAsJsonAsync($"api/dm/{otherUserId}/{messageId}", new EditMessageRequest(content));
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<DirectMessageResponse>() : null;
+    }
+
+    public async Task<bool> DeleteDirectMessageAsync(int otherUserId, int messageId)
+        => (await _http.DeleteAsync($"api/dm/{otherUserId}/{messageId}")).IsSuccessStatusCode;
 
     public async Task<List<DmConversationResponse>> GetDmConversationsAsync()
         => await _http.GetFromJsonAsync<List<DmConversationResponse>>("api/dm/conversations") ?? new();

@@ -14,10 +14,11 @@ public record CreateChannelRequest(string Name, string Type); // "Text" or "Voic
 public record ChannelResponse(int Id, string Name, string Type, int GuildServerId, int Position);
 
 public record SendMessageRequest(string Content);
-public record MessageResponse(int Id, string Content, int ChannelId, int AuthorId, string AuthorUsername, DateTime SentAt, string? AttachmentUrl = null, string? AuthorAvatarUrl = null);
+public record MessageResponse(int Id, string Content, int ChannelId, int AuthorId, string AuthorUsername, DateTime SentAt, string? AttachmentUrl = null, string? AuthorAvatarUrl = null, DateTime? EditedAt = null);
+public record EditMessageRequest(string Content);
 public record UploadResponse(string Url);
 
-public record DirectMessageResponse(int Id, string Content, int SenderId, int RecipientId, DateTime SentAt);
+public record DirectMessageResponse(int Id, string Content, int SenderId, int RecipientId, DateTime SentAt, DateTime? EditedAt = null);
 public record DmConversationResponse(int OtherUserId, string OtherUsername, string LastMessagePreview, DateTime LastMessageAt, string? OtherUserAvatarUrl = null);
 public record UserSummaryResponse(int Id, string Username, string? AvatarUrl = null);
 public record VoiceParticipant(int UserId, string Username, string? AvatarUrl = null);

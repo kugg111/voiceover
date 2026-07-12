@@ -8,7 +8,11 @@ public class SignalRService
     private HubConnection? _connection;
 
     public event Action<MessageResponse>? MessageReceived;
+    public event Action<MessageResponse>? MessageEdited;
+    public event Action<int, int>? MessageDeleted; // messageId, channelId
     public event Action<DirectMessageResponse>? DirectMessageReceived;
+    public event Action<DirectMessageResponse>? DirectMessageEdited;
+    public event Action<int, int, int>? DirectMessageDeleted; // messageId, senderId, recipientId
     public event Action<string, int>? UserTyping;
     public event Action<int, string, int, string?>? VoiceUserJoined;
     public event Action<int, string, int>? VoiceUserLeft;
@@ -41,7 +45,11 @@ public class SignalRService
             .Build();
 
         _connection.On<MessageResponse>("ReceiveMessage", msg => MessageReceived?.Invoke(msg));
+        _connection.On<MessageResponse>("MessageEdited", msg => MessageEdited?.Invoke(msg));
+        _connection.On<int, int>("MessageDeleted", (messageId, channelId) => MessageDeleted?.Invoke(messageId, channelId));
         _connection.On<DirectMessageResponse>("ReceiveDirectMessage", dm => DirectMessageReceived?.Invoke(dm));
+        _connection.On<DirectMessageResponse>("DirectMessageEdited", dm => DirectMessageEdited?.Invoke(dm));
+        _connection.On<int, int, int>("DirectMessageDeleted", (messageId, senderId, recipientId) => DirectMessageDeleted?.Invoke(messageId, senderId, recipientId));
         _connection.On<string, int>("UserTyping", (username, channelId) => UserTyping?.Invoke(username, channelId));
         _connection.On<int, string, int, string?>("VoiceUserJoined", (userId, username, channelId, avatarUrl) => VoiceUserJoined?.Invoke(userId, username, channelId, avatarUrl));
         _connection.On<int, string, int>("VoiceUserLeft", (userId, username, channelId) => VoiceUserLeft?.Invoke(userId, username, channelId));

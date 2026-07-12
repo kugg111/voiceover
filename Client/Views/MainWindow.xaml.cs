@@ -151,17 +151,82 @@ public class ChannelListItem : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 }
 
-public class MessageListItem
+public class MessageListItem : INotifyPropertyChanged
 {
+    public int Id { get; set; }
+    public int AuthorId { get; set; }
     public string AuthorUsername { get; set; } = string.Empty;
     public string? AuthorAvatarUrl { get; set; }
-    public string Content { get; set; } = string.Empty;
     public string TimeDisplay { get; set; } = string.Empty;
     public string? AttachmentUrl { get; set; }
 
+    // Both set at construction (ToListItem/ToDmListItem). Edit is
+    // author-only everywhere - moderators can remove someone else's words,
+    // not rewrite them. Delete for a channel message is shown to everyone
+    // and left to the server to actually authorize (author or a
+    // moderator/owner - see MessagesController.Delete); for a DM there's no
+    // moderation concept, so it's only shown for your own messages,
+    // matching the server's author-only rule exactly with no round trip
+    // needed just to decide whether to show the menu item.
+    public bool IsOwnMessage { get; set; }
+    public bool IsChannelMessage { get; set; }
+    public Visibility EditMenuVisibility => IsOwnMessage ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility DeleteMenuVisibility => IsOwnMessage || IsChannelMessage ? Visibility.Visible : Visibility.Collapsed;
+
+    private string _content = string.Empty;
+    public string Content
+    {
+        get => _content;
+        set
+        {
+            if (_content == value) return;
+            _content = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Content)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ContentVisibility)));
+        }
+    }
+
+    private bool _isEdited;
+    public bool IsEdited
+    {
+        get => _isEdited;
+        set
+        {
+            if (_isEdited == value) return;
+            _isEdited = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsEdited)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(EditedTagVisibility)));
+        }
+    }
+
+    // Local-only UI state (not persisted/broadcast) - true while this row's
+    // inline edit box is open, swapping the read-only TextBlock for an
+    // editable TextBox in the DataTemplate.
+    private bool _isEditing;
+    public bool IsEditing
+    {
+        get => _isEditing;
+        set
+        {
+            if (_isEditing == value) return;
+            _isEditing = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsEditing)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(EditBoxVisibility)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ContentVisibility)));
+        }
+    }
+
+    // What the edit TextBox is bound to - separate from Content so
+    // Cancel can discard in-progress typing without touching the real value.
+    public string EditingContent { get; set; } = string.Empty;
+
     public string AttachmentDisplay => AttachmentUrl is null ? "" : $"📎 {System.IO.Path.GetFileName(AttachmentUrl)}";
-    public Visibility ContentVisibility => string.IsNullOrEmpty(Content) ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility ContentVisibility => !IsEditing && !string.IsNullOrEmpty(Content) ? Visibility.Visible : Visibility.Collapsed;
     public Visibility AttachmentVisibility => AttachmentUrl is null ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility EditedTagVisibility => IsEdited ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility EditBoxVisibility => IsEditing ? Visibility.Visible : Visibility.Collapsed;
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 }
 
 public class UserSearchResultItem
@@ -340,7 +405,11 @@ public partial class MainWindow : FluentWindow
         FriendSearchResultsList.ItemsSource = _friendSearchResults;
 
         _hub.MessageReceived += OnMessageReceived;
+        _hub.MessageEdited += OnMessageEdited;
+        _hub.MessageDeleted += OnMessageDeleted;
         _hub.DirectMessageReceived += OnDirectMessageReceived;
+        _hub.DirectMessageEdited += OnDirectMessageEdited;
+        _hub.DirectMessageDeleted += OnDirectMessageDeleted;
         _hub.UserTyping += OnUserTyping;
         _hub.VoiceUserJoined += OnVoiceUserJoined;
         _hub.VoiceUserLeft += OnVoiceUserLeft;
@@ -1275,6 +1344,96 @@ public partial class MainWindow : FluentWindow
         MessageInput.Clear();
     }
 
+    private void EditMessageMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.MenuItem { Tag: int messageId }) return;
+        var item = _messages.FirstOrDefault(m => m.Id == messageId);
+        if (item is null) return;
+
+        item.EditingContent = item.Content;
+        item.IsEditing = true;
+    }
+
+    private async void DeleteMessageMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.MenuItem { Tag: int messageId }) return;
+
+        var confirm = MessageBox.Show("Delete this message?", "Confirm Delete",
+            MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (confirm != MessageBoxResult.Yes) return;
+
+        // Channel delete is shown for every message and left to the server
+        // to authorize (author or moderator/owner) - a non-author,
+        // non-moderator click lands here and gets a Forbid, surfaced below,
+        // rather than being hidden client-side (would need a cached role
+        // lookup just to decide visibility). DMs are gated client-side
+        // instead (MessageListItem.DeleteMenuVisibility), so this branch is
+        // always the current user's own message there.
+        bool success;
+        if (_currentChannelId.HasValue)
+            success = await _api.DeleteMessageAsync(_currentChannelId.Value, messageId);
+        else if (_dmActiveUserId.HasValue)
+            success = await _api.DeleteDirectMessageAsync(_dmActiveUserId.Value, messageId);
+        else
+            return;
+
+        if (success)
+        {
+            var item = _messages.FirstOrDefault(m => m.Id == messageId);
+            if (item is not null) _messages.Remove(item);
+        }
+        else
+        {
+            MessageBox.Show("Could not delete that message (you may lack permission).", "Error",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private async void SaveMessageEditButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: int messageId }) return;
+        var item = _messages.FirstOrDefault(m => m.Id == messageId);
+        if (item is null) return;
+
+        var newContent = item.EditingContent.Trim();
+        if (string.IsNullOrEmpty(newContent))
+        {
+            item.IsEditing = false;
+            return;
+        }
+
+        DateTime? editedAt = null;
+        string? newContentFromServer = null;
+
+        if (_currentChannelId.HasValue)
+        {
+            var updated = await _api.EditMessageAsync(_currentChannelId.Value, messageId, newContent);
+            newContentFromServer = updated?.Content;
+            editedAt = updated?.EditedAt;
+        }
+        else if (_dmActiveUserId.HasValue)
+        {
+            var updated = await _api.EditDirectMessageAsync(_dmActiveUserId.Value, messageId, newContent);
+            newContentFromServer = updated?.Content;
+            editedAt = updated?.EditedAt;
+        }
+
+        if (newContentFromServer is not null)
+        {
+            item.Content = newContentFromServer;
+            item.IsEdited = editedAt is not null;
+        }
+
+        item.IsEditing = false;
+    }
+
+    private void CancelMessageEditButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: int messageId }) return;
+        var item = _messages.FirstOrDefault(m => m.Id == messageId);
+        if (item is not null) item.IsEditing = false;
+    }
+
     private void OnMessageReceived(MessageResponse msg)
     {
         Dispatcher.Invoke(() =>
@@ -1361,6 +1520,56 @@ public partial class MainWindow : FluentWindow
                 var preview = dm.Content.Length > 80 ? dm.Content[..80] + "…" : dm.Content;
                 NotificationService.ShowToast($"{existing?.OtherUsername ?? _dmActiveUsername ?? "New message"}", preview);
             }
+        });
+    }
+
+    private void OnMessageEdited(MessageResponse msg)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            if (msg.ChannelId != _currentChannelId) return;
+            var item = _messages.FirstOrDefault(m => m.Id == msg.Id);
+            if (item is null) return;
+
+            item.Content = msg.Content;
+            item.IsEdited = msg.EditedAt is not null;
+        });
+    }
+
+    private void OnMessageDeleted(int messageId, int channelId)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            if (channelId != _currentChannelId) return;
+            var item = _messages.FirstOrDefault(m => m.Id == messageId);
+            if (item is not null) _messages.Remove(item);
+        });
+    }
+
+    private void OnDirectMessageEdited(DirectMessageResponse dm)
+    {
+        var otherUserId = dm.SenderId == _api.CurrentUserId ? dm.RecipientId : dm.SenderId;
+
+        Dispatcher.Invoke(() =>
+        {
+            if (otherUserId != _dmActiveUserId) return;
+            var item = _messages.FirstOrDefault(m => m.Id == dm.Id);
+            if (item is null) return;
+
+            item.Content = dm.Content;
+            item.IsEdited = dm.EditedAt is not null;
+        });
+    }
+
+    private void OnDirectMessageDeleted(int messageId, int senderId, int recipientId)
+    {
+        var otherUserId = senderId == _api.CurrentUserId ? recipientId : senderId;
+
+        Dispatcher.Invoke(() =>
+        {
+            if (otherUserId != _dmActiveUserId) return;
+            var item = _messages.FirstOrDefault(m => m.Id == messageId);
+            if (item is not null) _messages.Remove(item);
         });
     }
 
@@ -1533,13 +1742,18 @@ public partial class MainWindow : FluentWindow
         });
     }
 
-    private static MessageListItem ToListItem(MessageResponse m) => new()
+    private MessageListItem ToListItem(MessageResponse m) => new()
     {
+        Id = m.Id,
+        AuthorId = m.AuthorId,
         AuthorUsername = m.AuthorUsername,
         AuthorAvatarUrl = App.ResolveUploadUrl(m.AuthorAvatarUrl),
         Content = m.Content,
         TimeDisplay = m.SentAt.ToLocalTime().ToString("t"),
-        AttachmentUrl = m.AttachmentUrl
+        AttachmentUrl = m.AttachmentUrl,
+        IsEdited = m.EditedAt is not null,
+        IsOwnMessage = m.AuthorId == _api.CurrentUserId,
+        IsChannelMessage = true
     };
 
     // DirectMessageResponse doesn't carry a sender avatar (1:1 DMs - you
@@ -1548,12 +1762,17 @@ public partial class MainWindow : FluentWindow
     // conversation's cached one for the other side.
     private MessageListItem ToDmListItem(DirectMessageResponse dm) => new()
     {
+        Id = dm.Id,
+        AuthorId = dm.SenderId,
         AuthorUsername = dm.SenderId == _api.CurrentUserId ? "You" : (_dmActiveUsername ?? "them"),
         AuthorAvatarUrl = dm.SenderId == _api.CurrentUserId
             ? _api.CurrentUserAvatarUrl
             : _dmConversations.FirstOrDefault(c => c.OtherUserId == _dmActiveUserId)?.OtherUserAvatarUrl,
         Content = dm.Content,
-        TimeDisplay = dm.SentAt.ToLocalTime().ToString("t")
+        TimeDisplay = dm.SentAt.ToLocalTime().ToString("t"),
+        IsEdited = dm.EditedAt is not null,
+        IsOwnMessage = dm.SenderId == _api.CurrentUserId,
+        IsChannelMessage = false
     };
 
     private static DmConversationListItem ToDmConversationItem(DmConversationResponse c) => new()

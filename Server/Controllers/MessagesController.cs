@@ -1,9 +1,11 @@
 using System.Security.Claims;
 using Voiceover.Server.Data;
 using Voiceover.Server.Dtos;
+using Voiceover.Server.Hubs;
 using Voiceover.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
 namespace Voiceover.Server.Controllers;
@@ -15,12 +17,19 @@ public class MessagesController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly PermissionService _permissions;
+    private readonly IHubContext<ChatHub> _hub;
 
-    public MessagesController(AppDbContext db, PermissionService permissions)
+    public MessagesController(AppDbContext db, PermissionService permissions, IHubContext<ChatHub> hub)
     {
         _db = db;
         _permissions = permissions;
+        _hub = hub;
     }
+
+    // Must match ChatHub's private GroupName(channelId) - every text
+    // channel's members are already in this group via JoinChannel, same one
+    // SendMessage broadcasts new messages to.
+    private static string GroupName(int channelId) => $"channel-{channelId}";
 
     private int CurrentUserId => int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
@@ -39,10 +48,34 @@ public class MessagesController : ControllerBase
             .OrderByDescending(m => m.SentAt)
             .Take(take)
             .OrderBy(m => m.SentAt)
-            .Select(m => new MessageResponse(m.Id, m.Content, m.ChannelId, m.AuthorId, m.Author!.Username, m.SentAt, m.AttachmentUrl, m.Author!.AvatarUrl))
+            .Select(m => new MessageResponse(m.Id, m.Content, m.ChannelId, m.AuthorId, m.Author!.Username, m.SentAt, m.AttachmentUrl, m.Author!.AvatarUrl, m.EditedAt))
             .ToListAsync();
 
         return Ok(messages);
+    }
+
+    // Author-only - unlike Delete, moderators can remove someone else's
+    // message but shouldn't be able to rewrite their words.
+    [HttpPut("{messageId}")]
+    public async Task<ActionResult<MessageResponse>> Edit(int channelId, int messageId, EditMessageRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Content)) return BadRequest();
+
+        var message = await _db.Messages
+            .Include(m => m.Author)
+            .FirstOrDefaultAsync(m => m.Id == messageId && m.ChannelId == channelId);
+
+        if (message is null) return NotFound();
+        if (message.AuthorId != CurrentUserId) return Forbid();
+
+        message.Content = request.Content;
+        message.EditedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+
+        var response = new MessageResponse(message.Id, message.Content, channelId, message.AuthorId, message.Author!.Username, message.SentAt, message.AttachmentUrl, message.Author.AvatarUrl, message.EditedAt);
+        await _hub.Clients.Group(GroupName(channelId)).SendAsync("MessageEdited", response);
+
+        return Ok(response);
     }
 
     // Only the author, or an owner/moderator, may delete a message.
@@ -62,6 +95,8 @@ public class MessagesController : ControllerBase
 
         _db.Messages.Remove(message);
         await _db.SaveChangesAsync();
+        await _hub.Clients.Group(GroupName(channelId)).SendAsync("MessageDeleted", messageId, channelId);
+
         return Ok();
     }
 }
