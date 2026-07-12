@@ -421,7 +421,8 @@
                     <ItemsControl x:Name="MemberList">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <StackPanel Orientation="Horizontal" Margin="0,4,0,4">
+                                <StackPanel Orientation="Horizontal" Margin="0,4,0,4"
+                                            ContextMenuOpening="MemberRow_ContextMenuOpening">
                                     <StackPanel.ContextMenu>
                                         <ContextMenu>
                                             <MenuItem Header="{Binding RoleButtonLabel}" Tag="{Binding UserId}"

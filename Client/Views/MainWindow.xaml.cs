@@ -205,10 +205,14 @@ public class MemberListItem
     public string Username { get; set; } = string.Empty;
     public string? AvatarUrl { get; set; }
     public string Role { get; set; } = string.Empty;
+    public bool IsSelf { get; set; }
 
     // Only the owner can promote/demote (matches the old Members popup);
     // owner and moderator can both kick (matches KickMember's own
-    // CanManageServerAsync check) - neither ever applies to the owner's own row.
+    // CanManageServerAsync check) - neither ever applies to the owner's own
+    // row, nor to your own row regardless of your role (a moderator
+    // right-clicking themselves shouldn't see "Kick" just because they can
+    // kick everyone else who isn't the owner).
     public bool CanChangeRole { get; set; }
     public bool CanKick { get; set; }
 
@@ -401,15 +405,28 @@ public partial class MainWindow : FluentWindow
 
         _members.Clear();
         foreach (var m in members)
+        {
+            var isSelf = m.UserId == _api.CurrentUserId;
             _members.Add(new MemberListItem
             {
                 UserId = m.UserId,
                 Username = m.Username,
                 AvatarUrl = App.ResolveUploadUrl(m.AvatarUrl),
                 Role = m.Role,
-                CanChangeRole = isOwner && m.Role != "Owner",
-                CanKick = canManageServer && m.Role != "Owner"
+                IsSelf = isSelf,
+                CanChangeRole = isOwner && m.Role != "Owner" && !isSelf,
+                CanKick = canManageServer && m.Role != "Owner" && !isSelf
             });
+        }
+    }
+
+    // Even with both menu items hidden, an empty ContextMenu would still
+    // pop open as a bare sliver - cancel it outright for your own row so
+    // right-clicking yourself truly does nothing.
+    private void MemberRow_ContextMenuOpening(object sender, System.Windows.Controls.ContextMenuEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: MemberListItem { IsSelf: true } })
+            e.Handled = true;
     }
 
     private async void MemberRoleButton_Click(object sender, RoutedEventArgs e)

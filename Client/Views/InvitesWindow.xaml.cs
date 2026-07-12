@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Windows;
-using System.Windows.Input;
+using System.Windows.Threading;
 using Voiceover.Client.Services;
 using Wpf.Ui.Controls;
 using MessageBox = System.Windows.MessageBox;
@@ -9,10 +10,29 @@ using MessageBoxImage = System.Windows.MessageBoxImage;
 
 namespace Voiceover.Client.Views;
 
-public class InviteListItem
+public class InviteListItem : INotifyPropertyChanged
 {
     public string Code { get; set; } = string.Empty;
     public string Details { get; set; } = string.Empty;
+
+    private bool _justCopied;
+    public bool JustCopied
+    {
+        get => _justCopied;
+        set
+        {
+            if (_justCopied == value) return;
+            _justCopied = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(JustCopied)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CopyIcon)));
+        }
+    }
+
+    // Briefly swaps to a checkmark after copying so the click has visible
+    // feedback, then reverts on its own (see InvitesWindow.CopyButton_Click).
+    public string CopyIcon => JustCopied ? "✅" : "📋";
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 }
 
 public partial class InvitesWindow : FluentWindow
@@ -62,11 +82,19 @@ public partial class InvitesWindow : FluentWindow
         await LoadInvitesAsync();
     }
 
-    // Click any existing code to copy it again - handy once the list has
-    // more than the one you just generated.
-    private void InviteRow_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    private void CopyButton_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is FrameworkElement { DataContext: InviteListItem item })
-            Clipboard.SetText(item.Code);
+        if (sender is not FrameworkElement { DataContext: InviteListItem item }) return;
+
+        Clipboard.SetText(item.Code);
+        item.JustCopied = true;
+
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        timer.Tick += (_, _) =>
+        {
+            item.JustCopied = false;
+            timer.Stop();
+        };
+        timer.Start();
     }
 }

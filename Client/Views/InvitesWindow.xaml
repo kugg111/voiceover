@@ -33,13 +33,22 @@
                 <ItemsControl x:Name="InviteList">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Border Background="{StaticResource BgSidebar}" CornerRadius="4" Padding="10,8" Margin="0,0,0,8"
-                                    Cursor="Hand" MouseLeftButtonUp="InviteRow_MouseLeftButtonUp">
-                                <StackPanel>
-                                    <TextBlock Text="{Binding Code}" FontWeight="Bold" FontSize="14"
-                                               Foreground="{StaticResource TextNormal}"/>
-                                    <TextBlock Text="{Binding Details}" FontSize="11" Foreground="{StaticResource TextMuted}"/>
-                                </StackPanel>
+                            <Border Background="{StaticResource BgSidebar}" CornerRadius="4" Padding="10,8" Margin="0,0,0,8">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Code}" FontWeight="Bold" FontSize="14"
+                                                   Foreground="{StaticResource TextNormal}"/>
+                                        <TextBlock Text="{Binding Details}" FontSize="11" Foreground="{StaticResource TextMuted}"/>
+                                    </StackPanel>
+                                    <Button Grid.Column="1" Content="{Binding CopyIcon}" Width="32" Height="32"
+                                            Click="CopyButton_Click" ToolTip="Copy to clipboard"
+                                            Background="Transparent" Foreground="{StaticResource TextNormal}"
+                                            BorderThickness="0" FontSize="14" Cursor="Hand" VerticalAlignment="Center"/>
+                                </Grid>
                             </Border>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
