@@ -1,102 +1,121 @@
 # Voiceover
 
-A Discord-style chat app in C#: an ASP.NET Core server (REST API + SignalR)
-and a WPF desktop client. Supports servers, roles, invites, text channels,
-direct messages, file attachments, and mesh WebRTC voice chat.
+A Discord-style chat app: an ASP.NET Core server (REST API + SignalR) and a
+WPF desktop client. Servers, roles, invites, text channels, direct messages,
+friends, file attachments, and voice chat with real noise suppression and
+online/away/offline presence.
 
-## Prerequisites
+**Live app:** [voiceover-app.hu](https://www.voiceover-app.hu/) (or the
+[Railway subdomain](https://voiceover-production-c32a.up.railway.app/)) —
+download the Windows installer or a portable ZIP from the landing page.
 
-- .NET 8 SDK: https://dotnet.microsoft.com/download
-- Visual Studio 2022 (recommended, for the WPF designer) or VS Code + C# Dev Kit
-- Windows 10/11 (the client uses Windows-only audio APIs for voice chat)
+## Features
+
+- **Auth**: register/login with JWT, passwords hashed with BCrypt
+- **Servers & channels**: create servers, text and voice channels, drag-free
+  reordering by position
+- **Roles & permissions**: Owner/Moderator/Member — mods can create channels,
+  kick members, delete others' messages; only the owner can change roles
+- **Invites**: any member can generate a shareable invite code; a popup
+  lists every active invite with one-click copy
+- **Real-time text chat**: SignalR-backed messaging, typing indicators,
+  persisted history, numeric unread badges
+- **Direct messages & friends**: search users by username, send/accept
+  friend requests, 1:1 real-time DMs
+- **File/image attachments**: upload (8 MB cap, allow-listed extensions)
+  and share in channel messages or DMs
+- **Voice chat**: routed through a self-hosted [LiveKit](https://livekit.io/)
+  SFU (not a peer mesh — scales to larger channels without an N² connection
+  blowup). Includes mute, deafen, per-user volume, push-to-talk / push-to-mute
+  (keyboard or mouse button), and a voice-activity mode
+- **Noise suppression**: three selectable engines — WebRTC's Audio Processing
+  Module, RNNoise, and [DeepFilterNet3](https://github.com/Rikorose/DeepFilterNet)
+  (with an adjustable attenuation limit) — all real native denoisers, not a
+  hand-rolled volume gate
+- **Presence**: Online / Away / Offline status, Away triggered by real system
+  idle detection, suppressed while you're in a voice call
+- **Avatars & server icons**, toast/sound notifications gated on window focus
+- **Self-updating client**: checks for new releases and installs them in the
+  background, no manual download needed after the first install
+- **Fluent Design UI** ([WPF-UI](https://github.com/lepoco/wpfui)) with a
+  Discord-inspired dark theme
+
+## Architecture
+
+```
+Client (WPF, Windows)  <-- REST + SignalR -->  Server (ASP.NET Core)  <--> Postgres
+        |                                              |
+        `---------------- LiveKit SFU <---- join tokens minted by Server
+```
+
+The server never touches voice media itself — it only authenticates users,
+persists app data, and mints short-lived LiveKit join tokens; audio flows
+directly between clients and the LiveKit deployment.
 
 ## Project layout
 
 ```
 Voiceover.sln
-Server/              ASP.NET Core Web API + SignalR
-  Models/            EF Core entities (User, GuildServer, Channel, Message,
-                      Membership, Invite, DirectMessage)
-  Data/              AppDbContext
-  Services/          PermissionService (role checks)
-  Controllers/       Auth, Servers, Channels, Messages, Invites, Users,
-                      DirectMessages, Upload
-  Hubs/              ChatHub - messages, typing, DMs, voice presence + WebRTC signaling
-  Auth/              JWT token issuing/validation
-Client/              WPF desktop app
-  Views/             LoginWindow, MainWindow, MembersWindow, DirectMessageWindow
-  Services/          ApiService (REST), SignalRService (real-time), VoiceService (WebRTC audio)
-  Models/            Client-side DTOs
+Server/                 ASP.NET Core Web API + SignalR
+  Models/               EF Core entities (User, GuildServer, Channel, Message,
+                         Membership, Invite, DirectMessage, Friendship)
+  Data/                 AppDbContext + migrations
+  Services/             PermissionService, PresenceService, VoicePresenceService,
+                         LiveKitTokenService
+  Controllers/          Auth, Servers, Channels, Messages, Invites, Users,
+                         Friends, DirectMessages, Upload
+  Hubs/ChatHub.cs        messages, typing, DMs, voice/presence signaling
+  Auth/                  JWT token issuing/validation
+  Site/                  Public landing page (served at the app's root URL)
+Client/                  WPF desktop app
+  Views/                 LoginWindow, RegisterWindow, MainWindow, SettingsWindow,
+                         InvitesWindow, and shared controls (AvatarView, dialogs)
+  Services/              ApiService (REST), SignalRService (real-time),
+                         VoiceService + MicCaptureSource (LiveKit audio,
+                         noise suppression), IdleDetector, SelfUpdateService
+  Models/                Client-side DTOs
+  installer/             Inno Setup script for the Windows installer
 ```
 
-## Running it
+## Running it locally
 
-1. Open `Voiceover.sln` in Visual Studio, or work from the CLI.
-2. **Restore packages**: `dotnet restore` at the solution root.
-3. **Run the server**:
+1. **.NET 8 SDK**, Windows 10/11 (the client uses Windows-only audio APIs).
+2. **Database**: a Postgres instance (local, Docker, or any hosted free tier).
+   Set the connection string as a standard Postgres URI:
    ```
    cd Server
-   dotnet run
+   dotnet user-secrets set DATABASE_URL "postgresql://user:pass@host:port/dbname"
    ```
-   Starts on `http://localhost:5220`, auto-creates a SQLite DB
-   (`voiceover.db`) on first run, and serves uploaded files from `/uploads`.
-4. **Run the client** (separate terminal, or set as startup project in VS):
+3. **Voice chat** needs a LiveKit deployment (self-hosted or
+   [LiveKit Cloud](https://cloud.livekit.io/) has a free tier). Set:
    ```
-   cd Client
-   dotnet run
+   dotnet user-secrets set LIVEKIT_API_KEY "..."
+   dotnet user-secrets set LIVEKIT_API_SECRET "..."
+   dotnet user-secrets set LIVEKIT_URL "wss://your-livekit-host"
    ```
-5. Register, create a server, invite a friend (or run a second `dotnet run`
-   and register a second account to test locally).
+   Everything else works without this — only actually joining a voice channel
+   needs it, and fails with a clear error if it's missing.
+4. **Run the server**: `dotnet run` from `Server/` — applies EF Core
+   migrations automatically on startup, listens on `http://localhost:5220`.
+5. **Run the client**: `dotnet run` from `Client/` (or set as the startup
+   project in Visual Studio). Point it at your local server by editing the
+   `ApiBaseUrl`/`HubUrl` constants in `Client/App.xaml.cs`.
+6. Register an account, create a server, and invite a friend — or run a
+   second client instance and register a second account to test locally.
 
-## What's implemented
+## Tech stack
 
-- **Auth**: register/login with JWT, hashed passwords (BCrypt)
-- **Servers & channels**: create servers, text/voice channels
-- **Roles & permissions**: Owner/Moderator/Member; only owners/mods can create
-  channels, kick members, delete others' messages; only the owner can change roles
-- **Invites**: generate shareable codes (with optional expiry/use limits), join via code
-- **Members panel**: view members, kick, generate invites
-- **Real-time text chat**: SignalR-backed messaging, typing indicators, persisted history
-- **Direct messages**: search users by username, 1:1 real-time DMs
-- **File/image attachments**: upload (15 MB cap, allow-listed extensions) and
-  share in channel messages
-- **Voice chat**: mesh WebRTC audio via SIPSorcery - each pair of participants
-  in a voice channel negotiates a direct peer connection, with SDP/ICE
-  relayed through the SignalR hub. Works well for small voice channels; a
-  large channel would need a media server (SFU) instead of mesh, which is a
-  bigger project.
-- **Client reconnection handling**: SignalR auto-reconnect with a status
-  banner ("Reconnecting...", "Disconnected") in the message header
+- **Server**: ASP.NET Core 8, EF Core + Npgsql (Postgres), SignalR, JWT bearer
+  auth, BCrypt
+- **Client**: WPF (.NET 8), WPF-UI (Fluent Design), NAudio (device capture),
+  LiveKit's .NET client SDK
+- **Voice**: self-hosted LiveKit SFU; WebRTC APM / RNNoise / DeepFilterNet3
+  for noise suppression (the last driven through a small LADSPA host, since
+  there's no native .NET package for it)
+- **Deployment**: server on [Railway](https://railway.app/) with a managed
+  Postgres add-on; client installer/ZIP hosted as GitHub Releases
 
-## Important note on the voice feature
+## Contributing
 
-The voice code (`Client/Services/VoiceService.cs`) is written against the
-current SIPSorcery + SIPSorceryMedia.Windows APIs (verified via their GitHub
-examples), but **it hasn't been compiled or run** - this sandbox has no .NET
-SDK. A few things to know:
-- **Package versions are pinned to the 8.0.x line** (`Client.csproj`), since
-  the newer 10.x releases require the .NET 10 SDK. If you have .NET 10
-  installed and want the latest packages, bump both `SIPSorcery` and
-  `SIPSorceryMedia.Windows` to `10.0.x` and change the `TargetFramework` in
-  `Client.csproj` to `net10.0-windows10.0.17763.0`.
-- If you hit build errors in `VoiceService.cs`, they'll most likely be around
-  `WindowsAudioEndPoint.StartAudio()` / `.CloseAudio()` - some versions split
-  this into `StartAudioSink()` / `StartAudioSource()` instead. IntelliSense on
-  the object will show you what's actually available.
-
-Everything else (server, REST API, text chat, DMs, invites, uploads) follows
-stable, long-settled ASP.NET Core / SignalR APIs and is lower-risk.
-
-## Natural next steps
-
-- EF Core migrations instead of `EnsureCreated()` once the schema settles:
-  `dotnet ef migrations add InitialCreate` (run locally with the EF CLI tool installed)
-- Push-to-talk / mute toggle in the voice UI (currently always-on mic)
-- Message editing, reactions, read receipts
-- A media server (SFU) if you want voice channels with many simultaneous speakers
-- Avatars, rich presence, server icons
-
-## Config
-
-- Server port/JWT key: `Server/appsettings.json`
-- Client's server URL: `Client/App.xaml.cs` (`ApiBaseUrl`, `HubUrl` constants)
+This started as a personal project, so there's no formal contribution process
+yet — issues and PRs are welcome regardless.
