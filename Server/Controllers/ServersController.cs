@@ -34,9 +34,8 @@ public class ServersController : ControllerBase
     {
         var servers = await _db.Memberships
             .Where(m => m.UserId == CurrentUserId)
-            .Select(m => new GuildServerResponse(
-                m.GuildServer!.Id, m.GuildServer!.Name, m.GuildServer!.IconUrl, m.GuildServer!.OwnerId,
-                m.Role == MemberRole.Owner || m.Role == MemberRole.Moderator))
+            .Select(m => m.GuildServer!)
+            .Select(s => new GuildServerResponse(s.Id, s.Name, s.IconUrl, s.OwnerId))
             .ToListAsync();
 
         return Ok(servers);
@@ -61,7 +60,7 @@ public class ServersController : ControllerBase
 
         await _db.SaveChangesAsync();
 
-        return Ok(new GuildServerResponse(server.Id, server.Name, server.IconUrl, server.OwnerId, CanManageInvites: true));
+        return Ok(new GuildServerResponse(server.Id, server.Name, server.IconUrl, server.OwnerId));
     }
 
     // Direct join by server id is kept for convenience/dev use; in practice
@@ -139,7 +138,7 @@ public class ServersController : ControllerBase
 
         server.IconUrl = req.Url;
         await _db.SaveChangesAsync();
-        return Ok(new GuildServerResponse(server.Id, server.Name, server.IconUrl, server.OwnerId, CanManageInvites: true));
+        return Ok(new GuildServerResponse(server.Id, server.Name, server.IconUrl, server.OwnerId));
     }
 
     [HttpPut("{serverId}/members/{userId}/role")]

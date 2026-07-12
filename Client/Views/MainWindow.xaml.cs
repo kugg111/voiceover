@@ -18,12 +18,6 @@ public class ServerListItem
     public int Id { get; set; }
     public string Name { get; set; } = string.Empty;
     public string? IconUrl { get; set; }
-
-    // Owner/Moderator only, matching InvitesController's own
-    // CanManageServerAsync check server-side - gates the "Invites" context
-    // menu item so people who'd just get a 403 never see it in the first place.
-    public bool CanManageInvites { get; set; }
-    public Visibility InvitesMenuVisibility => CanManageInvites ? Visibility.Visible : Visibility.Collapsed;
 }
 
 public class VoiceMemberItem : INotifyPropertyChanged
@@ -222,7 +216,6 @@ public class MemberListItem
     public string NextRole => Role == "Moderator" ? "Member" : "Moderator";
     public Visibility RoleButtonVisibility => CanChangeRole ? Visibility.Visible : Visibility.Collapsed;
     public Visibility KickButtonVisibility => CanKick ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility AnyActionVisibility => CanChangeRole || CanKick ? Visibility.Visible : Visibility.Collapsed;
 }
 
 public partial class MainWindow : FluentWindow
@@ -332,7 +325,7 @@ public partial class MainWindow : FluentWindow
         var servers = await _api.GetMyServersAsync();
         _servers.Clear();
         foreach (var s in servers)
-            _servers.Add(new ServerListItem { Id = s.Id, Name = s.Name, IconUrl = App.ResolveUploadUrl(s.IconUrl), CanManageInvites = s.CanManageInvites });
+            _servers.Add(new ServerListItem { Id = s.Id, Name = s.Name, IconUrl = App.ResolveUploadUrl(s.IconUrl) });
 
         // Join every text channel's SignalR group across every server the
         // user belongs to - not just whichever one happens to be open right
@@ -421,7 +414,7 @@ public partial class MainWindow : FluentWindow
 
     private async void MemberRoleButton_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: int userId } || _currentServerId is null) return;
+        if (sender is not System.Windows.Controls.MenuItem { Tag: int userId } || _currentServerId is null) return;
 
         var item = _members.FirstOrDefault(m => m.UserId == userId);
         if (item is null) return;
@@ -438,7 +431,7 @@ public partial class MainWindow : FluentWindow
 
     private async void MemberKickButton_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: int userId } || _currentServerId is null) return;
+        if (sender is not System.Windows.Controls.MenuItem { Tag: int userId } || _currentServerId is null) return;
 
         var confirm = MessageBox.Show("Remove this member from the server?", "Confirm Kick",
             MessageBoxButton.YesNo, MessageBoxImage.Warning);

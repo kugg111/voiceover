@@ -5,34 +5,34 @@ using Wpf.Ui.Controls;
 
 namespace Voiceover.Client.Views;
 
-public partial class LoginWindow : FluentWindow
+public partial class RegisterWindow : FluentWindow
 {
     private readonly ApiService _api = new(App.ApiBaseUrl);
 
-    public LoginWindow()
+    public RegisterWindow()
     {
         InitializeComponent();
     }
 
-    private async void LoginButton_Click(object sender, RoutedEventArgs e) => await TryLoginAsync();
+    private async void RegisterSubmitButton_Click(object sender, RoutedEventArgs e) => await TryRegisterAsync();
 
-    private void RegisterButton_Click(object sender, RoutedEventArgs e)
+    private void BackToLoginButton_Click(object sender, RoutedEventArgs e)
     {
-        new RegisterWindow().Show();
+        new LoginWindow().Show();
         Close();
     }
 
     private async void UsernameOrPasswordBox_KeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Enter) await TryLoginAsync();
+        if (e.Key == Key.Enter) await TryRegisterAsync();
     }
 
-    private async Task TryLoginAsync()
+    private async Task TryRegisterAsync()
     {
         SetLoading(true);
         try
         {
-            var error = await AuthFlow.TryAuthenticateAsync(_api, isRegister: false, UsernameBox.Text, PasswordBox.Password);
+            var error = await AuthFlow.TryAuthenticateAsync(_api, isRegister: true, UsernameBox.Text, PasswordBox.Password);
             if (error is not null)
             {
                 ShowError(error);
@@ -55,7 +55,7 @@ public partial class LoginWindow : FluentWindow
 
     private void SetLoading(bool loading)
     {
-        LoginButton.IsEnabled = !loading;
-        RegisterButton.IsEnabled = !loading;
+        RegisterSubmitButton.IsEnabled = !loading;
+        BackToLoginButton.IsEnabled = !loading;
     }
 }

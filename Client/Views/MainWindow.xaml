@@ -43,7 +43,7 @@
                 </Border>
                 <Button DockPanel.Dock="Bottom" Content="+" FontSize="20" Height="48" Width="48"
                         Margin="12,4,12,4" Background="{StaticResource BgSidebar}" Foreground="LightGreen"
-                        BorderThickness="0" Click="AddServerButton_Click" ToolTip="Create or join a server"/>
+                        BorderThickness="0" Click="AddServerButton_Click"/>
                 <Grid DockPanel.Dock="Top" Margin="12,12,12,4">
                     <Button x:Name="MessagesButton" Content="💬" FontSize="18" Height="48" Width="48"
                             Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
@@ -72,7 +72,7 @@
                                     <Button.ContextMenu>
                                         <ContextMenu>
                                             <MenuItem Header="Add Channel" Tag="{Binding Id}" Click="AddChannelMenuItem_Click"/>
-                                            <MenuItem Header="Invites" Visibility="{Binding InvitesMenuVisibility}">
+                                            <MenuItem Header="Invites">
                                                 <MenuItem Header="Generate" Tag="{Binding Id}" Click="GenerateInviteMenuItem_Click"/>
                                             </MenuItem>
                                             <MenuItem Header="Leave Server" Tag="{Binding Id}" Click="LeaveServerMenuItem_Click"/>
@@ -423,24 +423,20 @@
                     <ItemsControl x:Name="MemberList">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <StackPanel Margin="0,4,0,4">
-                                    <StackPanel Orientation="Horizontal">
-                                        <local:AvatarView Size="28" DisplayName="{Binding Username}"
-                                                           ImageUrl="{Binding AvatarUrl}" Margin="0,0,8,0"/>
-                                        <StackPanel VerticalAlignment="Center">
-                                            <TextBlock Text="{Binding Username}" Foreground="{StaticResource TextNormal}" FontSize="13"/>
-                                            <TextBlock Text="{Binding Role}" Foreground="{StaticResource TextMuted}" FontSize="11"/>
-                                        </StackPanel>
-                                    </StackPanel>
-                                    <StackPanel Orientation="Horizontal" Margin="36,4,0,0"
-                                                Visibility="{Binding AnyActionVisibility}">
-                                        <Button Content="{Binding RoleButtonLabel}" Tag="{Binding UserId}"
-                                                Click="MemberRoleButton_Click" Visibility="{Binding RoleButtonVisibility}"
-                                                Background="{StaticResource BgDarker}" Foreground="{StaticResource TextNormal}"
-                                                BorderThickness="0" Padding="8,2" FontSize="11" Margin="0,0,6,0"/>
-                                        <Button Content="Kick" Tag="{Binding UserId}" Click="MemberKickButton_Click"
-                                                Visibility="{Binding KickButtonVisibility}"
-                                                Background="#F23F42" Foreground="White" BorderThickness="0" Padding="8,2" FontSize="11"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,4,0,4">
+                                    <StackPanel.ContextMenu>
+                                        <ContextMenu>
+                                            <MenuItem Header="{Binding RoleButtonLabel}" Tag="{Binding UserId}"
+                                                      Click="MemberRoleButton_Click" Visibility="{Binding RoleButtonVisibility}"/>
+                                            <MenuItem Header="Kick" Tag="{Binding UserId}" Click="MemberKickButton_Click"
+                                                      Visibility="{Binding KickButtonVisibility}"/>
+                                        </ContextMenu>
+                                    </StackPanel.ContextMenu>
+                                    <local:AvatarView Size="28" DisplayName="{Binding Username}"
+                                                       ImageUrl="{Binding AvatarUrl}" Margin="0,0,8,0"/>
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Username}" Foreground="{StaticResource TextNormal}" FontSize="13"/>
+                                        <TextBlock Text="{Binding Role}" Foreground="{StaticResource TextMuted}" FontSize="11"/>
                                     </StackPanel>
                                 </StackPanel>
                             </DataTemplate>

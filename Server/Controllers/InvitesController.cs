@@ -32,7 +32,9 @@ public class InvitesController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<InviteResponse>> Create(int serverId, CreateInviteRequest req)
     {
-        if (!await _permissions.CanManageServerAsync(CurrentUserId, serverId))
+        // Any member can invite people in - not just owner/moderator (that
+        // restriction is still right for List/kicking/roles, just not this).
+        if (!await _permissions.IsMemberAsync(CurrentUserId, serverId))
             return Forbid();
 
         var invite = new Invite
@@ -93,17 +95,15 @@ public class InviteJoinController : ControllerBase
         if (invite is null || invite.GuildServer is null) return NotFound("Invite not found.");
         if (!invite.IsValid()) return BadRequest("This invite has expired or reached its use limit.");
 
-        var membership = await _db.Memberships.FirstOrDefaultAsync(m => m.UserId == CurrentUserId && m.GuildServerId == invite.GuildServerId);
-        if (membership is null)
+        var alreadyMember = await _db.Memberships.AnyAsync(m => m.UserId == CurrentUserId && m.GuildServerId == invite.GuildServerId);
+        if (!alreadyMember)
         {
-            membership = new Membership { UserId = CurrentUserId, GuildServerId = invite.GuildServerId };
-            _db.Memberships.Add(membership);
+            _db.Memberships.Add(new Membership { UserId = CurrentUserId, GuildServerId = invite.GuildServerId });
             invite.UseCount++;
             await _db.SaveChangesAsync();
         }
 
         var server = invite.GuildServer;
-        var canManageInvites = membership.Role == MemberRole.Owner || membership.Role == MemberRole.Moderator;
-        return Ok(new GuildServerResponse(server.Id, server.Name, server.IconUrl, server.OwnerId, canManageInvites));
+        return Ok(new GuildServerResponse(server.Id, server.Name, server.IconUrl, server.OwnerId));
     }
 }

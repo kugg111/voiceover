@@ -5,7 +5,7 @@ public record LoginRequest(string Username, string Password);
 public record AuthResponse(string Token, int UserId, string Username, string? AvatarUrl = null);
 
 public record CreateServerRequest(string Name);
-public record GuildServerResponse(int Id, string Name, string? IconUrl, int OwnerId, bool CanManageInvites = false);
+public record GuildServerResponse(int Id, string Name, string? IconUrl, int OwnerId);
 public record SetIconRequest(string Url);
 
 public record CreateChannelRequest(string Name, string Type); // "Text" or "Voice"

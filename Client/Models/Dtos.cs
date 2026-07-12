@@ -1,7 +1,7 @@
 namespace Voiceover.Client.Models;
 
 public record AuthResponse(string Token, int UserId, string Username, string? AvatarUrl = null);
-public record GuildServerResponse(int Id, string Name, string? IconUrl, int OwnerId, bool CanManageInvites = false);
+public record GuildServerResponse(int Id, string Name, string? IconUrl, int OwnerId);
 public record SetIconRequest(string Url);
 public record ChannelResponse(int Id, string Name, string Type, int GuildServerId, int Position);
 public record MessageResponse(int Id, string Content, int ChannelId, int AuthorId, string AuthorUsername, DateTime SentAt, string? AttachmentUrl = null, string? AuthorAvatarUrl = null);

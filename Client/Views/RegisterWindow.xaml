@@ -1,8 +1,8 @@
-<ui:FluentWindow x:Class="Voiceover.Client.Views.LoginWindow"
+<ui:FluentWindow x:Class="Voiceover.Client.Views.RegisterWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
-        Title="Voiceover - Login" Height="450" Width="360"
+        Title="Voiceover - Register" Height="450" Width="360"
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource BgDark}"
         ResizeMode="NoResize"
@@ -20,9 +20,9 @@
 
         <Grid Grid.Row="1" Margin="32">
         <StackPanel VerticalAlignment="Center">
-            <TextBlock Text="Welcome back!" FontSize="22" FontWeight="Bold"
+            <TextBlock Text="Create an account" FontSize="22" FontWeight="Bold"
                        Foreground="{StaticResource TextNormal}" Margin="0,0,0,4"/>
-            <TextBlock Text="We're so excited to see you again." FontSize="13"
+            <TextBlock Text="Join Voiceover in just a few clicks." FontSize="13"
                        Foreground="{StaticResource TextMuted}" Margin="0,0,0,20"/>
 
             <TextBlock Text="USERNAME" FontSize="11" FontWeight="Bold"
@@ -43,16 +43,16 @@
             <TextBlock x:Name="StatusText" Foreground="#F23F42" FontSize="12"
                        Margin="0,0,0,10" TextWrapping="Wrap" Visibility="Collapsed"/>
 
-            <Button x:Name="LoginButton" Content="Log In" Height="40" Width="200"
+            <Button x:Name="RegisterSubmitButton" Content="Register" Height="40" Width="200"
                     HorizontalAlignment="Center" HorizontalContentAlignment="Center"
                     Background="{StaticResource AccentBlurple}" Foreground="White"
                     BorderThickness="0" FontWeight="Bold" Cursor="Hand"
-                    Click="LoginButton_Click" Margin="0,0,0,8"/>
+                    Click="RegisterSubmitButton_Click" Margin="0,0,0,8"/>
 
-            <Button x:Name="RegisterButton" Content="Register New Account" Height="36" Width="200"
+            <Button x:Name="BackToLoginButton" Content="Already have an account? Log In" Height="36" Width="200"
                     HorizontalAlignment="Center" HorizontalContentAlignment="Center"
                     Background="Transparent" Foreground="{StaticResource TextMuted}"
-                    BorderThickness="0" Cursor="Hand" Click="RegisterButton_Click"/>
+                    BorderThickness="0" Cursor="Hand" Click="BackToLoginButton_Click"/>
         </StackPanel>
         </Grid>
     </Grid>
