@@ -211,6 +211,19 @@ using (var scope = app.Services.CreateScope())
 // pipeline this sits.
 app.UseSerilogRequestLogging(options =>
 {
+    // Without this, every single request - including routine polling like
+    // "GET /api/servers/1/channels responded 200" - logs at Information,
+    // the same level as everything else, and drowns out what's actually
+    // worth seeing in both the console and the logs table. Routine
+    // successful requests drop to Debug (below the MinimumLevel.Information
+    // floor above, so they're filtered out entirely, not just hidden by a
+    // UI toggle); anything that actually went wrong still surfaces.
+    options.GetLevel = (httpContext, _, ex) => ex is not null || httpContext.Response.StatusCode >= 500
+        ? LogEventLevel.Error
+        : httpContext.Response.StatusCode >= 400
+            ? LogEventLevel.Warning
+            : LogEventLevel.Debug;
+
     options.EnrichDiagnosticContext = (diagnosticContext, httpContext) =>
     {
         var userId = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
