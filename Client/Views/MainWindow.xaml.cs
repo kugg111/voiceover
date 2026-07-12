@@ -370,6 +370,14 @@ public partial class MainWindow : FluentWindow
         _idleDetector.IdleChanged += isIdle => _ = OnIdleChangedAsync(isIdle);
         _idleDetector.Start();
 
+        // Explicit and awaited, rather than relying on the server's own
+        // OnConnectedAsync having already finished by the time StartAsync()
+        // returns - that's not a guarantee, and without this, clicking into
+        // a server fast enough after login could read your own presence
+        // back as still Offline (GetMembers/GetFriends are one-shot reads
+        // of PresenceService, not something that waits for the flag to land).
+        await _hub.SetPresenceStateAsync("Online");
+
         await LoadServersAsync();
     }
 

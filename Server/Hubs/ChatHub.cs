@@ -191,6 +191,12 @@ public class ChatHub : Hub
     {
         if (state is not ("Online" or "Away")) return;
 
+        // The client always confirms "Online" once right after connecting
+        // (closes a race with this hub's own OnConnectedAsync - see
+        // MainWindow.MainWindow_Loaded), which would otherwise re-broadcast
+        // a no-op change on every single login.
+        if (_presence.GetState(CurrentUserId) == state) return;
+
         _presence.SetState(CurrentUserId, state);
         await BroadcastPresenceChangeAsync(CurrentUserId, state);
     }
