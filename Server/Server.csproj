@@ -29,7 +29,16 @@
     <PackageReference Include="Serilog.AspNetCore" Version="8.0.3" />
     <PackageReference Include="Serilog.Formatting.Compact" Version="2.0.0" />
     <PackageReference Include="Serilog.Sinks.Console" Version="5.0.1" />
-    <PackageReference Include="Serilog.Sinks.Postgresql.Alternative" Version="4.2.0" />
+    <!-- Pinned to 4.0.0, not latest (4.2.0) - newer versions pull in
+         Npgsql 9.x, which silently breaks Npgsql.EntityFrameworkCore.
+         PostgreSQL 8.0.10 at runtime (it reaches into Npgsql's own
+         internals - e.g. Npgsql.Internal.HackyEnumTypeMapping - that don't
+         exist in the 9.x rewrite). NuGet's default "highest version wins"
+         resolution doesn't catch this since 9.x still satisfies EF Core's
+         own ">=8.0.5" constraint on paper. 4.0.0 pulls Npgsql 8.0.x, which
+         resolves cleanly alongside EF Core's own Npgsql dependency - verify
+         this still holds before ever bumping this package. -->
+    <PackageReference Include="Serilog.Sinks.Postgresql.Alternative" Version="4.0.0" />
   </ItemGroup>
 
   <ItemGroup>
