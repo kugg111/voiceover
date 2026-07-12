@@ -28,6 +28,9 @@
             <!-- TAB RAIL -->
             <Border Grid.Column="0" Background="{StaticResource BgSidebar}">
                 <StackPanel Margin="8">
+                    <Button x:Name="AccountTabButton" Content="My Account" Height="40" Margin="0,0,0,4"
+                            Click="AccountTabButton_Click" HorizontalContentAlignment="Left" Padding="12,0" FontWeight="Bold"
+                            BorderThickness="0"/>
                     <Button x:Name="VoiceTabButton" Content="Sound Options" Height="40" Margin="0,0,0,4"
                             Click="VoiceTabButton_Click" HorizontalContentAlignment="Left" Padding="12,0" FontWeight="Bold"
                             BorderThickness="0"/>
@@ -39,7 +42,20 @@
 
             <!-- TAB CONTENT -->
             <Grid Grid.Column="1" Margin="20">
-                <ScrollViewer x:Name="VoiceTabContent" VerticalScrollBarVisibility="Auto">
+                <StackPanel x:Name="AccountTabContent" Visibility="Collapsed">
+                    <TextBlock Text="MY ACCOUNT" FontSize="11" FontWeight="Bold"
+                               Foreground="{StaticResource TextMuted}" Margin="0,0,0,12"/>
+                    <local:AvatarView x:Name="AccountAvatarView" Size="80" HorizontalAlignment="Left" Margin="0,0,0,12"/>
+                    <TextBlock x:Name="AccountUsernameText" FontSize="14" FontWeight="Bold"
+                               Foreground="{StaticResource TextNormal}" Margin="0,0,0,16"/>
+                    <Button x:Name="ChangeAvatarButton" Content="Change Avatar" Height="40" Width="160"
+                            HorizontalAlignment="Left" Click="ChangeAvatarButton_Click"
+                            Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}" BorderThickness="0"/>
+                    <TextBlock x:Name="AccountStatusText" FontSize="11" TextWrapping="Wrap"
+                               Foreground="{StaticResource TextMuted}" Margin="0,8,0,0"/>
+                </StackPanel>
+
+                <ScrollViewer x:Name="VoiceTabContent" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
                     <local:VoiceSettingsPanel x:Name="VoicePanel"/>
                 </ScrollViewer>
 

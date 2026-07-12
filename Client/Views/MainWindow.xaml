@@ -373,10 +373,11 @@
                 <ItemsControl x:Name="MessageList">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Grid Margin="0,6,0,6">
+                            <Grid x:Name="MessageRow" Margin="0,6,0,6">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
                                 <Grid.ContextMenu>
                                     <ContextMenu>
@@ -388,6 +389,31 @@
                                 </Grid.ContextMenu>
                                 <local:AvatarView Grid.Column="0" Size="36" DisplayName="{Binding AuthorUsername}"
                                                    ImageUrl="{Binding AuthorAvatarUrl}" Margin="0,2,10,0" VerticalAlignment="Top"/>
+                                <!-- Quicker alternative to the right-click context menu above - only
+                                     shown while hovering this row, same as Discord's own hover actions,
+                                     so the row doesn't stay visually busy with icons all the time. -->
+                                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Top" Margin="8,2,0,0">
+                                    <StackPanel.Style>
+                                        <Style TargetType="StackPanel">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=Grid}}" Value="True">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </StackPanel.Style>
+                                    <Button Content="✏️" Tag="{Binding Id}" Click="EditMessageMenuItem_Click"
+                                            Visibility="{Binding EditMenuVisibility}" ToolTip="Edit"
+                                            Width="26" Height="26" Padding="0" FontSize="12" Margin="0,0,4,0"
+                                            Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
+                                            BorderThickness="0" Cursor="Hand"/>
+                                    <Button Content="🗑️" Tag="{Binding Id}" Click="DeleteMessageMenuItem_Click"
+                                            Visibility="{Binding DeleteMenuVisibility}" ToolTip="Delete"
+                                            Width="26" Height="26" Padding="0" FontSize="12"
+                                            Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
+                                            BorderThickness="0" Cursor="Hand"/>
+                                </StackPanel>
                                 <StackPanel Grid.Column="1">
                                     <StackPanel Orientation="Horizontal">
                                         <TextBlock Text="{Binding AuthorUsername}" FontWeight="Bold"

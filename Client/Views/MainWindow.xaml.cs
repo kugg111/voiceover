@@ -1031,6 +1031,10 @@ public partial class MainWindow : FluentWindow
     private void MyAvatarBorder_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
         new SettingsWindow(_api, _voice) { Owner = this }.ShowDialog();
+
+        // Settings' My Account tab may have just changed this - refresh our
+        // own copy now that the (modal) dialog has closed.
+        MyAvatarView.ImageUrl = _api.CurrentUserAvatarUrl;
     }
 
     private async void MessagesButton_Click(object sender, RoutedEventArgs e)
@@ -1344,9 +1348,14 @@ public partial class MainWindow : FluentWindow
         MessageInput.Clear();
     }
 
+    // Shared by both the right-click context menu items and the hover
+    // edit/delete icons on each message row (see MainWindow.xaml) - both
+    // are just a FrameworkElement carrying the message id in Tag, whichever
+    // one the user actually clicks.
     private void EditMessageMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not System.Windows.Controls.MenuItem { Tag: int messageId }) return;
+        if (sender is not FrameworkElement { Tag: int messageId }) return;
+
         var item = _messages.FirstOrDefault(m => m.Id == messageId);
         if (item is null) return;
 
@@ -1356,11 +1365,11 @@ public partial class MainWindow : FluentWindow
 
     private async void DeleteMessageMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not System.Windows.Controls.MenuItem { Tag: int messageId }) return;
+        if (sender is not FrameworkElement { Tag: int messageId }) return;
 
-        var confirm = MessageBox.Show("Delete this message?", "Confirm Delete",
-            MessageBoxButton.YesNo, MessageBoxImage.Warning);
-        if (confirm != MessageBoxResult.Yes) return;
+        var confirm = new ConfirmDialog("Confirm Delete", "Delete this message?", "Delete", destructive: true) { Owner = this };
+        confirm.ShowDialog();
+        if (!confirm.Result) return;
 
         // Channel delete is shown for every message and left to the server
         // to authorize (author or moderator/owner) - a non-author,

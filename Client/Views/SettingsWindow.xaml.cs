@@ -1,9 +1,13 @@
 using System.Windows;
 using System.Windows.Media;
+using Microsoft.Win32;
 using Voiceover.Client.Models;
 using Voiceover.Client.Services;
 using Wpf.Ui.Controls;
 using Button = System.Windows.Controls.Button;
+using MessageBox = System.Windows.MessageBox;
+using MessageBoxButton = System.Windows.MessageBoxButton;
+using MessageBoxImage = System.Windows.MessageBoxImage;
 
 namespace Voiceover.Client.Views;
 
@@ -19,35 +23,93 @@ public partial class SettingsWindow : FluentWindow
 
         if (voice is not null) VoicePanel.Initialize(voice);
 
+        AccountAvatarView.DisplayName = _api.CurrentUsername ?? "?";
+        AccountAvatarView.ImageUrl = _api.CurrentUserAvatarUrl;
+        AccountUsernameText.Text = _api.CurrentUsername;
+
         UpdateStatusText.Text = $"You're on version {UpdateChecker.CurrentVersion}" +
             (UpdateChecker.IsInstalled ? " (installed)." : " (portable).");
 
-        ShowVoiceTab();
+        ShowAccountTab();
     }
 
+    private void AccountTabButton_Click(object sender, RoutedEventArgs e) => ShowAccountTab();
     private void VoiceTabButton_Click(object sender, RoutedEventArgs e) => ShowVoiceTab();
     private void UpdateTabButton_Click(object sender, RoutedEventArgs e) => ShowUpdateTab();
 
+    private void ShowAccountTab()
+    {
+        AccountTabContent.Visibility = Visibility.Visible;
+        VoiceTabContent.Visibility = Visibility.Collapsed;
+        UpdateTabContent.Visibility = Visibility.Collapsed;
+        SetActiveTab(AccountTabButton, VoiceTabButton, UpdateTabButton);
+    }
+
     private void ShowVoiceTab()
     {
+        AccountTabContent.Visibility = Visibility.Collapsed;
         VoiceTabContent.Visibility = Visibility.Visible;
         UpdateTabContent.Visibility = Visibility.Collapsed;
-        SetActiveTab(VoiceTabButton, UpdateTabButton);
+        SetActiveTab(VoiceTabButton, AccountTabButton, UpdateTabButton);
     }
 
     private void ShowUpdateTab()
     {
+        AccountTabContent.Visibility = Visibility.Collapsed;
         VoiceTabContent.Visibility = Visibility.Collapsed;
         UpdateTabContent.Visibility = Visibility.Visible;
-        SetActiveTab(UpdateTabButton, VoiceTabButton);
+        SetActiveTab(UpdateTabButton, AccountTabButton, VoiceTabButton);
     }
 
-    private void SetActiveTab(Button active, Button inactive)
+    private void SetActiveTab(Button active, params Button[] inactive)
     {
         active.Background = (Brush)FindResource("AccentBlurple");
         active.Foreground = Brushes.White;
-        inactive.Background = Brushes.Transparent;
-        inactive.Foreground = (Brush)FindResource("TextNormal");
+        foreach (var button in inactive)
+        {
+            button.Background = Brushes.Transparent;
+            button.Foreground = (Brush)FindResource("TextNormal");
+        }
+    }
+
+    private async void ChangeAvatarButton_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Filter = "Image files (*.png;*.jpg;*.jpeg;*.gif;*.webp)|*.png;*.jpg;*.jpeg;*.gif;*.webp"
+        };
+        if (dialog.ShowDialog() != true) return;
+
+        ChangeAvatarButton.IsEnabled = false;
+        AccountStatusText.Text = "Uploading...";
+
+        var (upload, error) = await _api.UploadFileAsync(dialog.FileName);
+        if (upload is null)
+        {
+            AccountStatusText.Text = "";
+            MessageBox.Show(error ?? "Upload failed.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            ChangeAvatarButton.IsEnabled = true;
+            return;
+        }
+
+        var success = await _api.SetMyAvatarAsync(upload.Url);
+        ChangeAvatarButton.IsEnabled = true;
+
+        if (!success)
+        {
+            AccountStatusText.Text = "";
+            MessageBox.Show("Could not update your avatar.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        // Not persisted server-side just by uploading - the app's own idea
+        // of "your avatar" needs updating too, same as every other place
+        // that reads ApiService.CurrentUserAvatarUrl (MainWindow refreshes
+        // its own copy from this once the dialog closes - see
+        // MyAvatarBorder_MouseLeftButtonUp).
+        _api.CurrentUserAvatarUrl = App.ResolveUploadUrl(upload.Url);
+        AccountAvatarView.ImageUrl = _api.CurrentUserAvatarUrl;
+        AccountStatusText.Text = "Avatar updated.";
     }
 
     private async void CheckForUpdateButton_Click(object sender, RoutedEventArgs e)
