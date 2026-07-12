@@ -15,12 +15,14 @@ public class ChatHub : Hub
     private readonly AppDbContext _db;
     private readonly VoicePresenceService _voicePresence;
     private readonly LiveKitTokenService _liveKitTokens;
+    private readonly PresenceService _presence;
 
-    public ChatHub(AppDbContext db, VoicePresenceService voicePresence, LiveKitTokenService liveKitTokens)
+    public ChatHub(AppDbContext db, VoicePresenceService voicePresence, LiveKitTokenService liveKitTokens, PresenceService presence)
     {
         _db = db;
         _voicePresence = voicePresence;
         _liveKitTokens = liveKitTokens;
+        _presence = presence;
     }
 
     private int CurrentUserId => int.Parse(Context.User!.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -177,6 +179,54 @@ public class ChatHub : Hub
             await Clients.OthersInGroup(ServerPresenceGroupName(serverId.Value)).SendAsync("UserDeafened", CurrentUserId, channelId, isDeafened);
     }
 
+    // --- Online/away/offline presence. Online is set on connect (see
+    // OnConnectedAsync); Offline is always server-derived from the last
+    // connection dropping (see OnDisconnectedAsync), never client-reported.
+    // Away is the only state the client actively reports, when its own
+    // idle detection crosses the threshold (see IdleDetector client-side). ---
+
+    // Client calls this only with "Online" or "Away" - Offline is never
+    // accepted from here, it can only happen via disconnection.
+    public async Task SetPresenceState(string state)
+    {
+        if (state is not ("Online" or "Away")) return;
+
+        _presence.SetState(CurrentUserId, state);
+        await BroadcastPresenceChangeAsync(CurrentUserId, state);
+    }
+
+    // Fans a presence change out to the same audience that would ever want
+    // to see it: accepted friends (wherever they're looking, same as
+    // FriendRequestReceived) and fellow members of any server this user
+    // belongs to who currently have that server open (ServerPresenceGroupName,
+    // the same group VoiceUserJoined/UserSpeaking etc. already broadcast to).
+    private async Task BroadcastPresenceChangeAsync(int userId, string state)
+    {
+        var friendIds = await _db.Friendships
+            .Where(f => f.Status == FriendshipStatus.Accepted && (f.RequesterId == userId || f.AddresseeId == userId))
+            .Select(f => f.RequesterId == userId ? f.AddresseeId : f.RequesterId)
+            .ToListAsync();
+
+        if (friendIds.Count > 0)
+            await Clients.Users(friendIds.Select(id => id.ToString())).SendAsync("PresenceChanged", userId, state);
+
+        var serverIds = await _db.Memberships
+            .Where(m => m.UserId == userId)
+            .Select(m => m.GuildServerId)
+            .ToListAsync();
+
+        foreach (var serverId in serverIds)
+            await Clients.Group(ServerPresenceGroupName(serverId)).SendAsync("PresenceChanged", userId, state);
+    }
+
+    public override async Task OnConnectedAsync()
+    {
+        if (_presence.Connect(CurrentUserId, Context.ConnectionId))
+            await BroadcastPresenceChangeAsync(CurrentUserId, "Online");
+
+        await base.OnConnectedAsync();
+    }
+
     // --- Server presence (joined whenever a client selects a server in the
     // UI, independent of the per-voice-channel group above) ---
 
@@ -214,6 +264,10 @@ public class ChatHub : Hub
             await Clients.Group(VoiceGroupName(channelId)).SendAsync("VoiceUserLeft", userId, username, channelId);
             await Clients.Group(ServerPresenceGroupName(serverId)).SendAsync("VoiceUserLeft", userId, username, channelId);
         }
+
+        var disconnected = _presence.Disconnect(Context.ConnectionId);
+        if (disconnected is { WasLastConnection: true } d)
+            await BroadcastPresenceChangeAsync(d.UserId, "Offline");
 
         await base.OnDisconnectedAsync(exception);
     }

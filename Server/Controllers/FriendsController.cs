@@ -3,6 +3,7 @@ using Voiceover.Server.Data;
 using Voiceover.Server.Dtos;
 using Voiceover.Server.Hubs;
 using Voiceover.Server.Models;
+using Voiceover.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
@@ -17,11 +18,13 @@ public class FriendsController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly IHubContext<ChatHub> _hub;
+    private readonly PresenceService _presence;
 
-    public FriendsController(AppDbContext db, IHubContext<ChatHub> hub)
+    public FriendsController(AppDbContext db, IHubContext<ChatHub> hub, PresenceService presence)
     {
         _db = db;
         _hub = hub;
+        _presence = presence;
     }
 
     private int CurrentUserId => int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -47,7 +50,7 @@ public class FriendsController : ControllerBase
             .Select(id =>
             {
                 var info = userInfo.GetValueOrDefault(id);
-                return new FriendResponse(id, info?.Username ?? "Unknown", info?.AvatarUrl);
+                return new FriendResponse(id, info?.Username ?? "Unknown", info?.AvatarUrl, _presence.GetState(id));
             })
             .ToList();
 

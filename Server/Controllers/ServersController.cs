@@ -9,7 +9,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Voiceover.Server.Controllers;
 
-public record MemberResponse(int UserId, string Username, string Role, string? AvatarUrl = null);
+public record MemberResponse(int UserId, string Username, string Role, string? AvatarUrl = null, string PresenceState = "Offline");
 public record ChangeRoleRequest(string Role); // "Member" or "Moderator"
 
 [ApiController]
@@ -19,11 +19,13 @@ public class ServersController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly PermissionService _permissions;
+    private readonly PresenceService _presence;
 
-    public ServersController(AppDbContext db, PermissionService permissions)
+    public ServersController(AppDbContext db, PermissionService permissions, PresenceService presence)
     {
         _db = db;
         _permissions = permissions;
+        _presence = presence;
     }
 
     private int CurrentUserId => int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -85,12 +87,19 @@ public class ServersController : ControllerBase
         if (!await _permissions.IsMemberAsync(CurrentUserId, serverId))
             return Forbid();
 
+        // PresenceService is in-memory (not queryable in SQL), so the
+        // presence lookup happens after materializing the DB rows rather
+        // than inside the EF projection above.
         var members = await _db.Memberships
             .Where(m => m.GuildServerId == serverId)
-            .Select(m => new MemberResponse(m.UserId, m.User!.Username, m.Role.ToString(), m.User!.AvatarUrl))
+            .Select(m => new { m.UserId, m.User!.Username, Role = m.Role.ToString(), m.User!.AvatarUrl })
             .ToListAsync();
 
-        return Ok(members);
+        var result = members
+            .Select(m => new MemberResponse(m.UserId, m.Username, m.Role, m.AvatarUrl, _presence.GetState(m.UserId)))
+            .ToList();
+
+        return Ok(result);
     }
 
     // Self-removal, distinct from KickMember below (which targets someone

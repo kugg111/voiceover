@@ -9,12 +9,12 @@ public record DirectMessageResponse(int Id, string Content, int SenderId, int Re
 public record DmConversationResponse(int OtherUserId, string OtherUsername, string LastMessagePreview, DateTime LastMessageAt, string? OtherUserAvatarUrl = null);
 public record UserSummaryResponse(int Id, string Username, string? AvatarUrl = null);
 public record InviteResponse(string Code, DateTime? ExpiresAt, int? MaxUses, int UseCount);
-public record MemberResponse(int UserId, string Username, string Role, string? AvatarUrl = null);
+public record MemberResponse(int UserId, string Username, string Role, string? AvatarUrl = null, string PresenceState = "Offline");
 public record UploadResponse(string Url);
 public record VoiceParticipant(int UserId, string Username, string? AvatarUrl = null);
 public record ChannelVoiceRoster(int ChannelId, List<VoiceParticipant> Members);
 public record SetAvatarRequest(string Url);
-public record FriendResponse(int UserId, string Username, string? AvatarUrl = null);
+public record FriendResponse(int UserId, string Username, string? AvatarUrl = null, string PresenceState = "Offline");
 public record FriendRequestResponse(int Id, int UserId, string Username, string Direction, string? AvatarUrl = null);
 public record LiveKitJoinResponse(string Token, string ServerUrl);
 public record VersionInfo(string Version, string InstallerUrl, string PortableUrl);

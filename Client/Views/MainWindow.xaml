@@ -334,6 +334,12 @@
                                         <StackPanel Orientation="Horizontal">
                                             <local:AvatarView Size="24" DisplayName="{Binding Username}" ImageUrl="{Binding AvatarUrl}" Margin="0,0,8,0"/>
                                             <TextBlock Text="{Binding Username}" VerticalAlignment="Center"/>
+                                            <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
+                                                     Fill="#3BA55D" Visibility="{Binding OnlineDotVisibility}" ToolTip="Online"/>
+                                            <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
+                                                     Fill="#F0B232" Visibility="{Binding AwayDotVisibility}" ToolTip="Away"/>
+                                            <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
+                                                     Fill="#80848E" Visibility="{Binding OfflineDotVisibility}" ToolTip="Offline"/>
                                         </StackPanel>
                                     </Button>
                                 </DataTemplate>
@@ -434,7 +440,15 @@
                                     <local:AvatarView Size="28" DisplayName="{Binding Username}"
                                                        ImageUrl="{Binding AvatarUrl}" Margin="0,0,8,0"/>
                                     <StackPanel VerticalAlignment="Center">
-                                        <TextBlock Text="{Binding Username}" Foreground="{StaticResource TextNormal}" FontSize="13"/>
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="{Binding Username}" Foreground="{StaticResource TextNormal}" FontSize="13"/>
+                                            <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
+                                                     Fill="#3BA55D" Visibility="{Binding OnlineDotVisibility}" ToolTip="Online"/>
+                                            <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
+                                                     Fill="#F0B232" Visibility="{Binding AwayDotVisibility}" ToolTip="Away"/>
+                                            <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
+                                                     Fill="#80848E" Visibility="{Binding OfflineDotVisibility}" ToolTip="Offline"/>
+                                        </StackPanel>
                                         <TextBlock Text="{Binding Role}" Foreground="{StaticResource TextMuted}" FontSize="11"/>
                                     </StackPanel>
                                 </StackPanel>

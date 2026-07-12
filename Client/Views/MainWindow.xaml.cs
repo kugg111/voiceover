@@ -180,11 +180,32 @@ public class DmConversationListItem : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 }
 
-public class FriendListItem
+public class FriendListItem : INotifyPropertyChanged
 {
     public int UserId { get; set; }
     public string Username { get; set; } = string.Empty;
     public string? AvatarUrl { get; set; }
+
+    private string _presenceState = "Offline";
+    public string PresenceState
+    {
+        get => _presenceState;
+        set
+        {
+            if (_presenceState == value) return;
+            _presenceState = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(PresenceState)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(OnlineDotVisibility)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AwayDotVisibility)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(OfflineDotVisibility)));
+        }
+    }
+
+    public Visibility OnlineDotVisibility => PresenceState == "Online" ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility AwayDotVisibility => PresenceState == "Away" ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility OfflineDotVisibility => PresenceState == "Offline" ? Visibility.Visible : Visibility.Collapsed;
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 }
 
 public class FriendRequestListItem
@@ -199,7 +220,7 @@ public class FriendRequestListItem
     public string SecondaryActionLabel => Direction == "Incoming" ? "Decline" : "Cancel";
 }
 
-public class MemberListItem
+public class MemberListItem : INotifyPropertyChanged
 {
     public int UserId { get; set; }
     public string Username { get; set; } = string.Empty;
@@ -220,6 +241,27 @@ public class MemberListItem
     public string NextRole => Role == "Moderator" ? "Member" : "Moderator";
     public Visibility RoleButtonVisibility => CanChangeRole ? Visibility.Visible : Visibility.Collapsed;
     public Visibility KickButtonVisibility => CanKick ? Visibility.Visible : Visibility.Collapsed;
+
+    private string _presenceState = "Offline";
+    public string PresenceState
+    {
+        get => _presenceState;
+        set
+        {
+            if (_presenceState == value) return;
+            _presenceState = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(PresenceState)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(OnlineDotVisibility)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AwayDotVisibility)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(OfflineDotVisibility)));
+        }
+    }
+
+    public Visibility OnlineDotVisibility => PresenceState == "Online" ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility AwayDotVisibility => PresenceState == "Away" ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility OfflineDotVisibility => PresenceState == "Offline" ? Visibility.Visible : Visibility.Collapsed;
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 }
 
 public partial class MainWindow : FluentWindow
@@ -227,6 +269,7 @@ public partial class MainWindow : FluentWindow
     private readonly ApiService _api;
     private readonly SignalRService _hub = new();
     private VoiceService? _voice;
+    private readonly IdleDetector _idleDetector = new();
 
     private int? _currentServerId;
     private int? _currentChannelId;
@@ -293,6 +336,7 @@ public partial class MainWindow : FluentWindow
 
     private async void MainWindow_Closed(object? sender, EventArgs e)
     {
+        _idleDetector.Dispose();
         if (_voice is not null)
             await _voice.DisposeAsync();
         await _hub.DisconnectAsync();
@@ -321,7 +365,32 @@ public partial class MainWindow : FluentWindow
             else NotificationService.PlayUnmuteSound();
         };
         _voice.DeafenedChanged += isDeafened => _ = OnLocalDeafenedChangedAsync(isDeafened);
+
+        _hub.PresenceChanged += (userId, state) => Dispatcher.Invoke(() => OnPresenceChanged(userId, state));
+        _idleDetector.IdleChanged += isIdle => _ = OnIdleChangedAsync(isIdle);
+        _idleDetector.Start();
+
         await LoadServersAsync();
+    }
+
+    // Away is suppressed while actively in a voice channel - being
+    // mid-conversation shouldn't flip you to "away" just because you
+    // haven't touched the mouse. _currentVoiceChannelId is cleared on every
+    // leave path, so it's a more reliable "in a call" signal than anything
+    // on VoiceService itself.
+    private async Task OnIdleChangedAsync(bool isIdle)
+    {
+        if (isIdle && _currentVoiceChannelId is not null) return;
+        await _hub.SetPresenceStateAsync(isIdle ? "Away" : "Online");
+    }
+
+    private void OnPresenceChanged(int userId, string state)
+    {
+        var member = _members.FirstOrDefault(m => m.UserId == userId);
+        if (member is not null) member.PresenceState = state;
+
+        var friend = _friends.FirstOrDefault(f => f.UserId == userId);
+        if (friend is not null) friend.PresenceState = state;
     }
 
     private async Task LoadServersAsync()
@@ -415,7 +484,8 @@ public partial class MainWindow : FluentWindow
                 Role = m.Role,
                 IsSelf = isSelf,
                 CanChangeRole = isOwner && m.Role != "Owner" && !isSelf,
-                CanKick = canManageServer && m.Role != "Owner" && !isSelf
+                CanKick = canManageServer && m.Role != "Owner" && !isSelf,
+                PresenceState = m.PresenceState
             });
         }
     }
@@ -939,7 +1009,7 @@ public partial class MainWindow : FluentWindow
         var friends = await _api.GetFriendsAsync();
         _friends.Clear();
         foreach (var f in friends)
-            _friends.Add(new FriendListItem { UserId = f.UserId, Username = f.Username, AvatarUrl = App.ResolveUploadUrl(f.AvatarUrl) });
+            _friends.Add(new FriendListItem { UserId = f.UserId, Username = f.Username, AvatarUrl = App.ResolveUploadUrl(f.AvatarUrl), PresenceState = f.PresenceState });
     }
 
     private async Task LoadFriendRequestsAsync()
