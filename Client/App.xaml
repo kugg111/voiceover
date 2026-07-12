@@ -22,6 +22,11 @@
             <SolidColorBrush x:Key="AccentBlurple" Color="#5865F2"/>
             <SolidColorBrush x:Key="TextNormal" Color="#DBDEE1"/>
             <SolidColorBrush x:Key="TextMuted" Color="#949BA4"/>
+            <!-- Used only for your own voice-member row while it's still
+                 connecting (see VoiceMemberItem.IsJoining) - light blue so it
+                 reads as "in progress" rather than the flat gray every other
+                 row uses. -->
+            <SolidColorBrush x:Key="TextJoining" Color="#8AB4F8"/>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

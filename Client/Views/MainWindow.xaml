@@ -166,7 +166,8 @@
                                                     <TextBlock Text="🎧" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0"
                                                                Visibility="{Binding DeafenedIconVisibility}" ToolTip="Deafened"/>
                                                     <TextBlock Text="{Binding Username}" FontSize="12" VerticalAlignment="Center"
-                                                               Foreground="{StaticResource TextMuted}"/>
+                                                               Foreground="{Binding UsernameForeground}"
+                                                               ToolTip="{Binding JoiningTooltip}"/>
                                                     <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
                                                              Fill="{StaticResource AccentBlurple}"
                                                              Visibility="{Binding SpeakingDotVisibility}"/>

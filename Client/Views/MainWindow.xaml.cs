@@ -47,6 +47,29 @@ public class VoiceMemberItem : INotifyPropertyChanged
 
     public Visibility SpeakingDotVisibility => IsSpeaking ? Visibility.Visible : Visibility.Collapsed;
 
+    // Set only on the local user's own row, only while their LiveKit
+    // connection is still spinning up (see VoiceChannelButton_Click). Other
+    // clients never see this - they aren't told about the join at all until
+    // it actually succeeds, so this state never reaches them.
+    private bool _isJoining;
+    public bool IsJoining
+    {
+        get => _isJoining;
+        set
+        {
+            if (_isJoining == value) return;
+            _isJoining = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsJoining)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(UsernameForeground)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(JoiningTooltip)));
+        }
+    }
+
+    public System.Windows.Media.Brush UsernameForeground =>
+        (System.Windows.Media.Brush)System.Windows.Application.Current.Resources[IsJoining ? "TextJoining" : "TextMuted"];
+
+    public string? JoiningTooltip => IsJoining ? "Joining..." : null;
+
     private bool _isMuted;
     public bool IsMuted
     {
@@ -627,15 +650,43 @@ public partial class MainWindow : FluentWindow
         }
 
         _currentVoiceChannelId = channelId;
+
+        // Show ourselves locally right away, styled as "joining" (see
+        // VoiceMemberItem.IsJoining), instead of waiting for the LiveKit
+        // connection below - that takes a few seconds, and without this
+        // there'd be no feedback at all that the click registered. Other
+        // clients don't get told about the join at all until it actually
+        // succeeds (see JoinVoiceChannelAsync further down), so nobody else
+        // ever sees this placeholder.
+        var item = FindVoiceChannelItem(channelId);
+        VoiceMemberItem? selfItem = null;
+        if (item is not null && _api.CurrentUserId is not null && _api.CurrentUsername is not null)
+        {
+            selfItem = new VoiceMemberItem { UserId = _api.CurrentUserId.Value, Username = _api.CurrentUsername, AvatarUrl = _api.CurrentUserAvatarUrl, IsSelf = true, IsJoining = true };
+            item.Members.Add(selfItem);
+        }
+        ConnectionStatusText.Text = "Joining voice...";
+
+        try
+        {
+            await _voice.JoinChannelAsync(channelId);
+        }
+        catch
+        {
+            if (item is not null && selfItem is not null) item.Members.Remove(selfItem);
+            _currentVoiceChannelId = null;
+            ConnectionStatusText.Text = "";
+            MessageBox.Show("Could not join voice - check your connection and try again.", "Error",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        // Presence/roster bookkeeping (still SignalR, unchanged from the mesh
+        // days) - deliberately called only now, after the audio connection
+        // above actually succeeded, so other clients' rosters only pick up
+        // this join once it's real rather than a few seconds early.
         var existingMembers = await _hub.JoinVoiceChannelAsync(channelId);
 
-        // JoinVoiceChannelAsync above is presence/roster bookkeeping only
-        // (unchanged from the mesh days - still SignalR, still drives the
-        // member list below); this is the actual audio connection, to the
-        // separate LiveKit deployment.
-        await _voice.JoinChannelAsync(channelId);
-
-        var item = FindVoiceChannelItem(channelId);
         if (item is not null)
         {
             item.Members.Clear();
