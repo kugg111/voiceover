@@ -607,7 +607,7 @@ public partial class MainWindow : FluentWindow
 
         if (dialog.CreateSelected == true)
         {
-            var name = PromptForText("Server name:");
+            var name = PromptForText("Create a Server", "Server name:");
             if (string.IsNullOrWhiteSpace(name)) return;
 
             var server = await _api.CreateServerAsync(name);
@@ -616,7 +616,7 @@ public partial class MainWindow : FluentWindow
         }
         else if (dialog.CreateSelected == false)
         {
-            var code = PromptForText("Invite code:");
+            var code = PromptForText("Join with a Code", "Invite code:");
             if (string.IsNullOrWhiteSpace(code)) return;
 
             var (success, error) = await _api.JoinByInviteAsync(code.Trim());
@@ -634,7 +634,7 @@ public partial class MainWindow : FluentWindow
     {
         if (sender is not System.Windows.Controls.MenuItem { Tag: int serverId }) return;
 
-        var name = PromptForText("Channel name:");
+        var name = PromptForText("Add Channel", "Channel name:");
         if (string.IsNullOrWhiteSpace(name)) return;
 
         var isVoice = MessageBox.Show("Make this a voice channel?", "Channel Type",
@@ -654,21 +654,11 @@ public partial class MainWindow : FluentWindow
             await RefreshChannelsAsync(serverId);
     }
 
-    private async void GenerateInviteMenuItem_Click(object sender, RoutedEventArgs e)
+    private void InvitesMenuItem_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not System.Windows.Controls.MenuItem { Tag: int serverId }) return;
 
-        var invite = await _api.CreateInviteAsync(serverId, expiresInHours: 24 * 7); // 1 week
-        if (invite is null)
-        {
-            MessageBox.Show("Could not generate an invite (you may lack permission).", "Error",
-                MessageBoxButton.OK, MessageBoxImage.Error);
-            return;
-        }
-
-        Clipboard.SetText(invite.Code);
-        MessageBox.Show($"Invite code generated and copied to clipboard:\n\n{invite.Code}\n\nExpires in 7 days.",
-            "Invite Generated", MessageBoxButton.OK, MessageBoxImage.Information);
+        new InvitesWindow(_api, serverId) { Owner = this }.ShowDialog();
     }
 
     private async void LeaveServerMenuItem_Click(object sender, RoutedEventArgs e)
@@ -1411,38 +1401,10 @@ public partial class MainWindow : FluentWindow
 
     private void ScrollToBottom() => MessageScroll.ScrollToEnd();
 
-    private static string? PromptForText(string label)
+    private string? PromptForText(string title, string label)
     {
-        // Simple inline input dialog to keep this scaffold dependency-free.
-        // Swap for a proper WPF dialog/UserControl as the app grows.
-        var window = new Window
-        {
-            Width = 320,
-            Height = 140,
-            WindowStartupLocation = WindowStartupLocation.CenterScreen,
-            Title = label,
-            ResizeMode = ResizeMode.NoResize,
-            Background = (System.Windows.Media.Brush)System.Windows.Application.Current.Resources["BgDark"]
-        };
-
-        var stack = new System.Windows.Controls.StackPanel { Margin = new Thickness(16) };
-        var textBox = new System.Windows.Controls.TextBox { Margin = new Thickness(0, 8, 0, 8) };
-        var okButton = new System.Windows.Controls.Button { Content = "OK", Width = 80, HorizontalAlignment = HorizontalAlignment.Right };
-
-        string? result = null;
-        okButton.Click += (_, _) => { result = textBox.Text; window.Close(); };
-
-        stack.Children.Add(new System.Windows.Controls.TextBlock
-        {
-            Text = label,
-            Foreground = (System.Windows.Media.Brush)System.Windows.Application.Current.Resources["TextNormal"],
-            Margin = new Thickness(0, 0, 0, 4)
-        });
-        stack.Children.Add(textBox);
-        stack.Children.Add(okButton);
-        window.Content = stack;
-
-        window.ShowDialog();
-        return result;
+        var dialog = new TextInputDialog(title, label) { Owner = this };
+        dialog.ShowDialog();
+        return dialog.Result;
     }
 }

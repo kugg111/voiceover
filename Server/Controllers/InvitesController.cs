@@ -32,8 +32,9 @@ public class InvitesController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<InviteResponse>> Create(int serverId, CreateInviteRequest req)
     {
-        // Any member can invite people in - not just owner/moderator (that
-        // restriction is still right for List/kicking/roles, just not this).
+        // Any member can invite people in and see the invite list - not
+        // just owner/moderator (that restriction still applies to
+        // kicking/roles, just not invites).
         if (!await _permissions.IsMemberAsync(CurrentUserId, serverId))
             return Forbid();
 
@@ -55,7 +56,7 @@ public class InvitesController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<List<InviteResponse>>> List(int serverId)
     {
-        if (!await _permissions.CanManageServerAsync(CurrentUserId, serverId))
+        if (!await _permissions.IsMemberAsync(CurrentUserId, serverId))
             return Forbid();
 
         var invites = await _db.Invites

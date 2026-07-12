@@ -49,8 +49,8 @@
                     BorderThickness="0" FontWeight="Bold" Cursor="Hand"
                     Click="RegisterSubmitButton_Click" Margin="0,0,0,8"/>
 
-            <Button x:Name="BackToLoginButton" Content="Already have an account? Log In" Height="36" Width="200"
-                    HorizontalAlignment="Center" HorizontalContentAlignment="Center"
+            <Button x:Name="BackToLoginButton" Content="Already have an account? Log In" Height="36"
+                    HorizontalContentAlignment="Center"
                     Background="Transparent" Foreground="{StaticResource TextMuted}"
                     BorderThickness="0" Cursor="Hand" Click="BackToLoginButton_Click"/>
         </StackPanel>

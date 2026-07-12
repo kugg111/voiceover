@@ -72,9 +72,7 @@
                                     <Button.ContextMenu>
                                         <ContextMenu>
                                             <MenuItem Header="Add Channel" Tag="{Binding Id}" Click="AddChannelMenuItem_Click"/>
-                                            <MenuItem Header="Invites">
-                                                <MenuItem Header="Generate" Tag="{Binding Id}" Click="GenerateInviteMenuItem_Click"/>
-                                            </MenuItem>
+                                            <MenuItem Header="Invites" Tag="{Binding Id}" Click="InvitesMenuItem_Click"/>
                                             <MenuItem Header="Leave Server" Tag="{Binding Id}" Click="LeaveServerMenuItem_Click"/>
                                         </ContextMenu>
                                     </Button.ContextMenu>
