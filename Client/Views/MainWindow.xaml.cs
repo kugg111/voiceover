@@ -1506,11 +1506,11 @@ public partial class MainWindow : FluentWindow
         var otherUserId = dm.SenderId == _api.CurrentUserId ? dm.RecipientId : dm.SenderId;
         var isOwnMessage = dm.SenderId == _api.CurrentUserId;
 
-        // Pushed straight from the hub, so still opaque ciphertext for an
-        // E2EE row (see ChatHub.SendDirectMessage) - decrypt before this
-        // touches any UI-bound state, same as the REST paths in ApiService
-        // already do transparently for history/conversation loads.
-        var content = dm.IsE2ee ? await _api.E2ee.DecryptAsync(otherUserId, dm.Content) : dm.Content;
+        // Pushed straight from the hub, so still opaque ciphertext (see
+        // ChatHub.SendDirectMessage) - decrypt before this touches any
+        // UI-bound state, same as the REST paths in ApiService already do
+        // transparently for history/conversation loads.
+        var content = await _api.E2ee.DecryptAsync(otherUserId, dm.Content);
 
         Dispatcher.Invoke(() =>
         {
@@ -1582,7 +1582,7 @@ public partial class MainWindow : FluentWindow
         // (matches the early-return this had before) - still has to happen
         // before Dispatcher.Invoke since it's async.
         if (otherUserId != _dmActiveUserId) return;
-        var content = dm.IsE2ee ? await _api.E2ee.DecryptAsync(otherUserId, dm.Content) : dm.Content;
+        var content = await _api.E2ee.DecryptAsync(otherUserId, dm.Content);
 
         Dispatcher.Invoke(() =>
         {

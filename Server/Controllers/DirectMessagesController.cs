@@ -2,7 +2,6 @@ using System.Security.Claims;
 using Voiceover.Server.Data;
 using Voiceover.Server.Dtos;
 using Voiceover.Server.Hubs;
-using Voiceover.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
@@ -10,19 +9,19 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Voiceover.Server.Controllers;
 
+// DM content is always opaque E2EE ciphertext (see DirectMessage.Content) -
+// this controller just stores/relays it, it never decrypts.
 [ApiController]
 [Authorize]
 [Route("api/dm")]
 public class DirectMessagesController : ControllerBase
 {
     private readonly AppDbContext _db;
-    private readonly MessageEncryptionService _messageEncryption;
     private readonly IHubContext<ChatHub> _hub;
 
-    public DirectMessagesController(AppDbContext db, MessageEncryptionService messageEncryption, IHubContext<ChatHub> hub)
+    public DirectMessagesController(AppDbContext db, IHubContext<ChatHub> hub)
     {
         _db = db;
-        _messageEncryption = messageEncryption;
         _hub = hub;
     }
 
@@ -57,14 +56,9 @@ public class DirectMessagesController : ControllerBase
                 return new DmConversationResponse(
                     c.OtherUserId,
                     info?.Username ?? "Unknown",
-                    // E2EE rows are opaque to the server by design - only a
-                    // legacy pre-E2EE row (IsE2ee false) still gets decrypted
-                    // here, since the server is the only party that ever
-                    // could read those.
-                    c.Last.IsE2ee ? c.Last.Content : _messageEncryption.Decrypt(c.Last.Content),
+                    c.Last.Content,
                     c.Last.SentAt,
-                    info?.AvatarUrl,
-                    c.Last.IsE2ee);
+                    info?.AvatarUrl);
             })
             .OrderByDescending(c => c.LastMessageAt)
             .ToList();
@@ -85,16 +79,8 @@ public class DirectMessagesController : ControllerBase
             .OrderBy(m => m.SentAt)
             .ToListAsync();
 
-        // Decryption can't happen inside the EF query above (it'd try to
-        // translate MessageEncryptionService.Decrypt into SQL) - projecting to
-        // the response DTO happens here, in memory, after materializing.
-        // Only legacy (IsE2ee false) rows get decrypted server-side - E2EE
-        // rows are relayed as opaque ciphertext for the client to decrypt.
         var response = messages
-            .Select(m => new DirectMessageResponse(
-                m.Id,
-                m.IsE2ee ? m.Content : _messageEncryption.Decrypt(m.Content),
-                m.SenderId, m.RecipientId, m.SentAt, m.EditedAt, m.IsE2ee))
+            .Select(m => new DirectMessageResponse(m.Id, m.Content, m.SenderId, m.RecipientId, m.SentAt, m.EditedAt))
             .ToList();
 
         return Ok(response);
@@ -112,19 +98,16 @@ public class DirectMessagesController : ControllerBase
         if (message.SenderId != CurrentUserId) return Forbid();
 
         // request.Content is already E2EE ciphertext by the time it gets
-        // here - the client always encrypts before calling this now (see
-        // ApiService.EditDirectMessageAsync), so editing a legacy
-        // (pre-E2EE) message upgrades it to E2EE going forward rather than
-        // needing separate handling for the two cases.
+        // here - the client always encrypts before calling this (see
+        // ApiService.EditDirectMessageAsync).
         message.Content = request.Content;
-        message.IsE2ee = true;
         message.EditedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
 
         // Broadcasts exactly what was stored - both sides decrypt it
         // themselves client-side (see ChatHub.SendDirectMessage for the
         // same reasoning on the send path).
-        var response = new DirectMessageResponse(message.Id, message.Content, message.SenderId, message.RecipientId, message.SentAt, message.EditedAt, message.IsE2ee);
+        var response = new DirectMessageResponse(message.Id, message.Content, message.SenderId, message.RecipientId, message.SentAt, message.EditedAt);
 
         // Same dual-send pattern SendDirectMessage already uses - both
         // participants' own connections need the update, there's no shared

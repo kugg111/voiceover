@@ -18,12 +18,11 @@ public record MessageResponse(int Id, string Content, int ChannelId, int AuthorI
 public record EditMessageRequest(string Content);
 public record UploadResponse(string Url);
 
-// IsE2ee tells the client whether Content is opaque E2EE ciphertext it
-// needs to decrypt itself (true, the normal case for anything sent after
-// E2EE shipped) or already-plaintext, decrypted server-side one last time
-// for a legacy pre-E2EE row (false) - see DirectMessage.IsE2ee.
-public record DirectMessageResponse(int Id, string Content, int SenderId, int RecipientId, DateTime SentAt, DateTime? EditedAt = null, bool IsE2ee = false);
-public record DmConversationResponse(int OtherUserId, string OtherUsername, string LastMessagePreview, DateTime LastMessageAt, string? OtherUserAvatarUrl = null, bool IsE2ee = false);
+// Content/LastMessagePreview are opaque E2EE ciphertext - the client
+// decrypts them itself (see Client/Services/E2eeService.cs); the server
+// never has a usable key.
+public record DirectMessageResponse(int Id, string Content, int SenderId, int RecipientId, DateTime SentAt, DateTime? EditedAt = null);
+public record DmConversationResponse(int OtherUserId, string OtherUsername, string LastMessagePreview, DateTime LastMessageAt, string? OtherUserAvatarUrl = null);
 public record UserSummaryResponse(int Id, string Username, string? AvatarUrl = null);
 
 // --- E2EE key material (DMs only - see Client/Services/E2eeService.cs) ---

@@ -266,16 +266,14 @@ public class ApiService
     public async Task<List<UserSummaryResponse>> SearchUsersAsync(string query)
         => await _http.GetFromJsonAsync<List<UserSummaryResponse>>($"api/users/search?username={Uri.EscapeDataString(query)}") ?? new();
 
-    // Decrypts E2EE rows client-side before handing them back - callers
-    // (MainWindow) always see plaintext Content, same as before E2EE
-    // existed. Legacy (IsE2ee false) rows already come back plaintext from
-    // the server (see DirectMessagesController) and pass through untouched.
+    // Decrypts E2EE ciphertext client-side before handing it back - callers
+    // (MainWindow) always see plaintext Content.
     public async Task<List<DirectMessageResponse>> GetDmHistoryAsync(int otherUserId)
     {
         var messages = await _http.GetFromJsonAsync<List<DirectMessageResponse>>($"api/dm/{otherUserId}") ?? new();
         var result = new List<DirectMessageResponse>(messages.Count);
         foreach (var m in messages)
-            result.Add(m.IsE2ee ? m with { Content = await E2ee.DecryptAsync(otherUserId, m.Content) } : m);
+            result.Add(m with { Content = await E2ee.DecryptAsync(otherUserId, m.Content) });
         return result;
     }
 
@@ -293,7 +291,7 @@ public class ApiService
 
         var updated = await response.Content.ReadFromJsonAsync<DirectMessageResponse>();
         if (updated is null) return null;
-        return updated.IsE2ee ? updated with { Content = await E2ee.DecryptAsync(otherUserId, updated.Content) } : updated;
+        return updated with { Content = await E2ee.DecryptAsync(otherUserId, updated.Content) };
     }
 
     public async Task<bool> DeleteDirectMessageAsync(int otherUserId, int messageId)
@@ -304,7 +302,7 @@ public class ApiService
         var conversations = await _http.GetFromJsonAsync<List<DmConversationResponse>>("api/dm/conversations") ?? new();
         var result = new List<DmConversationResponse>(conversations.Count);
         foreach (var c in conversations)
-            result.Add(c.IsE2ee ? c with { LastMessagePreview = await E2ee.DecryptAsync(c.OtherUserId, c.LastMessagePreview) } : c);
+            result.Add(c with { LastMessagePreview = await E2ee.DecryptAsync(c.OtherUserId, c.LastMessagePreview) });
         return result;
     }
 

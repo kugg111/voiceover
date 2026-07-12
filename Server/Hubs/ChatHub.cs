@@ -116,7 +116,7 @@ public class ChatHub : Hub
         _db.DirectMessages.Add(dm);
         await _db.SaveChangesAsync();
 
-        var response = new Dtos.DirectMessageResponse(dm.Id, dm.Content, dm.SenderId, dm.RecipientId, dm.SentAt, IsE2ee: dm.IsE2ee);
+        var response = new Dtos.DirectMessageResponse(dm.Id, dm.Content, dm.SenderId, dm.RecipientId, dm.SentAt);
 
         await Clients.User(recipientId.ToString()).SendAsync("ReceiveDirectMessage", response);
         await Clients.User(CurrentUserId.ToString()).SendAsync("ReceiveDirectMessage", response);
