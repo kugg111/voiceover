@@ -101,6 +101,21 @@ public class VoiceMemberItem : INotifyPropertyChanged
 
     public Visibility DeafenedIconVisibility => IsDeafened ? Visibility.Visible : Visibility.Collapsed;
 
+    private bool _isScreenSharing;
+    public bool IsScreenSharing
+    {
+        get => _isScreenSharing;
+        set
+        {
+            if (_isScreenSharing == value) return;
+            _isScreenSharing = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsScreenSharing)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ScreenSharingIconVisibility)));
+        }
+    }
+
+    public Visibility ScreenSharingIconVisibility => IsScreenSharing ? Visibility.Visible : Visibility.Collapsed;
+
     // 0-200%, 100 = unchanged. Persisted locally per-user (see
     // UserVolumeStorage) so it carries over the next time you're in a
     // voice channel with the same person, instead of resetting every join.
@@ -372,6 +387,9 @@ public partial class MainWindow : FluentWindow
     private string? _currentCallId;
     private System.Windows.Threading.DispatcherTimer? _ringTimeoutTimer;
 
+    // One viewer window per remote participant currently screen-sharing.
+    private readonly Dictionary<int, ScreenShareViewerWindow> _screenShareViewers = new();
+
     // BulkObservableCollection where a Clear()+per-item-Add() reload pattern
     // is common (see ReplaceAll callers below) - one Reset notification
     // instead of N+1 individual ones. Plain ObservableCollection for the
@@ -476,6 +494,10 @@ public partial class MainWindow : FluentWindow
         // below.
         _callWindow?.CloseSilently();
 
+        // Same OnLastWindowClose reasoning as _callWindow above.
+        foreach (var viewer in _screenShareViewers.Values.ToList())
+            viewer.Close();
+
         if (_voice is not null)
             await _voice.DisposeAsync();
         await _hub.DisconnectAsync();
@@ -488,6 +510,8 @@ public partial class MainWindow : FluentWindow
         _voice.PeerConnected += userId => Dispatcher.Invoke(() => ConnectionStatusText.Text = "Voice connected");
         _voice.PeerDisconnected += userId => Dispatcher.Invoke(() => ConnectionStatusText.Text = "");
         _voice.LocalSpeakingChanged += isSpeaking => _ = OnLocalSpeakingChangedAsync(isSpeaking);
+        _voice.RemoteScreenShareStarted += (userId, playback) => Dispatcher.Invoke(() => OnRemoteScreenShareStarted(userId, playback));
+        _voice.RemoteScreenShareStopped += userId => Dispatcher.Invoke(() => OnRemoteScreenShareStopped(userId));
         // Mute can change from places that don't have a handle on this
         // button - Voice Settings' input mode switch, the PTT/push-to-mute
         // hotkey - so this is the one place that keeps it in sync regardless
@@ -504,6 +528,7 @@ public partial class MainWindow : FluentWindow
             else NotificationService.PlayUnmuteSound();
         };
         _voice.DeafenedChanged += isDeafened => _ = OnLocalDeafenedChangedAsync(isDeafened);
+        _voice.ScreenSharingChanged += isSharing => Dispatcher.Invoke(() => OnLocalScreenSharingChanged(isSharing));
 
         _hub.PresenceChanged += (userId, state) => Dispatcher.Invoke(() => OnPresenceChanged(userId, state));
         _idleDetector.IdleChanged += isIdle => _ = OnIdleChangedAsync(isIdle);
@@ -873,8 +898,10 @@ public partial class MainWindow : FluentWindow
         LeaveVoiceButton.Visibility = Visibility.Visible;
         MuteMicButton.Visibility = Visibility.Visible;
         DeafenButton.Visibility = Visibility.Visible;
+        ScreenShareButton.Visibility = Visibility.Visible;
         UpdateMuteButtonVisual();
         UpdateDeafenButtonVisual();
+        UpdateScreenShareButtonVisual();
         ConnectionStatusText.Text = "Joined voice";
 
         // Unconditional (not gated on window focus like OnVoiceUserJoined's
@@ -1075,6 +1102,7 @@ public partial class MainWindow : FluentWindow
         LeaveVoiceButton.Visibility = Visibility.Collapsed;
         MuteMicButton.Visibility = Visibility.Collapsed;
         DeafenButton.Visibility = Visibility.Collapsed;
+        ScreenShareButton.Visibility = Visibility.Collapsed;
     }
 
     // Caller-side-only ring timeout (per the plan: handled client-side
@@ -1098,6 +1126,115 @@ public partial class MainWindow : FluentWindow
     {
         _ringTimeoutTimer?.Stop();
         _ringTimeoutTimer = null;
+    }
+
+    // --- Screen sharing (server voice channels - see VoiceService.
+    // StartScreenShareAsync/StopScreenShareAsync and ScreenCaptureSource) ---
+
+    private void ScreenShareButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_voice is null) return;
+
+        if (_voice.IsScreenSharing)
+        {
+            _ = StopScreenShareAsync();
+            return;
+        }
+
+        ScreenSharePresetMenu.PlacementTarget = ScreenShareButton;
+        ScreenSharePresetMenu.IsOpen = true;
+    }
+
+    // Bitrate ceilings scale with the frame-rate target so a higher fps
+    // preset isn't starved by the same cap a 30fps share would use - see the
+    // Phase 2 spike notes on the plan for why a shared fixed cap skewed its
+    // fps comparison. 120fps stays labelled experimental in the UI since the
+    // spike couldn't confirm it holds up through the SFU in practice.
+    private async void ScreenShare30Fps_Click(object sender, RoutedEventArgs e) => await StartScreenShareWithPresetAsync(30, 8_000_000);
+    private async void ScreenShare60Fps_Click(object sender, RoutedEventArgs e) => await StartScreenShareWithPresetAsync(60, 20_000_000);
+    private async void ScreenShare120Fps_Click(object sender, RoutedEventArgs e) => await StartScreenShareWithPresetAsync(120, 35_000_000);
+
+    private async Task StartScreenShareWithPresetAsync(uint fps, uint bitrate)
+    {
+        if (_voice is null) return;
+
+        Windows.Graphics.Capture.GraphicsCaptureItem? item;
+        try
+        {
+            var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            item = await ScreenCaptureSource.PickItemAsync(hwnd);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Could not open the screen/window picker:\n{ex.Message}", "Error",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+        if (item is null) return; // user cancelled the OS picker
+
+        try
+        {
+            await _voice.StartScreenShareAsync(item, fps, bitrate);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Could not start screen sharing:\n{ex.Message}", "Error",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        UpdateScreenShareButtonVisual();
+    }
+
+    private void OnLocalScreenSharingChanged(bool isSharing)
+    {
+        if (!_currentVoiceChannelId.HasValue || _api.CurrentUserId is null) return;
+        var item = FindVoiceChannelItem(_currentVoiceChannelId.Value);
+        var me = item?.Members.FirstOrDefault(m => m.UserId == _api.CurrentUserId.Value);
+        if (me is not null) me.IsScreenSharing = isSharing;
+    }
+
+    private async Task StopScreenShareAsync()
+    {
+        if (_voice is null) return;
+        await _voice.StopScreenShareAsync();
+        UpdateScreenShareButtonVisual();
+    }
+
+    private void UpdateScreenShareButtonVisual()
+    {
+        if (_voice is null) return;
+
+        ScreenShareButton.Content = _voice.IsScreenSharing ? "🖥️ Stop Sharing" : "🖥️ Share Screen";
+        ScreenShareButton.Foreground = _voice.IsScreenSharing
+            ? (System.Windows.Media.Brush)FindResource("AccentBlurple")
+            : (System.Windows.Media.Brush)FindResource("TextMuted");
+    }
+
+    private void OnRemoteScreenShareStarted(int userId, RemoteVideoPlayback playback)
+    {
+        var member = _currentVoiceChannelId.HasValue
+            ? FindVoiceChannelItem(_currentVoiceChannelId.Value)?.Members.FirstOrDefault(m => m.UserId == userId)
+            : null;
+        if (member is not null) member.IsScreenSharing = true;
+
+        if (_screenShareViewers.ContainsKey(userId)) return;
+
+        var viewer = new ScreenShareViewerWindow(member?.Username ?? "Someone", playback);
+        _screenShareViewers[userId] = viewer;
+        viewer.Closed += (_, _) => _screenShareViewers.Remove(userId);
+        viewer.Show();
+    }
+
+    private void OnRemoteScreenShareStopped(int userId)
+    {
+        var member = _currentVoiceChannelId.HasValue
+            ? FindVoiceChannelItem(_currentVoiceChannelId.Value)?.Members.FirstOrDefault(m => m.UserId == userId)
+            : null;
+        if (member is not null) member.IsScreenSharing = false;
+
+        if (_screenShareViewers.Remove(userId, out var viewer))
+            viewer.Close();
     }
 
     private async void AddServerButton_Click(object sender, RoutedEventArgs e)
@@ -1230,6 +1367,7 @@ public partial class MainWindow : FluentWindow
             LeaveVoiceButton.Visibility = Visibility.Collapsed;
             MuteMicButton.Visibility = Visibility.Collapsed;
             DeafenButton.Visibility = Visibility.Collapsed;
+            ScreenShareButton.Visibility = Visibility.Collapsed;
             ConnectionStatusText.Text = "";
         }
 
@@ -1247,6 +1385,7 @@ public partial class MainWindow : FluentWindow
         LeaveVoiceButton.Visibility = Visibility.Collapsed;
         MuteMicButton.Visibility = Visibility.Collapsed;
         DeafenButton.Visibility = Visibility.Collapsed;
+        ScreenShareButton.Visibility = Visibility.Collapsed;
         ConnectionStatusText.Text = "";
     }
 

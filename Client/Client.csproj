@@ -45,6 +45,15 @@
          bindings wrap its real Rust WebRTC core, not a from-scratch
          reimplementation. -->
     <PackageReference Include="Livekit.Rtc.Dotnet" Version="0.1.3" />
+    <!-- Screen sharing: captures a monitor/window via Windows.Graphics.Capture
+         (built into the SDK for this net8.0-windows10.0.19041.0 TFM, no
+         package needed) and reads the captured GPU texture back to CPU-side
+         BGRA bytes for VideoSource.CaptureFrame - see ScreenCaptureSource
+         and Direct3D11Interop. SharpDX is unmaintained upstream but is the
+         exact D3D11 binding Microsoft's own WPF capture sample uses for this
+         interop path; kept for parity with that proven-correct reference
+         rather than hand-adapting to a different, unverified binding. -->
+    <PackageReference Include="SharpDX.Direct3D11" Version="4.2.0" />
     <!-- Mic/speaker device enumeration and capture/playback - LiveKit's
          AudioSource/AudioStream take and give raw PCM frames, they don't
          touch physical audio devices themselves. -->

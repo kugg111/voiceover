@@ -102,6 +102,20 @@
                         Background="Transparent" Foreground="{StaticResource TextMuted}"
                         BorderThickness="0" HorizontalContentAlignment="Left" Visibility="Collapsed"
                         Click="MuteMicButton_Click"/>
+                <Button DockPanel.Dock="Bottom" x:Name="ScreenShareButton" Content="🖥️ Share Screen" Margin="10,0,10,0"
+                        Background="Transparent" Foreground="{StaticResource TextMuted}"
+                        BorderThickness="0" HorizontalContentAlignment="Left" Visibility="Collapsed"
+                        Click="ScreenShareButton_Click">
+                    <Button.ContextMenu>
+                        <!-- Frame-rate presets from the Phase 2 spike (see the plan) - 30/60 are
+                             the committed tiers, 120 is explicitly experimental/best-effort. -->
+                        <ContextMenu x:Name="ScreenSharePresetMenu">
+                            <MenuItem Header="30 fps (safe)" Click="ScreenShare30Fps_Click"/>
+                            <MenuItem Header="60 fps (high)" Click="ScreenShare60Fps_Click"/>
+                            <MenuItem Header="120 fps (experimental)" Click="ScreenShare120Fps_Click"/>
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
 
                 <StackPanel DockPanel.Dock="Top">
                     <TextBlock Text="TEXT CHANNELS" FontSize="11" FontWeight="Bold"
@@ -165,6 +179,8 @@
                                                                Visibility="{Binding MutedIconVisibility}" ToolTip="Muted"/>
                                                     <TextBlock Text="🎧" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0"
                                                                Visibility="{Binding DeafenedIconVisibility}" ToolTip="Deafened"/>
+                                                    <TextBlock Text="🖥️" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0"
+                                                               Visibility="{Binding ScreenSharingIconVisibility}" ToolTip="Sharing screen"/>
                                                     <TextBlock Text="{Binding Username}" FontSize="12" VerticalAlignment="Center"
                                                                Foreground="{Binding UsernameForeground}"
                                                                ToolTip="{Binding JoiningTooltip}"/>

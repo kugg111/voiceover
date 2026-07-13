@@ -2,6 +2,8 @@ using System.Collections.Concurrent;
 using System.Windows.Input;
 using LiveKit.Rtc;
 using Voiceover.Client.Models;
+using Windows.Graphics.Capture;
+using TrackSource = LiveKit.Proto.TrackSource;
 
 namespace Voiceover.Client.Services;
 
@@ -41,6 +43,22 @@ public class VoiceService : IAsyncDisposable
     private MicCaptureSource? _micCapture;
     private LocalAudioTrack? _localTrack;
     private readonly ConcurrentDictionary<int, RemoteAudioPlayback> _remotePlaybacks = new();
+
+    private ScreenCaptureSource? _screenCapture;
+    private LocalVideoTrack? _screenShareTrack;
+    private readonly ConcurrentDictionary<int, RemoteVideoPlayback> _remoteVideoPlaybacks = new();
+
+    public bool IsScreenSharing => _screenCapture is not null;
+
+    // Fires when the LOCAL user's own screen-share state changes - lets the
+    // UI update this client's own roster row without polling IsScreenSharing.
+    public event Action<bool>? ScreenSharingChanged;
+
+    // Fires when a remote participant starts/stops sharing their screen -
+    // one video track max per participant (this app doesn't support camera
+    // video, only screen share), so userId is enough to key on.
+    public event Action<int, RemoteVideoPlayback>? RemoteScreenShareStarted;
+    public event Action<int>? RemoteScreenShareStopped;
 
     public event Action<int>? PeerConnected;
     public event Action<int>? PeerDisconnected;
@@ -386,36 +404,110 @@ public class VoiceService : IAsyncDisposable
 
     private void OnTrackSubscribed(object? sender, TrackSubscribedEventArgs e)
     {
-        if (e.Track is not RemoteAudioTrack audioTrack) return;
         if (!int.TryParse(e.Participant.Identity, out var userId)) return;
 
-        var playback = new RemoteAudioPlayback(audioTrack, OutputDeviceIndex ?? -1)
+        if (e.Track is RemoteAudioTrack audioTrack)
         {
-            Deafened = IsDeafened,
-            PlaybackVolume = UserVolumeStorage.GetVolume(userId) ?? 1.0f
-        };
-        _remotePlaybacks[userId] = playback;
+            var playback = new RemoteAudioPlayback(audioTrack, OutputDeviceIndex ?? -1)
+            {
+                Deafened = IsDeafened,
+                PlaybackVolume = UserVolumeStorage.GetVolume(userId) ?? 1.0f
+            };
+            _remotePlaybacks[userId] = playback;
+        }
+        else if (e.Track is RemoteVideoTrack videoTrack)
+        {
+            var playback = new RemoteVideoPlayback(videoTrack);
+            _remoteVideoPlaybacks[userId] = playback;
+            RemoteScreenShareStarted?.Invoke(userId, playback);
+        }
     }
 
     private async void OnTrackUnsubscribed(object? sender, TrackSubscribedEventArgs e)
     {
         if (!int.TryParse(e.Participant.Identity, out var userId)) return;
-        if (_remotePlaybacks.TryRemove(userId, out var playback))
-            await playback.DisposeAsync();
+
+        // Scoped to the specific track kind that went away - a participant
+        // can have both an audio and a screen-share video track at once, so
+        // one ending (e.g. they stop sharing) must not tear down the other.
+        if (e.Track is RemoteAudioTrack)
+        {
+            if (_remotePlaybacks.TryRemove(userId, out var playback))
+                await playback.DisposeAsync();
+        }
+        else if (e.Track is RemoteVideoTrack)
+        {
+            if (_remoteVideoPlaybacks.TryRemove(userId, out var playback))
+            {
+                await playback.DisposeAsync();
+                RemoteScreenShareStopped?.Invoke(userId);
+            }
+        }
     }
 
     private async void OnParticipantDisconnected(object? sender, Participant e)
     {
         if (!int.TryParse(e.Identity, out var userId)) return;
 
-        // TrackUnsubscribed should already have cleaned this up - a
+        // TrackUnsubscribed should already have cleaned these up - a
         // participant disconnecting always implies their tracks going away
         // too - but this covers it defensively in case that event doesn't
         // fire for some reason.
         if (_remotePlaybacks.TryRemove(userId, out var playback))
             await playback.DisposeAsync();
 
+        if (_remoteVideoPlaybacks.TryRemove(userId, out var videoPlayback))
+        {
+            await videoPlayback.DisposeAsync();
+            RemoteScreenShareStopped?.Invoke(userId);
+        }
+
         PeerDisconnected?.Invoke(userId);
+    }
+
+    // Publishes a screen/window capture as a video track - maxFramerate
+    // drives both the capture pipeline's actual frame rate ceiling (see
+    // ScreenCaptureSource) and what LiveKit is told to expect, so encoder
+    // bitrate allocation matches what's really being sent. Only one share
+    // at a time; starting a new one while already sharing stops the old
+    // capture first rather than publishing two video tracks.
+    public async Task StartScreenShareAsync(GraphicsCaptureItem item, uint maxFramerate, uint maxBitrate)
+    {
+        if (_room?.LocalParticipant is null) return;
+        if (_screenCapture is not null) await StopScreenShareAsync();
+
+        var capture = new ScreenCaptureSource(item);
+        var track = LocalVideoTrack.Create("screen", capture.Source);
+        var options = new TrackPublishOptions
+        {
+            Source = TrackSource.SourceScreenshare,
+            VideoEncoding = new VideoEncodingOptions { MaxFramerate = maxFramerate, MaxBitrate = maxBitrate }
+        };
+
+        await _room.LocalParticipant.PublishTrackAsync(track, options, CancellationToken.None);
+
+        _screenCapture = capture;
+        _screenShareTrack = track;
+        ScreenSharingChanged?.Invoke(true);
+    }
+
+    public async Task StopScreenShareAsync()
+    {
+        if (_screenShareTrack is null) return;
+
+        if (_room?.LocalParticipant is not null)
+        {
+            // Best-effort - if the room is already tearing down (e.g. this
+            // raced LeaveAllAsync), there's nothing left to unpublish from.
+            try { await _room.LocalParticipant.UnpublishTrackAsync(_screenShareTrack.Sid, CancellationToken.None); }
+            catch { }
+        }
+
+        _screenShareTrack.Dispose();
+        _screenShareTrack = null;
+        _screenCapture?.Dispose();
+        _screenCapture = null;
+        ScreenSharingChanged?.Invoke(false);
     }
 
     // Leaves the current room and tears down capture/playback, but keeps
@@ -433,6 +525,23 @@ public class VoiceService : IAsyncDisposable
         foreach (var userId in _remotePlaybacks.Keys.ToList())
             if (_remotePlaybacks.TryRemove(userId, out var playback))
                 await playback.DisposeAsync();
+
+        foreach (var userId in _remoteVideoPlaybacks.Keys.ToList())
+        {
+            if (_remoteVideoPlaybacks.TryRemove(userId, out var videoPlayback))
+            {
+                await videoPlayback.DisposeAsync();
+                RemoteScreenShareStopped?.Invoke(userId);
+            }
+        }
+
+        // Screen share isn't unpublished via StopScreenShareAsync here - the
+        // room is about to be disconnected/disposed wholesale anyway, so
+        // there's no separate participant left to notify.
+        _screenShareTrack?.Dispose();
+        _screenShareTrack = null;
+        _screenCapture?.Dispose();
+        _screenCapture = null;
 
         if (_micCapture is not null)
         {
