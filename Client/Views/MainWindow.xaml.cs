@@ -763,10 +763,13 @@ public partial class MainWindow : FluentWindow
                 await _hub.RequestServerKeyAsync(serverId);
         }
 
+        // Decrypted in parallel, not one at a time - Task.WhenAll preserves
+        // the input order (still oldest-first, matching what the server
+        // returned), same fix already applied to
+        // ApiService.GetDmConversationsAsync this session.
         var history = await _api.GetMessageHistoryAsync(channelId);
-        var items = new List<MessageListItem>(history.Count);
-        foreach (var m in history)
-            items.Add(ToListItem(m, await _api.E2ee.DecryptForServerAsync(serverId, m.Content)));
+        var items = await Task.WhenAll(history.Select(async m =>
+            ToListItem(m, await _api.E2ee.DecryptForServerAsync(serverId, m.Content))));
         _messages.ReplaceAll(items);
 
         ScrollToBottom();

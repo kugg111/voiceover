@@ -55,14 +55,21 @@ public class InvitesController : ControllerBase
         return Ok(new InviteResponse(invite.Code, invite.ExpiresAt, invite.MaxUses, invite.UseCount));
     }
 
+    // take/skip are optional and unbounded by default (existing callers get
+    // today's "return everything" behavior).
     [HttpGet]
-    public async Task<ActionResult<List<InviteResponse>>> List(int serverId)
+    public async Task<ActionResult<List<InviteResponse>>> List(int serverId, int? take = null, int? skip = null)
     {
         if (!await _permissions.IsMemberAsync(CurrentUserId, serverId))
             return Forbid();
 
-        var invites = await _db.Invites
+        var query = _db.Invites
             .Where(i => i.GuildServerId == serverId)
+            .OrderByDescending(i => i.CreatedAt)
+            .Skip(skip ?? 0);
+        if (take.HasValue) query = query.Take(take.Value);
+
+        var invites = await query
             .Select(i => new InviteResponse(i.Code, i.ExpiresAt, i.MaxUses, i.UseCount))
             .ToListAsync();
 

@@ -20,9 +20,28 @@ public class AppDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        // Needed for the trigram (substring-search) index below.
+        modelBuilder.HasPostgresExtension("pg_trgm");
+
         modelBuilder.Entity<User>()
             .HasIndex(u => u.Username)
             .IsUnique();
+
+        // UsersController.Search does Username.Contains(...) (a leading-
+        // wildcard ILIKE) for friend/DM search - the unique btree index
+        // above can't serve that at all, so this is a second, separate
+        // index on the same column using Postgres's trigram extension,
+        // which the query planner picks for substring matches. The name
+        // has to be passed into HasIndex itself (not chained on after) -
+        // otherwise EF Core treats a second HasIndex call on the same
+        // property as reconfiguring the SAME index rather than creating a
+        // new one, which would silently replace the unique constraint
+        // above with a (invalid) "unique GIN" index instead of adding a
+        // second index.
+        modelBuilder.Entity<User>()
+            .HasIndex(u => u.Username, "IX_Users_Username_Trgm")
+            .HasMethod("gin")
+            .HasOperators("gin_trgm_ops");
 
         modelBuilder.Entity<Membership>()
             .HasIndex(m => new { m.UserId, m.GuildServerId })

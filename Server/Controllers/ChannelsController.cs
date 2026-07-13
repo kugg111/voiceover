@@ -25,15 +25,21 @@ public class ChannelsController : ControllerBase
 
     private int CurrentUserId => int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
+    // take/skip are optional and unbounded by default (existing callers get
+    // today's "return everything" behavior).
     [HttpGet]
-    public async Task<ActionResult<List<ChannelResponse>>> GetChannels(int serverId)
+    public async Task<ActionResult<List<ChannelResponse>>> GetChannels(int serverId, int? take = null, int? skip = null)
     {
         if (!await _permissions.IsMemberAsync(CurrentUserId, serverId))
             return Forbid();
 
-        var channels = await _db.Channels
+        var query = _db.Channels
             .Where(c => c.GuildServerId == serverId)
             .OrderBy(c => c.Position)
+            .Skip(skip ?? 0);
+        if (take.HasValue) query = query.Take(take.Value);
+
+        var channels = await query
             .Select(c => new ChannelResponse(c.Id, c.Name, c.Type.ToString(), c.GuildServerId, c.Position))
             .ToListAsync();
 

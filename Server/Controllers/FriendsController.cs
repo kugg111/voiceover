@@ -29,14 +29,22 @@ public class FriendsController : ControllerBase
 
     private int CurrentUserId => int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
-    // GET /api/friends -> accepted friendships, returned as the other user
+    // GET /api/friends -> accepted friendships, returned as the other user.
+    // take/skip are optional and unbounded by default (existing callers get
+    // today's "return everything" behavior) - applied to the underlying
+    // Friendship rows (ordered by Id for stable pagination) before the
+    // in-memory user-info join below, since each row maps 1:1 to a result.
     [HttpGet]
-    public async Task<ActionResult<List<FriendResponse>>> GetFriends()
+    public async Task<ActionResult<List<FriendResponse>>> GetFriends(int? take = null, int? skip = null)
     {
-        var friendships = await _db.Friendships
+        var query = _db.Friendships
             .Where(f => f.Status == FriendshipStatus.Accepted &&
                         (f.RequesterId == CurrentUserId || f.AddresseeId == CurrentUserId))
-            .ToListAsync();
+            .OrderBy(f => f.Id)
+            .Skip(skip ?? 0);
+        if (take.HasValue) query = query.Take(take.Value);
+
+        var friendships = await query.ToListAsync();
 
         var otherUserIds = friendships
             .Select(f => f.RequesterId == CurrentUserId ? f.AddresseeId : f.RequesterId)
@@ -57,14 +65,20 @@ public class FriendsController : ControllerBase
         return Ok(result);
     }
 
-    // GET /api/friends/requests -> pending requests involving the current user
+    // GET /api/friends/requests -> pending requests involving the current
+    // user. take/skip optional and unbounded by default, same reasoning as
+    // GetFriends above.
     [HttpGet("requests")]
-    public async Task<ActionResult<List<FriendRequestResponse>>> GetRequests()
+    public async Task<ActionResult<List<FriendRequestResponse>>> GetRequests(int? take = null, int? skip = null)
     {
-        var pending = await _db.Friendships
+        var query = _db.Friendships
             .Where(f => f.Status == FriendshipStatus.Pending &&
                         (f.RequesterId == CurrentUserId || f.AddresseeId == CurrentUserId))
-            .ToListAsync();
+            .OrderBy(f => f.Id)
+            .Skip(skip ?? 0);
+        if (take.HasValue) query = query.Take(take.Value);
+
+        var pending = await query.ToListAsync();
 
         var otherUserIds = pending
             .Select(f => f.RequesterId == CurrentUserId ? f.AddresseeId : f.RequesterId)

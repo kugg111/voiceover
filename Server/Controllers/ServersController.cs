@@ -85,17 +85,26 @@ public class ServersController : ControllerBase
         return Ok();
     }
 
+    // take/skip are optional and unbounded by default (existing callers get
+    // today's "return everything" behavior) - added so member lists don't
+    // need a breaking change later if a server's membership grows large.
     [HttpGet("{serverId}/members")]
-    public async Task<ActionResult<List<MemberResponse>>> GetMembers(int serverId)
+    public async Task<ActionResult<List<MemberResponse>>> GetMembers(int serverId, int? take = null, int? skip = null)
     {
         if (!await _permissions.IsMemberAsync(CurrentUserId, serverId))
             return Forbid();
 
         // PresenceService is in-memory (not queryable in SQL), so the
         // presence lookup happens after materializing the DB rows rather
-        // than inside the EF projection above.
-        var members = await _db.Memberships
+        // than inside the EF projection above. Ordered by Id for stable
+        // pagination (Skip/Take need a deterministic order).
+        var query = _db.Memberships
             .Where(m => m.GuildServerId == serverId)
+            .OrderBy(m => m.Id)
+            .Skip(skip ?? 0);
+        if (take.HasValue) query = query.Take(take.Value);
+
+        var members = await query
             .Select(m => new { m.UserId, m.User!.Username, Role = m.Role.ToString(), m.User!.AvatarUrl })
             .ToListAsync();
 

@@ -166,7 +166,14 @@ public class ChatHub : Hub
         var channel = await _db.Channels.FirstOrDefaultAsync(c => c.Id == channelId);
         if (channel is null) return new List<VoiceParticipant>();
 
-        var avatarUrl = (await _db.Users.FindAsync(CurrentUserId))?.AvatarUrl;
+        // Same cache SendMessage uses - avoids a DB round trip for a value
+        // that rarely changes.
+        if (!_avatarCache.TryGet(CurrentUserId, out var avatarUrl))
+        {
+            avatarUrl = (await _db.Users.FindAsync(CurrentUserId))?.AvatarUrl;
+            _avatarCache.Set(CurrentUserId, avatarUrl);
+        }
+
         var existingMembers = _voicePresence.Join(Context.ConnectionId, channelId, channel.GuildServerId, CurrentUserId, CurrentUsername, avatarUrl);
         await Groups.AddToGroupAsync(Context.ConnectionId, VoiceGroupName(channelId));
         await Clients.OthersInGroup(VoiceGroupName(channelId)).SendAsync("VoiceUserJoined", CurrentUserId, CurrentUsername, channelId, avatarUrl);

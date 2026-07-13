@@ -267,14 +267,15 @@ public class ApiService
         => await _http.GetFromJsonAsync<List<UserSummaryResponse>>($"api/users/search?username={Uri.EscapeDataString(query)}") ?? new();
 
     // Decrypts E2EE ciphertext client-side before handing it back - callers
-    // (MainWindow) always see plaintext Content.
+    // (MainWindow) always see plaintext Content. Decrypted in parallel, not
+    // one at a time - Task.WhenAll preserves input order (still
+    // oldest-first), same fix already applied to GetDmConversationsAsync.
     public async Task<List<DirectMessageResponse>> GetDmHistoryAsync(int otherUserId)
     {
         var messages = await _http.GetFromJsonAsync<List<DirectMessageResponse>>($"api/dm/{otherUserId}") ?? new();
-        var result = new List<DirectMessageResponse>(messages.Count);
-        foreach (var m in messages)
-            result.Add(m with { Content = await E2ee.DecryptAsync(otherUserId, m.Content) });
-        return result;
+        var decrypted = await Task.WhenAll(messages.Select(async m =>
+            m with { Content = await E2ee.DecryptAsync(otherUserId, m.Content) }));
+        return decrypted.ToList();
     }
 
     // Encrypts content client-side before sending - the server only ever
