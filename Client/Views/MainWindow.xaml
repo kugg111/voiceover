@@ -232,10 +232,11 @@
                     <TextBlock Grid.Column="0" Text="Direct Messages"
                                FontWeight="Bold" FontSize="15" Foreground="{StaticResource TextNormal}"
                                Padding="14,14,0,10" VerticalAlignment="Center"/>
-                    <Button Grid.Column="1" Content="📞" Width="30" Height="30" Margin="0,8,10,0"
+                    <Button Grid.Column="1" Content="📞" Width="26" Height="26" Padding="0" Margin="0,8,10,0"
                             Click="RecentCallsButton_Click" ToolTip="Recent Calls"
                             Background="Transparent" Foreground="{StaticResource TextNormal}"
-                            BorderThickness="0" FontSize="14" Cursor="Hand"/>
+                            BorderThickness="0" FontSize="12" Cursor="Hand"
+                            HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
                 </Grid>
                 <TextBox DockPanel.Dock="Top" x:Name="DmSearchBox" Height="34" Margin="10,0,10,8" Padding="8,6"
                          Background="{StaticResource BgDarker}" Foreground="{StaticResource TextNormal}"

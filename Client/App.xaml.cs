@@ -68,6 +68,14 @@ public partial class App : Application
 
     private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
+        try
+        {
+            System.IO.File.AppendAllText(
+                System.IO.Path.Combine(System.IO.Path.GetTempPath(), "voiceover_client_crash.log"),
+                $"{DateTime.Now:O}\n{e.Exception}\n\n");
+        }
+        catch { }
+
         MessageBox.Show($"Something went wrong: {e.Exception.Message}", "Unexpected Error",
             MessageBoxButton.OK, MessageBoxImage.Error);
         e.Handled = true;

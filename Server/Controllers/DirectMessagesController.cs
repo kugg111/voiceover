@@ -57,12 +57,12 @@ public class DirectMessagesController : ControllerBase
         // duplication entirely.
         var latestMessages = await _db.DirectMessages
             .FromSqlInterpolated($@"
-                SELECT ""Id"", ""Content"", ""SenderId"", ""RecipientId"", ""SentAt"", ""EditedAt""
+                SELECT ""Id"", ""Content"", ""SenderId"", ""RecipientId"", ""SentAt"", ""EditedAt"", ""ReadAt""
                 FROM (
                     SELECT DISTINCT ON (other_user_id)
-                        ""Id"", ""Content"", ""SenderId"", ""RecipientId"", ""SentAt"", ""EditedAt"", other_user_id
+                        ""Id"", ""Content"", ""SenderId"", ""RecipientId"", ""SentAt"", ""EditedAt"", ""ReadAt"", other_user_id
                     FROM (
-                        SELECT ""Id"", ""Content"", ""SenderId"", ""RecipientId"", ""SentAt"", ""EditedAt"",
+                        SELECT ""Id"", ""Content"", ""SenderId"", ""RecipientId"", ""SentAt"", ""EditedAt"", ""ReadAt"",
                             CASE WHEN ""SenderId"" = {currentUserId} THEN ""RecipientId"" ELSE ""SenderId"" END AS other_user_id
                         FROM ""DirectMessages""
                         WHERE ""SenderId"" = {currentUserId} OR ""RecipientId"" = {currentUserId}

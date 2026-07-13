@@ -152,8 +152,19 @@ public partial class VoiceSettingsPanel : UserControl
         _voice!.RingTimeoutSeconds = (int)e.NewValue;
     }
 
-    private void UpdateRingTimeoutDisplay() =>
+    // RingTimeoutDisplay can still be null the first time this fires -
+    // unlike AttenuationLimitSlider (Minimum="0", matching the Slider's own
+    // default Value so no coercion happens at parse time), this slider's
+    // Minimum="10" is above the default Value=0, so setting Minimum during
+    // XAML parsing immediately coerces Value up to 10 and raises
+    // ValueChanged before the sibling TextBlock below it in the markup has
+    // been constructed yet. Initialize() calls this again once the whole
+    // panel is loaded, so skipping the early call here is harmless.
+    private void UpdateRingTimeoutDisplay()
+    {
+        if (RingTimeoutDisplay is null) return;
         RingTimeoutDisplay.Text = $"{RingTimeoutSlider.Value:0}s";
+    }
 
     private void InputModeRadio_Changed(object sender, RoutedEventArgs e)
     {
