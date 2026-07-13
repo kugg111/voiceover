@@ -3,6 +3,9 @@ using System.Windows;
 using System.Windows.Media;
 using Voiceover.Client.Services;
 using Wpf.Ui.Controls;
+using MessageBox = System.Windows.MessageBox;
+using MessageBoxButton = System.Windows.MessageBoxButton;
+using MessageBoxImage = System.Windows.MessageBoxImage;
 
 namespace Voiceover.Client.Views;
 
@@ -39,6 +42,7 @@ public partial class CallWindow : FluentWindow
     private readonly VoiceMemberItem _selfRosterItem;
     private readonly VoiceMemberItem _otherRosterItem;
     private bool _suppressEndedEvent;
+    private ScreenShareViewerWindow? _remoteViewer;
 
     public CallWindow(string callId, string otherUsername, string? otherAvatarUrl, bool isOutgoing,
         string selfUsername, string? selfAvatarUrl, VoiceService voice)
@@ -62,6 +66,9 @@ public partial class CallWindow : FluentWindow
         _voice.MicMutedChanged += OnMicMutedChanged;
         _voice.DeafenedChanged += OnDeafenedChanged;
         _voice.LocalSpeakingChanged += OnLocalSpeakingChanged;
+        _voice.ScreenSharingChanged += OnLocalScreenSharingChanged;
+        _voice.RemoteScreenShareStarted += OnRemoteScreenShareStarted;
+        _voice.RemoteScreenShareStopped += OnRemoteScreenShareStopped;
 
         State = isOutgoing ? CallWindowState.OutgoingRinging : CallWindowState.IncomingRinging;
         ApplyState();
@@ -113,6 +120,83 @@ public partial class CallWindow : FluentWindow
 
     private void DeafenToggleButton_Click(object sender, RoutedEventArgs e) => _voice.IsDeafened = !_voice.IsDeafened;
 
+    private void ScreenShareButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_voice.IsScreenSharing)
+        {
+            _ = _voice.StopScreenShareAsync();
+            return;
+        }
+
+        ScreenSharePresetMenu.PlacementTarget = ScreenShareButton;
+        ScreenSharePresetMenu.IsOpen = true;
+    }
+
+    // Same bitrate-scales-with-fps reasoning as MainWindow's channel-voice
+    // screen share buttons - see the Phase 2 spike notes on the plan.
+    private async void ScreenShare30Fps_Click(object sender, RoutedEventArgs e) => await StartScreenShareWithPresetAsync(30, 8_000_000);
+    private async void ScreenShare60Fps_Click(object sender, RoutedEventArgs e) => await StartScreenShareWithPresetAsync(60, 20_000_000);
+    private async void ScreenShare120Fps_Click(object sender, RoutedEventArgs e) => await StartScreenShareWithPresetAsync(120, 35_000_000);
+
+    private async Task StartScreenShareWithPresetAsync(uint fps, uint bitrate)
+    {
+        Windows.Graphics.Capture.GraphicsCaptureItem? item;
+        try
+        {
+            var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            item = await ScreenCaptureSource.PickItemAsync(hwnd);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Could not open the screen/window picker:\n{ex.Message}", "Error",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+        if (item is null) return; // user cancelled the OS picker
+
+        try
+        {
+            await _voice.StartScreenShareAsync(item, fps, bitrate);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Could not start screen sharing:\n{ex.Message}", "Error",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void OnLocalScreenSharingChanged(bool isSharing) => Dispatcher.Invoke(() =>
+    {
+        _selfRosterItem.IsScreenSharing = isSharing;
+        UpdateScreenShareButtonVisual(isSharing);
+    });
+
+    // 1:1 call - any remote share/stop necessarily refers to the other
+    // party, no need to key off userId the way MainWindow's multi-person
+    // channel roster does.
+    private void OnRemoteScreenShareStarted(int userId, RemoteVideoPlayback playback) => Dispatcher.Invoke(() =>
+    {
+        _otherRosterItem.IsScreenSharing = true;
+        _remoteViewer?.Close();
+        _remoteViewer = new ScreenShareViewerWindow(_otherRosterItem.Username, playback);
+        _remoteViewer.Show();
+    });
+
+    private void OnRemoteScreenShareStopped(int userId) => Dispatcher.Invoke(() =>
+    {
+        _otherRosterItem.IsScreenSharing = false;
+        _remoteViewer?.Close();
+        _remoteViewer = null;
+    });
+
+    private void UpdateScreenShareButtonVisual(bool isSharing)
+    {
+        ScreenShareButton.Content = isSharing ? "🖥️ Stop Sharing" : "🖥️ Share Screen";
+        ScreenShareButton.Foreground = isSharing
+            ? (Brush)FindResource("AccentBlurple")
+            : (Brush)FindResource("TextMuted");
+    }
+
     private void OnMicMutedChanged(bool isMuted) => Dispatcher.Invoke(() => UpdateMuteVisual(isMuted));
     private void OnDeafenedChanged(bool isDeafened) => Dispatcher.Invoke(() =>
     {
@@ -149,6 +233,14 @@ public partial class CallWindow : FluentWindow
         _voice.MicMutedChanged -= OnMicMutedChanged;
         _voice.DeafenedChanged -= OnDeafenedChanged;
         _voice.LocalSpeakingChanged -= OnLocalSpeakingChanged;
+        _voice.ScreenSharingChanged -= OnLocalScreenSharingChanged;
+        _voice.RemoteScreenShareStarted -= OnRemoteScreenShareStarted;
+        _voice.RemoteScreenShareStopped -= OnRemoteScreenShareStopped;
+
+        // The call is ending either way - no reason to leave the other
+        // party's share window open once this window (and, via
+        // VoiceService.LeaveAllAsync, the underlying room) is gone too.
+        _remoteViewer?.Close();
 
         if (!_suppressEndedEvent)
             Ended?.Invoke(State == CallWindowState.IncomingRinging);

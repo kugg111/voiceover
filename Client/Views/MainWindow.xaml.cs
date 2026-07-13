@@ -777,6 +777,7 @@ public partial class MainWindow : FluentWindow
 
         var channelItem = FindChannelDisplayName(channelId);
         ChannelNameText.Text = channelItem ?? "# channel";
+        DmCallButton.Visibility = Visibility.Collapsed;
 
         await LoadChannelHistoryAsync(channelId);
     }
@@ -969,13 +970,24 @@ public partial class MainWindow : FluentWindow
 
     private async void CallFriendButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_voice is null) return;
         if (sender is not FrameworkElement { Tag: int calleeId }) return;
-        if (_callWindow is not null) return; // already ringing/in a call
 
         var friend = _friends.FirstOrDefault(f => f.UserId == calleeId);
-        var calleeUsername = friend?.Username ?? "user";
-        var calleeAvatarUrl = friend?.AvatarUrl;
+        await InitiateCallAsync(calleeId, friend?.Username ?? "user", friend?.AvatarUrl);
+    }
+
+    private async void DmCallButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_dmActiveUserId is null) return;
+
+        var avatarUrl = _dmConversations.FirstOrDefault(c => c.OtherUserId == _dmActiveUserId)?.OtherUserAvatarUrl;
+        await InitiateCallAsync(_dmActiveUserId.Value, _dmActiveUsername ?? "user", avatarUrl);
+    }
+
+    private async Task InitiateCallAsync(int calleeId, string calleeUsername, string? calleeAvatarUrl)
+    {
+        if (_voice is null) return;
+        if (_callWindow is not null) return; // already ringing/in a call
 
         await LeaveVoiceChannelIfActiveAsync();
 
@@ -1213,9 +1225,14 @@ public partial class MainWindow : FluentWindow
 
     private void OnRemoteScreenShareStarted(int userId, RemoteVideoPlayback playback)
     {
-        var member = _currentVoiceChannelId.HasValue
-            ? FindVoiceChannelItem(_currentVoiceChannelId.Value)?.Members.FirstOrDefault(m => m.UserId == userId)
-            : null;
+        // _voice is shared between channel voice and private calls -
+        // CallWindow subscribes to this same event for call-scoped shares
+        // (see CallWindow.OnRemoteScreenShareStarted), so this handler must
+        // stay out of the way when the active voice context is a call, or
+        // both would open a viewer window for the same share.
+        if (!_currentVoiceChannelId.HasValue) return;
+
+        var member = FindVoiceChannelItem(_currentVoiceChannelId.Value)?.Members.FirstOrDefault(m => m.UserId == userId);
         if (member is not null) member.IsScreenSharing = true;
 
         if (_screenShareViewers.ContainsKey(userId)) return;
@@ -1228,9 +1245,9 @@ public partial class MainWindow : FluentWindow
 
     private void OnRemoteScreenShareStopped(int userId)
     {
-        var member = _currentVoiceChannelId.HasValue
-            ? FindVoiceChannelItem(_currentVoiceChannelId.Value)?.Members.FirstOrDefault(m => m.UserId == userId)
-            : null;
+        if (!_currentVoiceChannelId.HasValue) return;
+
+        var member = FindVoiceChannelItem(_currentVoiceChannelId.Value)?.Members.FirstOrDefault(m => m.UserId == userId);
         if (member is not null) member.IsScreenSharing = false;
 
         if (_screenShareViewers.Remove(userId, out var viewer))
@@ -1455,6 +1472,7 @@ public partial class MainWindow : FluentWindow
         _dmActiveUsername = null;
         _messages.Clear();
         ChannelNameText.Text = "Select a conversation";
+        DmCallButton.Visibility = Visibility.Collapsed;
         DmSearchBox.Clear();
         _dmSearchResults.Clear();
 
@@ -1482,6 +1500,7 @@ public partial class MainWindow : FluentWindow
         _dmActiveUsername = null;
         _messages.Clear();
         ChannelNameText.Text = "Select a conversation";
+        DmCallButton.Visibility = Visibility.Collapsed;
         FriendSearchBox.Clear();
         _friendSearchResults.Clear();
 
@@ -1514,6 +1533,7 @@ public partial class MainWindow : FluentWindow
             _dmActiveUsername = null;
             _messages.Clear();
             ChannelNameText.Text = "# select-a-channel";
+            DmCallButton.Visibility = Visibility.Collapsed;
         }
     }
 
@@ -1567,6 +1587,7 @@ public partial class MainWindow : FluentWindow
         _dmActiveUserId = userId;
         _dmActiveUsername = username;
         ChannelNameText.Text = $"@{username}";
+        DmCallButton.Visibility = Visibility.Visible;
 
         var convo = _dmConversations.FirstOrDefault(c => c.OtherUserId == userId);
         if (convo is not null) convo.UnreadCount = 0;

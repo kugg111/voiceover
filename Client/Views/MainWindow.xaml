@@ -391,6 +391,10 @@
                 <DockPanel>
                     <TextBlock x:Name="ConnectionStatusText" DockPanel.Dock="Right" Text=""
                                Foreground="#F0B232" FontSize="12" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                    <Button x:Name="DmCallButton" DockPanel.Dock="Right" Content="📞" ToolTip="Call" Margin="0,0,12,0"
+                            Background="Transparent" Foreground="{StaticResource TextMuted}"
+                            BorderThickness="0" Cursor="Hand" Visibility="Collapsed"
+                            Click="DmCallButton_Click"/>
                     <TextBlock x:Name="ChannelNameText" Text="# select-a-channel"
                                Foreground="{StaticResource TextNormal}" FontWeight="Bold"
                                VerticalAlignment="Center" Margin="16,0,0,0"/>

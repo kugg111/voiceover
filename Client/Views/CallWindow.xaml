@@ -45,6 +45,8 @@
                         <DataTemplate>
                             <StackPanel Orientation="Horizontal" Margin="0,4,0,4" HorizontalAlignment="Center">
                                 <local:AvatarView Size="28" DisplayName="{Binding Username}" ImageUrl="{Binding AvatarUrl}" Margin="0,0,8,0"/>
+                                <TextBlock Text="🖥️" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0"
+                                           Visibility="{Binding ScreenSharingIconVisibility}" ToolTip="Sharing screen"/>
                                 <TextBlock Text="{Binding Username}" FontSize="13" VerticalAlignment="Center"
                                            Foreground="{StaticResource TextNormal}"/>
                                 <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
@@ -66,6 +68,20 @@
                             Background="#F23F42" Foreground="White" FontWeight="Bold"
                             BorderThickness="0" Cursor="Hand" Click="EndButton_Click"/>
                 </StackPanel>
+
+                <Button x:Name="ScreenShareButton" Content="🖥️ Share Screen" Height="32" Margin="0,8,0,0"
+                        Background="Transparent" Foreground="{StaticResource TextMuted}"
+                        BorderThickness="0" Cursor="Hand" Click="ScreenShareButton_Click">
+                    <Button.ContextMenu>
+                        <!-- Frame-rate presets from the Phase 2 spike (see the plan) - 30/60 are
+                             the committed tiers, 120 is explicitly experimental/best-effort. -->
+                        <ContextMenu x:Name="ScreenSharePresetMenu">
+                            <MenuItem Header="30 fps (safe)" Click="ScreenShare30Fps_Click"/>
+                            <MenuItem Header="60 fps (high)" Click="ScreenShare60Fps_Click"/>
+                            <MenuItem Header="120 fps (experimental)" Click="ScreenShare120Fps_Click"/>
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
             </StackPanel>
         </StackPanel>
     </Grid>
