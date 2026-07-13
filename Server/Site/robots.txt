@@ -1,4 +1,5 @@
 User-agent: *
+Allow: /
 Disallow:
 
 Sitemap: https://www.voiceover-app.hu/sitemap.xml

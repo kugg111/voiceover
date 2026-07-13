@@ -3,23 +3,50 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Voiceover — Free Discord Alternative for Windows with Voice, Calls &amp; E2EE Chat</title>
-<meta name="description" content="Voiceover is a free, open-source desktop chat app for Windows: servers &amp; channels, direct messages, friends, voice channels, private 1:1 calls, screen sharing with system audio, and end-to-end encrypted messaging.">
+<title>Voiceover — Free Open-Source Discord Alternative &amp; Voice Chat App for Windows</title>
+<meta name="description" content="Voiceover is a free, open-source Discord alternative for Windows: servers &amp; channels, direct messages, voice chat, private calls, screen sharing, and end-to-end encrypted messaging. Download at voiceover-app.hu.">
 <link rel="canonical" href="https://www.voiceover-app.hu/">
 <meta name="robots" content="index, follow">
 
 <!-- Open Graph / social previews -->
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://www.voiceover-app.hu/">
-<meta property="og:title" content="Voiceover — Free Discord Alternative for Windows">
-<meta property="og:description" content="Servers &amp; channels, direct messages, friends, voice channels, private calls, screen sharing with system audio, and end-to-end encrypted messaging — a free, open-source desktop app for Windows.">
+<meta property="og:title" content="Voiceover — Free Open-Source Discord Alternative for Windows">
+<meta property="og:description" content="Servers &amp; channels, direct messages, friends, voice chat, private calls, screen sharing, and end-to-end encrypted messaging — a free, open-source desktop app for Windows.">
 <meta property="og:image" content="https://www.voiceover-app.hu/images/gallery-voice.png">
 <meta property="og:site_name" content="Voiceover">
 
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Voiceover — Free Discord Alternative for Windows">
-<meta name="twitter:description" content="Servers, channels, DMs, voice calls, screen sharing, and end-to-end encrypted messaging — free and open-source.">
+<meta name="twitter:title" content="Voiceover — Free Open-Source Discord Alternative for Windows">
+<meta name="twitter:description" content="Servers, channels, DMs, voice chat, private calls, screen sharing, and end-to-end encrypted messaging — free and open-source.">
 <meta name="twitter:image" content="https://www.voiceover-app.hu/images/gallery-voice.png">
+
+<!-- Structured data - lets Google show this as a real downloadable app
+     (name/price/platform) in search results instead of a generic page. -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Voiceover",
+  "alternateName": "Voiceover App",
+  "url": "https://www.voiceover-app.hu/",
+  "description": "A free, open-source Discord alternative for Windows with servers and channels, direct messages, voice chat, private calls, screen sharing, and end-to-end encrypted messaging.",
+  "applicationCategory": "CommunicationApplication",
+  "operatingSystem": "Windows 10, Windows 11",
+  "downloadUrl": "https://github.com/kugg111/voiceover/releases/download/v1.0.8/Voiceover-Setup.exe",
+  "softwareVersion": "1.0.8",
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+  },
+  "author": {
+    "@type": "Person",
+    "name": "kugg111"
+  },
+  "sameAs": ["https://github.com/kugg111/voiceover"]
+}
+</script>
 
 <link rel="icon" type="image/x-icon" href="/images/favicon.ico">
 <link rel="icon" type="image/png" href="/images/favicon.png">
@@ -224,6 +251,15 @@
   .feature h3 { margin: 0 0 8px; font-size: 16px; }
   .feature p { margin: 0; color: var(--text-muted); font-size: 14px; line-height: 1.5; }
 
+  .about {
+    max-width: 720px;
+    margin: 88px auto 0;
+    padding: 0 6vw;
+    text-align: center;
+  }
+  .about h2 { font-size: 24px; margin: 0 0 14px; }
+  .about p { color: var(--text-muted); font-size: 15px; line-height: 1.6; margin: 0; }
+
   footer {
     max-width: 1100px;
     margin: 100px auto 0;
@@ -352,6 +388,15 @@
     <h3>Built with security in mind</h3>
     <p>Hashed passwords, short-lived JWTs with revocation, rate limiting, and TLS everywhere — including to the database.</p>
   </div>
+</section>
+
+<section class="about">
+  <h2>A free, open-source Discord alternative</h2>
+  <p>Voiceover is a free voice chat app for Windows built as an open-source
+  Discord alternative — the full source is public on GitHub, so you can read
+  exactly what it does, self-host your own server, or contribute. No paid
+  tiers, no ads, no account data sold: just servers, channels, direct
+  messages, and voice chat with real end-to-end encryption.</p>
 </section>
 
 <footer>
