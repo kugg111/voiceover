@@ -366,6 +366,12 @@ public partial class MainWindow : FluentWindow
     private int? _dmActiveUserId;
     private string? _dmActiveUsername;
 
+    // Private calls (see CallWindow) - at most one at a time, same
+    // "one voice context" rule as _currentVoiceChannelId.
+    private CallWindow? _callWindow;
+    private string? _currentCallId;
+    private System.Windows.Threading.DispatcherTimer? _ringTimeoutTimer;
+
     // BulkObservableCollection where a Clear()+per-item-Add() reload pattern
     // is common (see ReplaceAll callers below) - one Reset notification
     // instead of N+1 individual ones. Plain ObservableCollection for the
@@ -440,6 +446,10 @@ public partial class MainWindow : FluentWindow
         _hub.UserDeafened += OnUserDeafened;
         _hub.FriendRequestReceived += OnFriendRequestReceived;
         _hub.FriendRequestAccepted += OnFriendRequestAccepted;
+        _hub.IncomingCall += OnIncomingCall;
+        _hub.CallAccepted += OnCallAccepted;
+        _hub.CallDeclined += OnCallEndedRemotely;
+        _hub.CallEnded += OnCallEndedRemotely;
         _hub.Reconnecting += () => Dispatcher.Invoke(() => ConnectionStatusText.Text = "Reconnecting...");
         _hub.Reconnected += OnReconnected;
         _hub.ConnectionClosed += () => Dispatcher.Invoke(() => ConnectionStatusText.Text = "Disconnected");
@@ -457,6 +467,15 @@ public partial class MainWindow : FluentWindow
     private async void MainWindow_Closed(object? sender, EventArgs e)
     {
         _idleDetector.Dispose();
+
+        // Default ShutdownMode is OnLastWindowClose - a still-open CallWindow
+        // would otherwise keep the process alive after MainWindow closes.
+        // Silent close: the server's own OnDisconnectedAsync cleanup already
+        // treats a dropped connection as an implicit EndCall, so there's no
+        // need to race an explicit EndCallAsync against the DisconnectAsync
+        // below.
+        _callWindow?.CloseSilently();
+
         if (_voice is not null)
             await _voice.DisposeAsync();
         await _hub.DisconnectAsync();
@@ -788,6 +807,15 @@ public partial class MainWindow : FluentWindow
         // state, breaking capture/playback for the whole channel.
         if (_currentVoiceChannelId == channelId) return;
 
+        // Calls and server voice channels are mutually exclusive contexts -
+        // joining a channel while on a private call ends the call first,
+        // mirrored by LeaveVoiceChannelIfActiveAsync on the call side.
+        if (_callWindow is not null)
+        {
+            _ = EndOrDeclineCallAsync(_callWindow.CallId, _callWindow.State == CallWindowState.IncomingRinging);
+            _callWindow.CloseSilently();
+        }
+
         if (_currentVoiceChannelId.HasValue)
         {
             await _hub.LeaveVoiceChannelAsync(_currentVoiceChannelId.Value);
@@ -907,6 +935,169 @@ public partial class MainWindow : FluentWindow
         var volume = (float)(e.NewValue / 100.0);
         _voice.SetRemoteVolume(member.UserId, volume);
         UserVolumeStorage.SaveVolume(member.UserId, volume);
+    }
+
+    // --- Private calls (1:1, friends-only) - see CallWindow and
+    // ChatHub's call signaling methods server-side. ---
+
+    private async void CallFriendButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_voice is null) return;
+        if (sender is not FrameworkElement { Tag: int calleeId }) return;
+        if (_callWindow is not null) return; // already ringing/in a call
+
+        var friend = _friends.FirstOrDefault(f => f.UserId == calleeId);
+        var calleeUsername = friend?.Username ?? "user";
+        var calleeAvatarUrl = friend?.AvatarUrl;
+
+        await LeaveVoiceChannelIfActiveAsync();
+
+        var callId = await _hub.InitiateCallAsync(calleeId);
+        if (callId is null)
+        {
+            MessageBox.Show("Couldn't start the call - you may not be friends, or they're already in a call.",
+                "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        _currentCallId = callId;
+        _callWindow = new CallWindow(callId, calleeUsername, calleeAvatarUrl, isOutgoing: true,
+            _api.CurrentUsername ?? "You", _api.CurrentUserAvatarUrl, _voice);
+        _callWindow.Ended += wasDecline => _ = EndOrDeclineCallAsync(callId, wasDecline);
+        _callWindow.Closed += (_, _) => OnCallWindowClosed(callId);
+        _callWindow.Show();
+
+        StartRingTimeout(callId);
+    }
+
+    private void OnIncomingCall(string callId, int callerId, string callerUsername, string? callerAvatarUrl)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            if (_voice is null || _callWindow is not null) return; // already ringing/in a call - shouldn't happen (server allows one call at a time), guard anyway
+
+            _currentCallId = callId;
+            _callWindow = new CallWindow(callId, callerUsername, App.ResolveUploadUrl(callerAvatarUrl), isOutgoing: false,
+                _api.CurrentUsername ?? "You", _api.CurrentUserAvatarUrl, _voice);
+            _callWindow.Accepted += () => _ = AcceptIncomingCallAsync(callId);
+            _callWindow.Ended += wasDecline => _ = EndOrDeclineCallAsync(callId, wasDecline);
+            _callWindow.Closed += (_, _) => OnCallWindowClosed(callId);
+            _callWindow.Show();
+
+            NotificationService.StartIncomingCallSound();
+        });
+    }
+
+    private async Task AcceptIncomingCallAsync(string callId)
+    {
+        if (_voice is null) return;
+        NotificationService.StopIncomingCallSound();
+
+        var accepted = await _hub.AcceptCallAsync(callId);
+        if (!accepted)
+        {
+            _callWindow?.CloseSilently();
+            return;
+        }
+
+        await LeaveVoiceChannelIfActiveAsync();
+        await JoinActiveCallAsync(callId);
+    }
+
+    // Fires once the callee accepts our outgoing call - time for the caller
+    // side to actually connect the LiveKit room (the callee connects from
+    // AcceptIncomingCallAsync above instead, right after accepting).
+    private void OnCallAccepted(string callId)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            if (_currentCallId != callId) return;
+            CancelRingTimeout();
+            _ = JoinActiveCallAsync(callId);
+        });
+    }
+
+    private async Task JoinActiveCallAsync(string callId)
+    {
+        if (_voice is null) return;
+
+        try
+        {
+            await _voice.JoinCallAsync(callId);
+        }
+        catch
+        {
+            MessageBox.Show("Could not join the call - check your connection and try again.", "Error",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+            _ = _hub.EndCallAsync(callId);
+            _callWindow?.CloseSilently();
+            return;
+        }
+
+        _callWindow?.SwitchToActive();
+    }
+
+    private Task EndOrDeclineCallAsync(string callId, bool wasDecline) =>
+        wasDecline ? _hub.DeclineCallAsync(callId) : _hub.EndCallAsync(callId);
+
+    private void OnCallEndedRemotely(string callId)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            if (_currentCallId != callId) return;
+            _callWindow?.CloseSilently();
+            _ = _voice?.LeaveAllAsync();
+        });
+    }
+
+    private void OnCallWindowClosed(string callId)
+    {
+        if (_currentCallId == callId)
+        {
+            _currentCallId = null;
+            _callWindow = null;
+        }
+        NotificationService.StopIncomingCallSound();
+        CancelRingTimeout();
+    }
+
+    // Calls and server voice channels are mutually exclusive contexts (see
+    // VoiceService) - leave the current channel first, same as switching
+    // between two voice channels does.
+    private async Task LeaveVoiceChannelIfActiveAsync()
+    {
+        if (!_currentVoiceChannelId.HasValue || _voice is null) return;
+
+        await _hub.LeaveVoiceChannelAsync(_currentVoiceChannelId.Value);
+        await _voice.LeaveAllAsync();
+        RemoveSelfFromVoiceRoster(_currentVoiceChannelId.Value);
+        _currentVoiceChannelId = null;
+        LeaveVoiceButton.Visibility = Visibility.Collapsed;
+        MuteMicButton.Visibility = Visibility.Collapsed;
+        DeafenButton.Visibility = Visibility.Collapsed;
+    }
+
+    // Caller-side-only ring timeout (per the plan: handled client-side
+    // rather than a server timer) - auto-cancels an outgoing call nobody
+    // answered instead of ringing forever.
+    private void StartRingTimeout(string callId)
+    {
+        CancelRingTimeout();
+        _ringTimeoutTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(40) };
+        _ringTimeoutTimer.Tick += (_, _) =>
+        {
+            CancelRingTimeout();
+            if (_currentCallId != callId) return;
+            _ = _hub.EndCallAsync(callId);
+            _callWindow?.CloseSilently();
+        };
+        _ringTimeoutTimer.Start();
+    }
+
+    private void CancelRingTimeout()
+    {
+        _ringTimeoutTimer?.Stop();
+        _ringTimeoutTimer = null;
     }
 
     private async void AddServerButton_Click(object sender, RoutedEventArgs e)

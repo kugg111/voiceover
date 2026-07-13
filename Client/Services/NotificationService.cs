@@ -23,6 +23,7 @@ public static class NotificationService
     private static readonly Lazy<SoundPlayer> VoiceLeaveSound = new(() => LoadSound("voice-leave.wav"));
     private static readonly Lazy<SoundPlayer> MuteSound = new(() => LoadSound("mute.wav"));
     private static readonly Lazy<SoundPlayer> UnmuteSound = new(() => LoadSound("unmute.wav"));
+    private static readonly Lazy<SoundPlayer> IncomingCallSound = new(() => LoadSound("incoming-call.wav"));
 
     private static SoundPlayer LoadSound(string fileName)
     {
@@ -47,4 +48,11 @@ public static class NotificationService
     public static void PlayMessageSound() => MessageSound.Value.Play();
     public static void PlayMuteSound() => MuteSound.Value.Play();
     public static void PlayUnmuteSound() => UnmuteSound.Value.Play();
+
+    // Unlike the one-shot sounds above, a ring needs to keep going until the
+    // call is answered/declined/times out - PlayLooping repeats the clip's
+    // built-in ring-then-pause cadence for as long as it's playing, so the
+    // caller (MainWindow) just needs to call Stop when the call resolves.
+    public static void StartIncomingCallSound() => IncomingCallSound.Value.PlayLooping();
+    public static void StopIncomingCallSound() => IncomingCallSound.Value.Stop();
 }

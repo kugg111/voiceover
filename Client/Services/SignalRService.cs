@@ -24,6 +24,10 @@ public class SignalRService
     public event Action<int, string>? PresenceChanged;
     public event Action<int, int>? ServerKeyRequested; // serverId, requestingUserId
     public event Action<int>? ServerKeyProvisioned; // serverId
+    public event Action<string, int, string, string?>? IncomingCall; // callId, callerId, callerUsername, callerAvatarUrl
+    public event Action<string>? CallAccepted; // callId
+    public event Action<string>? CallDeclined; // callId
+    public event Action<string>? CallEnded; // callId
 
     // Connection lifecycle events, surfaced so the UI can show a status banner
     // instead of silently failing when the connection drops.
@@ -63,6 +67,10 @@ public class SignalRService
         _connection.On<int, string>("PresenceChanged", (userId, state) => PresenceChanged?.Invoke(userId, state));
         _connection.On<int, int>("ServerKeyRequested", (serverId, requestingUserId) => ServerKeyRequested?.Invoke(serverId, requestingUserId));
         _connection.On<int>("ServerKeyProvisioned", serverId => ServerKeyProvisioned?.Invoke(serverId));
+        _connection.On<string, int, string, string?>("IncomingCall", (callId, callerId, callerUsername, callerAvatarUrl) => IncomingCall?.Invoke(callId, callerId, callerUsername, callerAvatarUrl));
+        _connection.On<string>("CallAccepted", callId => CallAccepted?.Invoke(callId));
+        _connection.On<string>("CallDeclined", callId => CallDeclined?.Invoke(callId));
+        _connection.On<string>("CallEnded", callId => CallEnded?.Invoke(callId));
 
         _connection.Reconnecting += _ => { Reconnecting?.Invoke(); return Task.CompletedTask; };
         _connection.Reconnected += _ => { Reconnected?.Invoke(); return Task.CompletedTask; };
@@ -88,6 +96,15 @@ public class SignalRService
     public Task<List<ChannelVoiceRoster>> GetVoiceRostersForServerAsync(int serverId) => _connection!.InvokeAsync<List<ChannelVoiceRoster>>("GetVoiceRostersForServer", serverId);
     public Task SetPresenceStateAsync(string state) => _connection!.InvokeAsync("SetPresenceState", state);
     public Task RequestServerKeyAsync(int serverId) => _connection!.InvokeAsync("RequestServerKey", serverId);
+
+    // --- Private calls (1:1, friends-only - see ChatHub's call signaling
+    // methods server-side). Returns null from InitiateCallAsync if the two
+    // aren't friends or either is already in a call. ---
+    public Task<string?> InitiateCallAsync(int calleeId) => _connection!.InvokeAsync<string?>("InitiateCall", calleeId);
+    public Task<bool> AcceptCallAsync(string callId) => _connection!.InvokeAsync<bool>("AcceptCall", callId);
+    public Task DeclineCallAsync(string callId) => _connection!.InvokeAsync("DeclineCall", callId);
+    public Task EndCallAsync(string callId) => _connection!.InvokeAsync("EndCall", callId);
+    public Task<LiveKitJoinResponse> GetCallTokenAsync(string callId) => _connection!.InvokeAsync<LiveKitJoinResponse>("GetCallToken", callId);
 
     public bool IsConnected => _connection?.State == HubConnectionState.Connected;
 

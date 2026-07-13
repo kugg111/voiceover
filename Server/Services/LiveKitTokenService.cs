@@ -29,7 +29,13 @@ public class LiveKitTokenService
     // numeric id (as a string) so the client can map a LiveKit
     // RemoteParticipant.Identity straight back to a userId with no separate
     // lookup table.
-    public string CreateJoinToken(int userId, string username, int channelId)
+    public string CreateJoinToken(int userId, string username, int channelId) =>
+        CreateJoinToken(userId, username, $"voice-{channelId}");
+
+    // Generalized form - private calls (see CallSignalingService) use their
+    // generated call id directly as the room name, since there's no DB
+    // "channel" backing a call the way there is for server voice channels.
+    public string CreateJoinToken(int userId, string username, string roomName)
     {
         if (_apiKey is null || _apiSecret is null)
             throw new InvalidOperationException(
@@ -39,7 +45,7 @@ public class LiveKitTokenService
         var token = new AccessToken(_apiKey, _apiSecret)
             .WithIdentity(userId.ToString())
             .WithName(username)
-            .WithGrants(new VideoGrants { RoomJoin = true, Room = $"voice-{channelId}" })
+            .WithGrants(new VideoGrants { RoomJoin = true, Room = roomName })
             .WithTtl(TimeSpan.FromHours(6));
 
         return token.ToJwt();

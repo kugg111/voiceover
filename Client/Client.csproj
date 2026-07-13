@@ -30,6 +30,7 @@
     <Resource Include="Assets\Sounds\voice-leave.wav" />
     <Resource Include="Assets\Sounds\mute.wav" />
     <Resource Include="Assets\Sounds\unmute.wav" />
+    <Resource Include="Assets\Sounds\incoming-call.wav" />
     <None Include="native\deep_filter_ladspa.dll" Link="deep_filter_ladspa.dll" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

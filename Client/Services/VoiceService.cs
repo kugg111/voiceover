@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Windows.Input;
 using LiveKit.Rtc;
+using Voiceover.Client.Models;
 
 namespace Voiceover.Client.Services;
 
@@ -303,36 +304,57 @@ public class VoiceService : IAsyncDisposable
         LoadSettings();
     }
 
-    // Runs the actual join off the calling (UI) thread - see JoinChannelAsyncCore
+    // Runs the actual join off the calling (UI) thread - see ConnectRoomAsync
     // for why. Task.Run's delegate has no captured SynchronizationContext, so
-    // every await inside JoinChannelAsyncCore keeps resuming on a thread-pool
+    // every await inside the join path keeps resuming on a thread-pool
     // thread instead of hopping back to the dispatcher.
     public Task JoinChannelAsync(int channelId) => Task.Run(() => JoinChannelAsyncCore(channelId));
 
-    // Fetches a LiveKit join token for this channel (identity = our own
-    // numeric userId, see LiveKitTokenService server-side) and connects.
-    // Replaces the old SetActiveChannel + ConnectToExistingMembersAsync pair
-    // from the mesh days - there's no "connect to everyone already there"
-    // step anymore, LiveKit's server handles fanning existing participants'
-    // tracks out to us as part of the room connection itself.
-    //
-    // Constructing MicCaptureSource below loads three native libraries
-    // (WebRTC APM, RNNoise, and the ~50MB DeepFilterNet LADSPA plugin) the
-    // first time any of them run in this process - LoadLibrary plus P/Invoke
-    // stub JIT compilation is a real, synchronous, one-time cost. Without the
-    // Task.Run wrapper above, that would run straight on the WPF dispatcher
-    // thread (since nothing here uses ConfigureAwait(false)) and freeze the
-    // whole UI - including the mouse cursor - for however long it takes.
-    // Everything downstream (RemoteAudioPlayback creation, _remotePlaybacks)
-    // is already thread-safe/UI-agnostic, and MainWindow already marshals
-    // PeerConnected/PeerDisconnected back to the UI thread via
-    // Dispatcher.Invoke, so running this whole method off-thread is safe.
+    // Same join machinery, for a private call instead of a server voice
+    // channel - see ChatHub.GetCallToken server-side. A call's LiveKit room
+    // is named after its generated call id rather than a DB channel id,
+    // but everything past "get a token" is identical, hence sharing
+    // ConnectRoomAsync below instead of duplicating it.
+    public Task JoinCallAsync(string callId) => Task.Run(() => JoinCallAsyncCore(callId));
+
     private async Task JoinChannelAsyncCore(int channelId)
     {
         var response = await _hub.GetLiveKitTokenAsync(channelId);
         if (string.IsNullOrEmpty(response.ServerUrl))
             throw new InvalidOperationException("Voice chat isn't configured on the server yet.");
+        await ConnectRoomAsync(response);
+    }
 
+    private async Task JoinCallAsyncCore(string callId)
+    {
+        var response = await _hub.GetCallTokenAsync(callId);
+        if (string.IsNullOrEmpty(response.ServerUrl))
+            throw new InvalidOperationException("Voice chat isn't configured on the server yet.");
+        await ConnectRoomAsync(response);
+    }
+
+    // Connects a LiveKit Room and publishes the local mic track - the part
+    // that's identical whether the token came from a channel join or a
+    // private call (identity = our own numeric userId either way, see
+    // LiveKitTokenService server-side). Replaces the old SetActiveChannel +
+    // ConnectToExistingMembersAsync pair from the mesh days - there's no
+    // "connect to everyone already there" step anymore, LiveKit's server
+    // handles fanning existing participants' tracks out to us as part of
+    // the room connection itself.
+    //
+    // Constructing MicCaptureSource below loads three native libraries
+    // (WebRTC APM, RNNoise, and the ~50MB DeepFilterNet LADSPA plugin) the
+    // first time any of them run in this process - LoadLibrary plus P/Invoke
+    // stub JIT compilation is a real, synchronous, one-time cost. Without the
+    // Task.Run wrapper on the callers above, that would run straight on the
+    // WPF dispatcher thread (since nothing here uses ConfigureAwait(false))
+    // and freeze the whole UI - including the mouse cursor - for however
+    // long it takes. Everything downstream (RemoteAudioPlayback creation,
+    // _remotePlaybacks) is already thread-safe/UI-agnostic, and MainWindow
+    // already marshals PeerConnected/PeerDisconnected back to the UI thread
+    // via Dispatcher.Invoke, so running this whole method off-thread is safe.
+    private async Task ConnectRoomAsync(LiveKitJoinResponse response)
+    {
         var room = new Room();
         room.TrackSubscribed += OnTrackSubscribed;
         room.TrackUnsubscribed += OnTrackUnsubscribed;

@@ -329,20 +329,32 @@
                         <ItemsControl x:Name="FriendList">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Button Tag="{Binding UserId}" Click="FriendListItem_Click"
-                                            HorizontalContentAlignment="Left" Background="Transparent"
-                                            Foreground="{StaticResource TextNormal}" BorderThickness="0" Padding="14,8">
-                                        <StackPanel Orientation="Horizontal">
-                                            <local:AvatarView Size="24" DisplayName="{Binding Username}" ImageUrl="{Binding AvatarUrl}" Margin="0,0,8,0"/>
-                                            <TextBlock Text="{Binding Username}" VerticalAlignment="Center"/>
-                                            <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
-                                                     Fill="#3BA55D" Visibility="{Binding OnlineDotVisibility}" ToolTip="Online"/>
-                                            <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
-                                                     Fill="#F0B232" Visibility="{Binding AwayDotVisibility}" ToolTip="Away"/>
-                                            <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
-                                                     Fill="#80848E" Visibility="{Binding OfflineDotVisibility}" ToolTip="Offline"/>
-                                        </StackPanel>
-                                    </Button>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Button Grid.Column="0" Tag="{Binding UserId}" Click="FriendListItem_Click"
+                                                HorizontalContentAlignment="Left" Background="Transparent"
+                                                Foreground="{StaticResource TextNormal}" BorderThickness="0" Padding="14,8">
+                                            <StackPanel Orientation="Horizontal">
+                                                <local:AvatarView Size="24" DisplayName="{Binding Username}" ImageUrl="{Binding AvatarUrl}" Margin="0,0,8,0"/>
+                                                <TextBlock Text="{Binding Username}" VerticalAlignment="Center"/>
+                                                <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
+                                                         Fill="#3BA55D" Visibility="{Binding OnlineDotVisibility}" ToolTip="Online"/>
+                                                <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
+                                                         Fill="#F0B232" Visibility="{Binding AwayDotVisibility}" ToolTip="Away"/>
+                                                <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
+                                                         Fill="#80848E" Visibility="{Binding OfflineDotVisibility}" ToolTip="Offline"/>
+                                            </StackPanel>
+                                        </Button>
+                                        <Button Grid.Column="1" Tag="{Binding UserId}" Click="CallFriendButton_Click"
+                                                Background="Transparent" Foreground="{StaticResource TextMuted}"
+                                                BorderThickness="0" Padding="8" Cursor="Hand" ToolTip="Call"
+                                                VerticalAlignment="Center" Margin="0,0,8,0">
+                                            <TextBlock Text="📞" FontSize="14"/>
+                                        </Button>
+                                    </Grid>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>

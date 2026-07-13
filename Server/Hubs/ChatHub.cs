@@ -18,8 +18,9 @@ public class ChatHub : Hub
     private readonly PresenceService _presence;
     private readonly MessageRateLimiter _messageRateLimiter;
     private readonly UserAvatarCache _avatarCache;
+    private readonly CallSignalingService _callSignaling;
 
-    public ChatHub(AppDbContext db, VoicePresenceService voicePresence, LiveKitTokenService liveKitTokens, PresenceService presence, MessageRateLimiter messageRateLimiter, UserAvatarCache avatarCache)
+    public ChatHub(AppDbContext db, VoicePresenceService voicePresence, LiveKitTokenService liveKitTokens, PresenceService presence, MessageRateLimiter messageRateLimiter, UserAvatarCache avatarCache, CallSignalingService callSignaling)
     {
         _db = db;
         _voicePresence = voicePresence;
@@ -27,6 +28,7 @@ public class ChatHub : Hub
         _presence = presence;
         _messageRateLimiter = messageRateLimiter;
         _avatarCache = avatarCache;
+        _callSignaling = callSignaling;
     }
 
     private int CurrentUserId => int.Parse(Context.User!.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -151,6 +153,76 @@ public class ChatHub : Hub
 
         await Clients.User(recipientId.ToString()).SendAsync("ReceiveDirectMessage", response);
         await Clients.User(CurrentUserId.ToString()).SendAsync("ReceiveDirectMessage", response);
+    }
+
+    // --- Private calls (1:1, friends-only, outside any server/channel -
+    // see CallSignalingService for the in-memory ringing/active tracking
+    // this all sits on top of). Audio itself flows through the same
+    // self-hosted LiveKit deployment as server voice channels, just under
+    // a room named after the generated call id instead of a channel id -
+    // this hub only ever brokers who's calling whom, never touches media. ---
+
+    // Returns null if the two users aren't friends, or either is already in
+    // a call - the client should treat null as "can't start this call"
+    // rather than assuming it's ringing.
+    public async Task<string?> InitiateCall(int calleeId)
+    {
+        var areFriends = await _db.Friendships.AnyAsync(f =>
+            f.Status == FriendshipStatus.Accepted &&
+            ((f.RequesterId == CurrentUserId && f.AddresseeId == calleeId) ||
+             (f.RequesterId == calleeId && f.AddresseeId == CurrentUserId)));
+        if (!areFriends) return null;
+
+        var session = _callSignaling.Create(CurrentUserId, calleeId);
+        if (session is null) return null;
+
+        if (!_avatarCache.TryGet(CurrentUserId, out var avatarUrl))
+        {
+            avatarUrl = (await _db.Users.FindAsync(CurrentUserId))?.AvatarUrl;
+            _avatarCache.Set(CurrentUserId, avatarUrl);
+        }
+
+        await Clients.User(calleeId.ToString()).SendAsync("IncomingCall", session.CallId, CurrentUserId, CurrentUsername, avatarUrl);
+        return session.CallId;
+    }
+
+    public async Task<bool> AcceptCall(string callId)
+    {
+        var session = _callSignaling.Get(callId);
+        if (session is null || session.CalleeId != CurrentUserId) return false;
+
+        _callSignaling.Accept(callId);
+        await Clients.User(session.CallerId.ToString()).SendAsync("CallAccepted", callId);
+        return true;
+    }
+
+    // Covers both "I'm declining an incoming call" and "I'm hanging up an
+    // active one" - same single-endpoint-covers-multiple-intents shape
+    // FriendsController's DELETE already uses for decline/cancel/unfriend.
+    public Task DeclineCall(string callId) => EndCallInternalAsync(callId, "CallDeclined");
+    public Task EndCall(string callId) => EndCallInternalAsync(callId, "CallEnded");
+
+    private async Task EndCallInternalAsync(string callId, string eventName)
+    {
+        var session = _callSignaling.Get(callId);
+        if (session is null) return;
+        if (session.CallerId != CurrentUserId && session.CalleeId != CurrentUserId) return;
+
+        _callSignaling.Remove(callId);
+        var otherUserId = session.CallerId == CurrentUserId ? session.CalleeId : session.CallerId;
+        await Clients.User(otherUserId.ToString()).SendAsync(eventName, callId);
+    }
+
+    // Mints a LiveKit token for this specific call's room - only callable by
+    // one of the call's two participants.
+    public Task<LiveKitJoinResponse> GetCallToken(string callId)
+    {
+        var session = _callSignaling.Get(callId);
+        if (session is null || (session.CallerId != CurrentUserId && session.CalleeId != CurrentUserId))
+            throw new HubException("Not a participant of this call.");
+
+        var token = _liveKitTokens.CreateJoinToken(CurrentUserId, CurrentUsername, callId);
+        return Task.FromResult(new LiveKitJoinResponse(token, _liveKitTokens.ServerUrl ?? string.Empty));
     }
 
     // --- Voice channel presence (roster/mute/deafen/speaking signaling only -
@@ -327,6 +399,18 @@ public class ChatHub : Hub
 
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
+        // A dropped connection (crash, network loss) counts as hanging up -
+        // notify whoever was on the other end of any call this user was
+        // in, ringing or active, the same way JoinVoiceChannel's cleanup
+        // below doesn't wait for an explicit LeaveVoiceChannel either.
+        var activeCall = _callSignaling.GetActiveCallForUser(CurrentUserId);
+        if (activeCall is not null)
+        {
+            _callSignaling.Remove(activeCall.CallId);
+            var otherUserId = activeCall.CallerId == CurrentUserId ? activeCall.CalleeId : activeCall.CallerId;
+            await Clients.User(otherUserId.ToString()).SendAsync("CallEnded", activeCall.CallId);
+        }
+
         var left = _voicePresence.Leave(Context.ConnectionId);
         if (left is not null)
         {
