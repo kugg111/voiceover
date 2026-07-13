@@ -1,0 +1,15 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- Light equivalent of DarkPalette.xaml - same keys, same structural
+         roles (BgDark = main content area, BgDarker = input/tertiary
+         surfaces, BgSidebar = secondary panels), just following Discord's
+         own light theme palette instead of its dark one. Selected via
+         ThemeStorage/App.xaml.cs, not merged directly by App.xaml. -->
+    <SolidColorBrush x:Key="BgDark" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="BgDarker" Color="#E3E5E8"/>
+    <SolidColorBrush x:Key="BgSidebar" Color="#F2F3F5"/>
+    <SolidColorBrush x:Key="AccentBlurple" Color="#5865F2"/>
+    <SolidColorBrush x:Key="TextNormal" Color="#060607"/>
+    <SolidColorBrush x:Key="TextMuted" Color="#4E5058"/>
+    <SolidColorBrush x:Key="TextJoining" Color="#1A73E8"/>
+</ResourceDictionary>

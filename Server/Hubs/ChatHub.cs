@@ -20,8 +20,9 @@ public class ChatHub : Hub
     private readonly UserAvatarCache _avatarCache;
     private readonly CallSignalingService _callSignaling;
     private readonly CallRateLimiter _callRateLimiter;
+    private readonly PresenceAudienceCache _presenceAudience;
 
-    public ChatHub(AppDbContext db, VoicePresenceService voicePresence, LiveKitTokenService liveKitTokens, PresenceService presence, MessageRateLimiter messageRateLimiter, UserAvatarCache avatarCache, CallSignalingService callSignaling, CallRateLimiter callRateLimiter)
+    public ChatHub(AppDbContext db, VoicePresenceService voicePresence, LiveKitTokenService liveKitTokens, PresenceService presence, MessageRateLimiter messageRateLimiter, UserAvatarCache avatarCache, CallSignalingService callSignaling, CallRateLimiter callRateLimiter, PresenceAudienceCache presenceAudience)
     {
         _db = db;
         _voicePresence = voicePresence;
@@ -31,6 +32,7 @@ public class ChatHub : Hub
         _avatarCache = avatarCache;
         _callSignaling = callSignaling;
         _callRateLimiter = callRateLimiter;
+        _presenceAudience = presenceAudience;
     }
 
     private int CurrentUserId => int.Parse(Context.User!.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -97,6 +99,72 @@ public class ChatHub : Hub
     public async Task NotifyTyping(int channelId)
     {
         await Clients.OthersInGroup(GroupName(channelId)).SendAsync("UserTyping", CurrentUsername, channelId);
+    }
+
+    // Emoji reactions - a small fixed picker client-side (see MainWindow's
+    // reaction button), never sensitive/E2EE content, so this (and its DM
+    // equivalent below) stores the emoji as plain text. Reacting again with
+    // the same emoji removes it - one method covering both add and remove,
+    // same shape EndCallInternalAsync already uses for decline/hangup.
+    // Broadcasts only the delta (not a recomputed full reaction list) so
+    // clients aggregate locally, same as UserSpeaking/UserMuted etc.
+    public async Task ToggleMessageReaction(int messageId, string emoji)
+    {
+        if (string.IsNullOrWhiteSpace(emoji) || emoji.Length > 8) return;
+        if (!_messageRateLimiter.TryAcquire(CurrentUserId)) return;
+
+        var message = await _db.Messages.FirstOrDefaultAsync(m => m.Id == messageId);
+        if (message is null) return;
+
+        var existing = await _db.MessageReactions.FirstOrDefaultAsync(r =>
+            r.MessageId == messageId && r.UserId == CurrentUserId && r.Emoji == emoji);
+
+        bool added;
+        if (existing is not null)
+        {
+            _db.MessageReactions.Remove(existing);
+            added = false;
+        }
+        else
+        {
+            _db.MessageReactions.Add(new MessageReaction { MessageId = messageId, UserId = CurrentUserId, Emoji = emoji });
+            added = true;
+        }
+
+        await _db.SaveChangesAsync();
+
+        await Clients.Group(GroupName(message.ChannelId))
+            .SendAsync("MessageReactionToggled", message.ChannelId, messageId, emoji, CurrentUserId, added);
+    }
+
+    public async Task ToggleDirectMessageReaction(int messageId, string emoji)
+    {
+        if (string.IsNullOrWhiteSpace(emoji) || emoji.Length > 8) return;
+        if (!_messageRateLimiter.TryAcquire(CurrentUserId)) return;
+
+        var message = await _db.DirectMessages.FirstOrDefaultAsync(m => m.Id == messageId);
+        if (message is null || (message.SenderId != CurrentUserId && message.RecipientId != CurrentUserId)) return;
+
+        var existing = await _db.DirectMessageReactions.FirstOrDefaultAsync(r =>
+            r.DirectMessageId == messageId && r.UserId == CurrentUserId && r.Emoji == emoji);
+
+        bool added;
+        if (existing is not null)
+        {
+            _db.DirectMessageReactions.Remove(existing);
+            added = false;
+        }
+        else
+        {
+            _db.DirectMessageReactions.Add(new DirectMessageReaction { DirectMessageId = messageId, UserId = CurrentUserId, Emoji = emoji });
+            added = true;
+        }
+
+        await _db.SaveChangesAsync();
+
+        var otherUserId = message.SenderId == CurrentUserId ? message.RecipientId : message.SenderId;
+        await Clients.Users(new[] { CurrentUserId.ToString(), otherUserId.ToString() })
+            .SendAsync("DirectMessageReactionToggled", messageId, emoji, CurrentUserId, added);
     }
 
     // Called by a client that just joined a server (or opened one for the
@@ -394,18 +462,23 @@ public class ChatHub : Hub
     // the same group VoiceUserJoined/UserSpeaking etc. already broadcast to).
     private async Task BroadcastPresenceChangeAsync(int userId, string state)
     {
-        var friendIds = await _db.Friendships
-            .Where(f => f.Status == FriendshipStatus.Accepted && (f.RequesterId == userId || f.AddresseeId == userId))
-            .Select(f => f.RequesterId == userId ? f.AddresseeId : f.RequesterId)
-            .ToListAsync();
+        if (!_presenceAudience.TryGet(userId, out var friendIds, out var serverIds))
+        {
+            friendIds = await _db.Friendships
+                .Where(f => f.Status == FriendshipStatus.Accepted && (f.RequesterId == userId || f.AddresseeId == userId))
+                .Select(f => f.RequesterId == userId ? f.AddresseeId : f.RequesterId)
+                .ToListAsync();
+
+            serverIds = await _db.Memberships
+                .Where(m => m.UserId == userId)
+                .Select(m => m.GuildServerId)
+                .ToListAsync();
+
+            _presenceAudience.Set(userId, friendIds, serverIds);
+        }
 
         if (friendIds.Count > 0)
             await Clients.Users(friendIds.Select(id => id.ToString())).SendAsync("PresenceChanged", userId, state);
-
-        var serverIds = await _db.Memberships
-            .Where(m => m.UserId == userId)
-            .Select(m => m.GuildServerId)
-            .ToListAsync();
 
         foreach (var serverId in serverIds)
             await Clients.Group(ServerPresenceGroupName(serverId)).SendAsync("PresenceChanged", userId, state);

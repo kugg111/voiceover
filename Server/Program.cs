@@ -102,6 +102,7 @@ builder.Services.AddSingleton<VoicePresenceService>();
 builder.Services.AddSingleton<PresenceService>();
 builder.Services.AddSingleton<UserAvatarCache>();
 builder.Services.AddSingleton<CallSignalingService>();
+builder.Services.AddSingleton<PresenceAudienceCache>();
 builder.Services.AddSingleton<LiveKitTokenService>();
 builder.Services.AddScoped<PermissionService>();
 // SendMessage/SendDirectMessage anti-spam - see MessageRateLimiter for why

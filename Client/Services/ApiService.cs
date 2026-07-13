@@ -231,6 +231,15 @@ public class ApiService
     public async Task<bool> DeleteMessageAsync(int channelId, int messageId)
         => (await _http.DeleteAsync($"api/channels/{channelId}/messages/{messageId}")).IsSuccessStatusCode;
 
+    public async Task<List<MessageResponse>> GetPinnedMessagesAsync(int channelId)
+        => await _http.GetFromJsonAsync<List<MessageResponse>>($"api/channels/{channelId}/messages/pinned") ?? new();
+
+    public async Task<bool> PinMessageAsync(int channelId, int messageId)
+        => (await _http.PutAsync($"api/channels/{channelId}/messages/{messageId}/pin", null)).IsSuccessStatusCode;
+
+    public async Task<bool> UnpinMessageAsync(int channelId, int messageId)
+        => (await _http.DeleteAsync($"api/channels/{channelId}/messages/{messageId}/pin")).IsSuccessStatusCode;
+
     // --- Invites ---
     public async Task<InviteResponse?> CreateInviteAsync(int serverId, int? expiresInHours = null, int? maxUses = null)
     {
@@ -318,8 +327,9 @@ public class ApiService
         return decrypted.ToList();
     }
 
-    public async Task<List<CallRecordResponse>> GetCallHistoryAsync()
-        => await _http.GetFromJsonAsync<List<CallRecordResponse>>("api/calls/history") ?? new();
+    public async Task<List<CallRecordResponse>> GetCallHistoryAsync(int? beforeId = null)
+        => await _http.GetFromJsonAsync<List<CallRecordResponse>>(
+            $"api/calls/history{(beforeId.HasValue ? $"?beforeId={beforeId}" : "")}") ?? new();
 
     // --- E2EE key material ---
     public async Task<bool> SetMyKeyMaterialAsync(string publicKey, string wrappedPrivateKey, string privateKeySalt)

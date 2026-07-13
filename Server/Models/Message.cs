@@ -9,6 +9,7 @@ public class Message
     public DateTime SentAt { get; set; } = DateTime.UtcNow;
     public DateTime? EditedAt { get; set; }
     public string? AttachmentUrl { get; set; }
+    public DateTime? PinnedAt { get; set; }
 
     public Channel? Channel { get; set; }
     public User? Author { get; set; }

@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
 using Voiceover.Client.Models;
 using Voiceover.Client.Services;
 using Microsoft.Win32;
@@ -10,6 +11,7 @@ using MessageBox = System.Windows.MessageBox;
 using MessageBoxButton = System.Windows.MessageBoxButton;
 using MessageBoxResult = System.Windows.MessageBoxResult;
 using Button = System.Windows.Controls.Button;
+using ScrollViewer = System.Windows.Controls.ScrollViewer;
 
 namespace Voiceover.Client.Views;
 
@@ -167,6 +169,47 @@ public class ChannelListItem : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 }
 
+// Denormalizes MessageId/IsChannelMessage onto each reaction pill itself
+// (rather than looking them up via RelativeSource from the pill's own
+// DataContext) so ReactionPill_Click has everything it needs directly off
+// the bound item - simplest way to thread both "which message" and "which
+// emoji" through a nested ItemsControl's click handler.
+public class ReactionItem : INotifyPropertyChanged
+{
+    public int MessageId { get; set; }
+    public bool IsChannelMessage { get; set; }
+    public string Emoji { get; set; } = string.Empty;
+
+    private int _count;
+    public int Count
+    {
+        get => _count;
+        set
+        {
+            if (_count == value) return;
+            _count = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Count)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Display)));
+        }
+    }
+
+    private bool _reactedByMe;
+    public bool ReactedByMe
+    {
+        get => _reactedByMe;
+        set
+        {
+            if (_reactedByMe == value) return;
+            _reactedByMe = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ReactedByMe)));
+        }
+    }
+
+    public string Display => $"{Emoji} {Count}";
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+}
+
 public class MessageListItem : INotifyPropertyChanged
 {
     public int Id { get; set; }
@@ -175,6 +218,7 @@ public class MessageListItem : INotifyPropertyChanged
     public string? AuthorAvatarUrl { get; set; }
     public string TimeDisplay { get; set; } = string.Empty;
     public string? AttachmentUrl { get; set; }
+    public ObservableCollection<ReactionItem> Reactions { get; } = new();
 
     // Both set at construction (ToListItem/ToDmListItem). Edit is
     // author-only everywhere - moderators can remove someone else's words,
@@ -188,6 +232,32 @@ public class MessageListItem : INotifyPropertyChanged
     public bool IsChannelMessage { get; set; }
     public Visibility EditMenuVisibility => IsOwnMessage ? Visibility.Visible : Visibility.Collapsed;
     public Visibility DeleteMenuVisibility => IsOwnMessage || IsChannelMessage ? Visibility.Visible : Visibility.Collapsed;
+
+    // Pinning is channel-only (no DM equivalent, matching Discord) and
+    // requires being able to manage the server - set at construction from
+    // MainWindow's own _canManageCurrentServer, same as CanKick/
+    // CanChangeRole are precomputed once on MemberListItem rather than
+    // re-checked per binding.
+    public bool CanManageServer { get; set; }
+
+    private bool _isPinned;
+    public bool IsPinned
+    {
+        get => _isPinned;
+        set
+        {
+            if (_isPinned == value) return;
+            _isPinned = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsPinned)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(PinMenuVisibility)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(UnpinMenuVisibility)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(PinnedTagVisibility)));
+        }
+    }
+
+    public Visibility PinMenuVisibility => IsChannelMessage && CanManageServer && !IsPinned ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility UnpinMenuVisibility => IsChannelMessage && CanManageServer && IsPinned ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility PinnedTagVisibility => IsPinned ? Visibility.Visible : Visibility.Collapsed;
 
     private string _content = string.Empty;
     public string Content
@@ -232,7 +302,25 @@ public class MessageListItem : INotifyPropertyChanged
         }
     }
 
-    public Visibility ReadReceiptVisibility => IsOwnMessage && !IsChannelMessage && IsRead ? Visibility.Visible : Visibility.Collapsed;
+    // Only the single most recent own message in the conversation should
+    // ever show the receipt (matches Discord/most chat apps) - showing it
+    // under every read message gets noisy fast in a long conversation. Kept
+    // up to date by MainWindow.RefreshLatestOwnMessageFlag whenever the
+    // message list changes (load, prepend-older, new arrival).
+    private bool _isLatestOwnMessage;
+    public bool IsLatestOwnMessage
+    {
+        get => _isLatestOwnMessage;
+        set
+        {
+            if (_isLatestOwnMessage == value) return;
+            _isLatestOwnMessage = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsLatestOwnMessage)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ReadReceiptVisibility)));
+        }
+    }
+
+    public Visibility ReadReceiptVisibility => IsOwnMessage && !IsChannelMessage && IsRead && IsLatestOwnMessage ? Visibility.Visible : Visibility.Collapsed;
 
     // Local-only UI state (not persisted/broadcast) - true while this row's
     // inline edit box is open, swapping the read-only TextBlock for an
@@ -436,6 +524,9 @@ public partial class MainWindow : FluentWindow
     private int? _currentChannelId;
     private int? _currentVoiceChannelId;
     private int? _dmActiveUserId;
+    // Set by LoadMembersPanelAsync whenever a server is opened - whether the
+    // current user can pin/unpin messages in it (owner/moderator only).
+    private bool _canManageCurrentServer;
     private string? _dmActiveUsername;
 
     // "Load older messages" - whether the currently open channel/DM history
@@ -505,7 +596,9 @@ public partial class MainWindow : FluentWindow
         TextChannelList.ItemsSource = _textChannels;
         VoiceChannelList.ItemsSource = _voiceChannels;
         MessageList.ItemsSource = _messages;
+        _messages.CollectionChanged += (_, _) => UpdateMessagesEmptyState();
         DmConversationList.ItemsSource = _dmConversations;
+        _dmConversations.CollectionChanged += (_, _) => UpdateDmConversationsEmptyState();
         DmSearchResultsList.ItemsSource = _dmSearchResults;
         FriendList.ItemsSource = _friends;
         FriendRequestList.ItemsSource = _friendRequests;
@@ -518,6 +611,10 @@ public partial class MainWindow : FluentWindow
         _hub.DirectMessageEdited += OnDirectMessageEdited;
         _hub.DirectMessageDeleted += OnDirectMessageDeleted;
         _hub.DirectMessagesRead += (readerId, otherUserId, readAtUtc) => Dispatcher.Invoke(() => OnDirectMessagesRead(readerId, otherUserId, readAtUtc));
+        _hub.MessageReactionToggled += (channelId, messageId, emoji, userId, added) => Dispatcher.Invoke(() => OnReactionToggled(messageId, emoji, userId, added));
+        _hub.DirectMessageReactionToggled += (messageId, emoji, userId, added) => Dispatcher.Invoke(() => OnReactionToggled(messageId, emoji, userId, added));
+        _hub.MessagePinned += (channelId, messageId, pinnedAt) => Dispatcher.Invoke(() => OnMessagePinned(messageId, true));
+        _hub.MessageUnpinned += (channelId, messageId) => Dispatcher.Invoke(() => OnMessagePinned(messageId, false));
         _hub.ServerKeyRequested += OnServerKeyRequested;
         _hub.ServerKeyProvisioned += OnServerKeyProvisioned;
         _hub.UserTyping += OnUserTyping;
@@ -767,6 +864,7 @@ public partial class MainWindow : FluentWindow
         var self = members.FirstOrDefault(m => m.UserId == _api.CurrentUserId);
         var isOwner = self?.Role == "Owner";
         var canManageServer = isOwner || self?.Role == "Moderator";
+        _canManageCurrentServer = canManageServer;
 
         _members.ReplaceAll(members.Select(m =>
         {
@@ -869,6 +967,8 @@ public partial class MainWindow : FluentWindow
         var channelItem = FindChannelDisplayName(channelId);
         ChannelNameText.Text = channelItem ?? "# channel";
         DmCallButton.Visibility = Visibility.Collapsed;
+        PinnedMessagesButton.Visibility = Visibility.Visible;
+        SearchMessagesButton.Visibility = Visibility.Visible;
 
         await LoadChannelHistoryAsync(channelId);
     }
@@ -1641,6 +1741,8 @@ public partial class MainWindow : FluentWindow
         _messages.Clear();
         ChannelNameText.Text = "Select a conversation";
         DmCallButton.Visibility = Visibility.Collapsed;
+        PinnedMessagesButton.Visibility = Visibility.Collapsed;
+        SearchMessagesButton.Visibility = Visibility.Collapsed;
         DmSearchBox.Clear();
         _dmSearchResults.Clear();
 
@@ -1674,6 +1776,8 @@ public partial class MainWindow : FluentWindow
         _messages.Clear();
         ChannelNameText.Text = "Select a conversation";
         DmCallButton.Visibility = Visibility.Collapsed;
+        PinnedMessagesButton.Visibility = Visibility.Collapsed;
+        SearchMessagesButton.Visibility = Visibility.Collapsed;
         FriendSearchBox.Clear();
         _friendSearchResults.Clear();
 
@@ -1707,6 +1811,8 @@ public partial class MainWindow : FluentWindow
             _messages.Clear();
             ChannelNameText.Text = "# select-a-channel";
             DmCallButton.Visibility = Visibility.Collapsed;
+            PinnedMessagesButton.Visibility = Visibility.Collapsed;
+            SearchMessagesButton.Visibility = Visibility.Collapsed;
         }
     }
 
@@ -1761,6 +1867,8 @@ public partial class MainWindow : FluentWindow
         _dmActiveUsername = username;
         ChannelNameText.Text = $"@{username}";
         DmCallButton.Visibility = Visibility.Visible;
+        PinnedMessagesButton.Visibility = Visibility.Collapsed;
+        SearchMessagesButton.Visibility = Visibility.Visible;
 
         var convo = _dmConversations.FirstOrDefault(c => c.OtherUserId == userId);
         if (convo is not null) convo.UnreadCount = 0;
@@ -1772,12 +1880,25 @@ public partial class MainWindow : FluentWindow
         var history = await _api.GetDmHistoryAsync(userId);
         _messages.ReplaceAll(history.Select(m => ToDmListItem(m)));
         SetHasMoreHistory(history.Count);
+        RefreshLatestOwnMessageFlag();
 
         ScrollToBottom();
 
         // Best-effort - marks the other party's messages as read now that
         // this conversation is open. Failure here shouldn't block viewing.
         try { await _hub.MarkDmReadAsync(userId); } catch { }
+    }
+
+    // Only the most recent own message in _messages should show a read
+    // receipt (see MessageListItem.IsLatestOwnMessage) - recomputed instead
+    // of tracked incrementally since the "latest" one can change from
+    // several different call sites (initial load, prepend-older, a new
+    // message arriving) and a single scan is cheap at realistic history sizes.
+    private void RefreshLatestOwnMessageFlag()
+    {
+        var latestOwn = _messages.LastOrDefault(m => m.IsOwnMessage);
+        foreach (var m in _messages)
+            m.IsLatestOwnMessage = ReferenceEquals(m, latestOwn);
     }
 
     private async Task LoadFriendsAsync()
@@ -2034,6 +2155,54 @@ public partial class MainWindow : FluentWindow
         }
     }
 
+    private async void PinMessageMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: int messageId } || !_currentChannelId.HasValue) return;
+
+        var success = await _api.PinMessageAsync(_currentChannelId.Value, messageId);
+        if (success)
+        {
+            var item = _messages.FirstOrDefault(m => m.Id == messageId);
+            if (item is not null) item.IsPinned = true;
+        }
+    }
+
+    private async void UnpinMessageMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: int messageId } || !_currentChannelId.HasValue) return;
+
+        var success = await _api.UnpinMessageAsync(_currentChannelId.Value, messageId);
+        if (success)
+        {
+            var item = _messages.FirstOrDefault(m => m.Id == messageId);
+            if (item is not null) item.IsPinned = false;
+        }
+    }
+
+    // Broadcast from MessagesController.Pin/Unpin - only found/updated if
+    // this message happens to already be loaded in _messages (the currently
+    // open channel); PinnedMessagesWindow always fetches fresh from the
+    // server when opened, so it doesn't need a live-update path of its own.
+    private void OnMessagePinned(int messageId, bool isPinned)
+    {
+        var item = _messages.FirstOrDefault(m => m.Id == messageId);
+        if (item is not null) item.IsPinned = isPinned;
+    }
+
+    private void PinnedMessagesButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_currentChannelId.HasValue || !_currentServerId.HasValue) return;
+        new PinnedMessagesWindow(_api, _currentServerId.Value, _currentChannelId.Value, _canManageCurrentServer) { Owner = this }.ShowDialog();
+    }
+
+    private void SearchMessagesButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentChannelId.HasValue && _currentServerId.HasValue)
+            new MessageSearchWindow(_api, _currentServerId.Value, _currentChannelId.Value, null, "") { Owner = this }.ShowDialog();
+        else if (_dmActiveUserId.HasValue)
+            new MessageSearchWindow(_api, null, null, _dmActiveUserId.Value, _dmActiveUsername ?? "them") { Owner = this }.ShowDialog();
+    }
+
     private async void SaveMessageEditButton_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not FrameworkElement { Tag: int messageId }) return;
@@ -2139,8 +2308,18 @@ public partial class MainWindow : FluentWindow
                     NotificationService.PlayMessageSound();
                     if (!isCurrentlyOpen)
                     {
+                        // Not validated against real membership (see
+                        // MessageContentRenderer) - a false-positive "@word"
+                        // match against your own username is exceedingly
+                        // unlikely in practice, and this is purely a
+                        // notification title choice, not a security boundary.
+                        var isMentioned = _api.CurrentUsername is { Length: > 0 } myName &&
+                            content.Contains($"@{myName}", StringComparison.OrdinalIgnoreCase);
                         var preview = content.Length > 80 ? content[..80] + "…" : content;
-                        NotificationService.ShowToast(FindChannelDisplayName(msg.ChannelId) ?? "New message", preview);
+                        var title = isMentioned
+                            ? $"You were mentioned in {FindChannelDisplayName(msg.ChannelId) ?? "a channel"}"
+                            : FindChannelDisplayName(msg.ChannelId) ?? "New message";
+                        NotificationService.ShowToast(title, preview);
                     }
                 }
             });
@@ -2187,6 +2366,7 @@ public partial class MainWindow : FluentWindow
                 if (isCurrentlyOpen)
                 {
                     _messages.Add(ToDmListItem(dm, content));
+                    RefreshLatestOwnMessageFlag();
                     ScrollToBottom();
 
                     // The conversation is already open, so this incoming
@@ -2309,6 +2489,75 @@ public partial class MainWindow : FluentWindow
         if (_dmActiveUserId != readerId) return;
         foreach (var m in _messages.Where(m => m.IsOwnMessage))
             m.IsRead = true;
+    }
+
+    // Shared by both MessageReactionToggled (channel) and
+    // DirectMessageReactionToggled (DM) - only the message's own broadcast
+    // includes a channelId/otherUserId, but this app only ever has one
+    // conversation's worth of messages loaded into _messages at a time, so
+    // finding the target by Id alone is enough; if it's not found, that
+    // message isn't currently open/loaded and there's nothing to update.
+    private void OnReactionToggled(int messageId, string emoji, int userId, bool added)
+    {
+        var message = _messages.FirstOrDefault(m => m.Id == messageId);
+        if (message is null) return;
+
+        var reaction = message.Reactions.FirstOrDefault(r => r.Emoji == emoji);
+        if (added)
+        {
+            if (reaction is null)
+            {
+                reaction = new ReactionItem { MessageId = messageId, IsChannelMessage = message.IsChannelMessage, Emoji = emoji };
+                message.Reactions.Add(reaction);
+            }
+            reaction.Count++;
+            if (userId == _api.CurrentUserId) reaction.ReactedByMe = true;
+        }
+        else if (reaction is not null)
+        {
+            reaction.Count--;
+            if (userId == _api.CurrentUserId) reaction.ReactedByMe = false;
+            if (reaction.Count <= 0) message.Reactions.Remove(reaction);
+        }
+    }
+
+    // Opens immediately on a plain left-click instead of requiring a
+    // right-click, same trick InvitesWindow-style popups don't need but a
+    // plain Button.ContextMenu does by default.
+    private void ReactButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { ContextMenu: { } menu } element) return;
+        menu.PlacementTarget = element;
+        menu.IsOpen = true;
+    }
+
+    // Tag is the whole MessageListItem (see MainWindow.xaml) so this has
+    // both the message id and whether it's a channel message or a DM
+    // without needing a second lookup; Header is the literal emoji glyph.
+    private async void ReactionMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { Tag: MessageListItem message } menuItem) return;
+        var emoji = menuItem.Header?.ToString();
+        if (string.IsNullOrEmpty(emoji)) return;
+
+        try
+        {
+            if (message.IsChannelMessage) await _hub.ToggleMessageReactionAsync(message.Id, emoji);
+            else await _hub.ToggleDirectMessageReactionAsync(message.Id, emoji);
+        }
+        catch { /* best-effort, same as other reaction-toggle failures */ }
+    }
+
+    private async void ReactionPill_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { DataContext: ReactionItem reaction }) return;
+
+        try
+        {
+            if (reaction.IsChannelMessage) await _hub.ToggleMessageReactionAsync(reaction.MessageId, reaction.Emoji);
+            else await _hub.ToggleDirectMessageReactionAsync(reaction.MessageId, reaction.Emoji);
+        }
+        catch { /* best-effort, same as other reaction-toggle failures */ }
     }
 
     // A fellow member's device just asked for a copy of this server's
@@ -2523,19 +2772,36 @@ public partial class MainWindow : FluentWindow
     // (OnMessageReceived, working with a raw hub push) supply the plaintext
     // directly - callers going through LoadChannelHistoryAsync already
     // decrypt inline and pass the result the same way.
-    private MessageListItem ToListItem(MessageResponse m, string? contentOverride = null) => new()
+    private MessageListItem ToListItem(MessageResponse m, string? contentOverride = null)
     {
-        Id = m.Id,
-        AuthorId = m.AuthorId,
-        AuthorUsername = m.AuthorUsername,
-        AuthorAvatarUrl = App.ResolveUploadUrl(m.AuthorAvatarUrl),
-        Content = contentOverride ?? m.Content,
-        TimeDisplay = m.SentAt.ToLocalTime().ToString("t"),
-        AttachmentUrl = m.AttachmentUrl,
-        IsEdited = m.EditedAt is not null,
-        IsOwnMessage = m.AuthorId == _api.CurrentUserId,
-        IsChannelMessage = true
-    };
+        var item = new MessageListItem
+        {
+            Id = m.Id,
+            AuthorId = m.AuthorId,
+            AuthorUsername = m.AuthorUsername,
+            AuthorAvatarUrl = App.ResolveUploadUrl(m.AuthorAvatarUrl),
+            Content = contentOverride ?? m.Content,
+            TimeDisplay = m.SentAt.ToLocalTime().ToString("t"),
+            AttachmentUrl = m.AttachmentUrl,
+            IsEdited = m.EditedAt is not null,
+            IsOwnMessage = m.AuthorId == _api.CurrentUserId,
+            IsChannelMessage = true,
+            CanManageServer = _canManageCurrentServer,
+            IsPinned = m.PinnedAt is not null
+        };
+        PopulateReactions(item, m.Reactions);
+        return item;
+    }
+
+    // ToListItem/ToDmListItem's own object initializers can't populate
+    // Reactions (get-only ObservableCollection, not a settable property) -
+    // done as a separate step right after construction instead.
+    private void PopulateReactions(MessageListItem item, List<ReactionSummaryResponse>? reactions)
+    {
+        if (reactions is null) return;
+        foreach (var r in reactions)
+            item.Reactions.Add(new ReactionItem { MessageId = item.Id, IsChannelMessage = item.IsChannelMessage, Emoji = r.Emoji, Count = r.Count, ReactedByMe = r.ReactedByMe });
+    }
 
     // DirectMessageResponse doesn't carry a sender avatar (1:1 DMs - you
     // already know who you're talking to, unlike a multi-sender channel) -
@@ -2546,21 +2812,26 @@ public partial class MainWindow : FluentWindow
     // through ApiService's transparent decrypt) supply the plaintext
     // directly - callers going through ApiService.GetDmHistoryAsync already
     // get plaintext in dm.Content and don't need it.
-    private MessageListItem ToDmListItem(DirectMessageResponse dm, string? contentOverride = null) => new()
+    private MessageListItem ToDmListItem(DirectMessageResponse dm, string? contentOverride = null)
     {
-        Id = dm.Id,
-        AuthorId = dm.SenderId,
-        AuthorUsername = dm.SenderId == _api.CurrentUserId ? "You" : (_dmActiveUsername ?? "them"),
-        AuthorAvatarUrl = dm.SenderId == _api.CurrentUserId
-            ? _api.CurrentUserAvatarUrl
-            : _dmConversations.FirstOrDefault(c => c.OtherUserId == _dmActiveUserId)?.OtherUserAvatarUrl,
-        Content = CallEventMessage.Prettify(contentOverride ?? dm.Content),
-        TimeDisplay = dm.SentAt.ToLocalTime().ToString("t"),
-        IsEdited = dm.EditedAt is not null,
-        IsOwnMessage = dm.SenderId == _api.CurrentUserId,
-        IsChannelMessage = false,
-        IsRead = dm.ReadAt is not null
-    };
+        var item = new MessageListItem
+        {
+            Id = dm.Id,
+            AuthorId = dm.SenderId,
+            AuthorUsername = dm.SenderId == _api.CurrentUserId ? "You" : (_dmActiveUsername ?? "them"),
+            AuthorAvatarUrl = dm.SenderId == _api.CurrentUserId
+                ? _api.CurrentUserAvatarUrl
+                : _dmConversations.FirstOrDefault(c => c.OtherUserId == _dmActiveUserId)?.OtherUserAvatarUrl,
+            Content = CallEventMessage.Prettify(contentOverride ?? dm.Content),
+            TimeDisplay = dm.SentAt.ToLocalTime().ToString("t"),
+            IsEdited = dm.EditedAt is not null,
+            IsOwnMessage = dm.SenderId == _api.CurrentUserId,
+            IsChannelMessage = false,
+            IsRead = dm.ReadAt is not null
+        };
+        PopulateReactions(item, dm.Reactions);
+        return item;
+    }
 
     private static DmConversationListItem ToDmConversationItem(DmConversationResponse c) => new()
     {
@@ -2590,7 +2861,51 @@ public partial class MainWindow : FluentWindow
         return null;
     }
 
-    private void ScrollToBottom() => MessageScroll.ScrollToEnd();
+    private void ScrollToBottom() => GetMessageListScrollViewer()?.ScrollToEnd();
+
+    // Only shown once a channel/DM is actually open and confirmed empty -
+    // not while nothing is selected yet, where "# select-a-channel"/"Select
+    // a conversation" already communicates that state.
+    private void UpdateMessagesEmptyState()
+    {
+        var isConversationOpen = _currentChannelId.HasValue || _dmActiveUserId.HasValue;
+        MessagesEmptyText.Visibility = isConversationOpen && _messages.Count == 0
+            ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void UpdateDmConversationsEmptyState()
+    {
+        DmConversationsEmptyText.Visibility = _dmConversations.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    // MessageList used to be a plain ItemsControl inside a manually-declared
+    // ScrollViewer x:Name="MessageScroll" - switched to a ListBox for real UI
+    // virtualization (see MainWindow.xaml), which means it now owns its own
+    // internal ScrollViewer instead of a named one this code can reference
+    // directly. Found once via VisualTreeHelper and cached - the visual tree
+    // under a ListBox doesn't get rebuilt during the window's lifetime, so
+    // one lookup is enough.
+    private ScrollViewer? _messageListScrollViewer;
+
+    private ScrollViewer? GetMessageListScrollViewer()
+    {
+        _messageListScrollViewer ??= FindVisualChild<ScrollViewer>(MessageList);
+        return _messageListScrollViewer;
+    }
+
+    private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is T typed) return typed;
+
+            var descendant = FindVisualChild<T>(child);
+            if (descendant is not null) return descendant;
+        }
+
+        return null;
+    }
 
     // A full page (server take=50 default) suggests there might be more
     // before it; anything short of that means we've hit the start of history.
@@ -2635,10 +2950,12 @@ public partial class MainWindow : FluentWindow
             // unless the scroll offset is corrected by the same amount the
             // content grew - ExtentHeight only reflects the new layout after
             // a layout pass, hence the Yield before reading it again.
-            var oldExtentHeight = MessageScroll.ExtentHeight;
+            var scrollViewer = GetMessageListScrollViewer();
+            var oldExtentHeight = scrollViewer?.ExtentHeight ?? 0;
             _messages.PrependRange(olderItems);
+            RefreshLatestOwnMessageFlag();
             await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Loaded);
-            MessageScroll.ScrollToVerticalOffset(MessageScroll.ExtentHeight - oldExtentHeight);
+            scrollViewer?.ScrollToVerticalOffset((scrollViewer.ExtentHeight) - oldExtentHeight);
         }
         finally
         {

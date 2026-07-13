@@ -24,31 +24,36 @@
                        Visibility="Collapsed" Margin="0,0,0,8"/>
 
             <ScrollViewer VerticalScrollBarVisibility="Auto">
-                <ItemsControl x:Name="CallList">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <Border Background="{StaticResource BgSidebar}" CornerRadius="4" Padding="10,8" Margin="0,0,0,8">
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <local:AvatarView Grid.Column="0" Size="32" DisplayName="{Binding OtherUsername}"
-                                                       ImageUrl="{Binding OtherUserAvatarUrl}" Margin="0,0,10,0"/>
-                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                        <TextBlock Text="{Binding OtherUsername}" FontWeight="Bold" FontSize="14"
-                                                   Foreground="{StaticResource TextNormal}"/>
-                                        <TextBlock Text="{Binding Summary}" FontSize="11"
-                                                   Foreground="{Binding SummaryColor}"/>
-                                    </StackPanel>
-                                    <TextBlock Grid.Column="2" Text="{Binding TimeDisplay}" FontSize="11"
-                                               Foreground="{StaticResource TextMuted}" VerticalAlignment="Center"/>
-                                </Grid>
-                            </Border>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
+                <StackPanel>
+                    <ItemsControl x:Name="CallList">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="{StaticResource BgSidebar}" CornerRadius="4" Padding="10,8" Margin="0,0,0,8">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <local:AvatarView Grid.Column="0" Size="32" DisplayName="{Binding OtherUsername}"
+                                                           ImageUrl="{Binding OtherUserAvatarUrl}" Margin="0,0,10,0"/>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding OtherUsername}" FontWeight="Bold" FontSize="14"
+                                                       Foreground="{StaticResource TextNormal}"/>
+                                            <TextBlock Text="{Binding Summary}" FontSize="11"
+                                                       Foreground="{Binding SummaryColor}"/>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="2" Text="{Binding TimeDisplay}" FontSize="11"
+                                                   Foreground="{StaticResource TextMuted}" VerticalAlignment="Center"/>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <Button x:Name="LoadMoreButton" Content="Load More" Height="34" Margin="0,4,0,0"
+                            Click="LoadMoreButton_Click" Visibility="Collapsed"
+                            Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}" BorderThickness="0"/>
+                </StackPanel>
             </ScrollViewer>
         </DockPanel>
     </Grid>

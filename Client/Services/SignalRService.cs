@@ -14,6 +14,10 @@ public class SignalRService
     public event Action<DirectMessageResponse>? DirectMessageEdited;
     public event Action<int, int, int>? DirectMessageDeleted; // messageId, senderId, recipientId
     public event Action<int, int, DateTime>? DirectMessagesRead; // readerId, otherUserId, readAtUtc
+    public event Action<int, int, string, int, bool>? MessageReactionToggled; // channelId, messageId, emoji, userId, added
+    public event Action<int, string, int, bool>? DirectMessageReactionToggled; // messageId, emoji, userId, added
+    public event Action<int, int, DateTime>? MessagePinned; // channelId, messageId, pinnedAt
+    public event Action<int, int>? MessageUnpinned; // channelId, messageId
     public event Action<string, int>? UserTyping;
     public event Action<int, string, int, string?>? VoiceUserJoined;
     public event Action<int, string, int>? VoiceUserLeft;
@@ -59,6 +63,10 @@ public class SignalRService
         _connection.On<DirectMessageResponse>("DirectMessageEdited", dm => DirectMessageEdited?.Invoke(dm));
         _connection.On<int, int, int>("DirectMessageDeleted", (messageId, senderId, recipientId) => DirectMessageDeleted?.Invoke(messageId, senderId, recipientId));
         _connection.On<int, int, DateTime>("DirectMessagesRead", (readerId, otherUserId, readAtUtc) => DirectMessagesRead?.Invoke(readerId, otherUserId, readAtUtc));
+        _connection.On<int, int, string, int, bool>("MessageReactionToggled", (channelId, messageId, emoji, userId, added) => MessageReactionToggled?.Invoke(channelId, messageId, emoji, userId, added));
+        _connection.On<int, string, int, bool>("DirectMessageReactionToggled", (messageId, emoji, userId, added) => DirectMessageReactionToggled?.Invoke(messageId, emoji, userId, added));
+        _connection.On<int, int, DateTime>("MessagePinned", (channelId, messageId, pinnedAt) => MessagePinned?.Invoke(channelId, messageId, pinnedAt));
+        _connection.On<int, int>("MessageUnpinned", (channelId, messageId) => MessageUnpinned?.Invoke(channelId, messageId));
         _connection.On<string, int>("UserTyping", (username, channelId) => UserTyping?.Invoke(username, channelId));
         _connection.On<int, string, int, string?>("VoiceUserJoined", (userId, username, channelId, avatarUrl) => VoiceUserJoined?.Invoke(userId, username, channelId, avatarUrl));
         _connection.On<int, string, int>("VoiceUserLeft", (userId, username, channelId) => VoiceUserLeft?.Invoke(userId, username, channelId));
@@ -90,6 +98,8 @@ public class SignalRService
     public Task NotifyTypingAsync(int channelId) => _connection!.InvokeAsync("NotifyTyping", channelId);
     public Task SendDirectMessageAsync(int recipientId, string content) => _connection!.InvokeAsync("SendDirectMessage", recipientId, content);
     public Task MarkDmReadAsync(int otherUserId) => _connection!.InvokeAsync("MarkDmRead", otherUserId);
+    public Task ToggleMessageReactionAsync(int messageId, string emoji) => _connection!.InvokeAsync("ToggleMessageReaction", messageId, emoji);
+    public Task ToggleDirectMessageReactionAsync(int messageId, string emoji) => _connection!.InvokeAsync("ToggleDirectMessageReaction", messageId, emoji);
     public Task<List<VoiceParticipant>> JoinVoiceChannelAsync(int channelId) => _connection!.InvokeAsync<List<VoiceParticipant>>("JoinVoiceChannel", channelId);
     public Task LeaveVoiceChannelAsync(int channelId) => _connection!.InvokeAsync("LeaveVoiceChannel", channelId);
     public Task<LiveKitJoinResponse> GetLiveKitTokenAsync(int channelId) => _connection!.InvokeAsync<LiveKitJoinResponse>("GetLiveKitToken", channelId);

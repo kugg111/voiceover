@@ -59,11 +59,99 @@ public class MessagesController : ControllerBase
             .Include(m => m.Author)
             .ToListAsync();
 
+        var reactionsByMessage = await LoadReactionsAsync(messages.Select(m => m.Id).ToList());
+
         var response = messages
-            .Select(m => new MessageResponse(m.Id, m.Content, m.ChannelId, m.AuthorId, m.Author!.Username, m.SentAt, m.AttachmentUrl, m.Author!.AvatarUrl, m.EditedAt))
+            .Select(m => new MessageResponse(m.Id, m.Content, m.ChannelId, m.AuthorId, m.Author!.Username, m.SentAt, m.AttachmentUrl, m.Author!.AvatarUrl, m.EditedAt, reactionsByMessage.GetValueOrDefault(m.Id), m.PinnedAt))
             .ToList();
 
         return Ok(response);
+    }
+
+    // GET /api/channels/5/messages/pinned -> every pinned message in this
+    // channel, most recently pinned first (not paginated - pin lists are
+    // expected to stay small in practice, same assumption Discord itself makes).
+    [HttpGet("pinned")]
+    public async Task<ActionResult<List<MessageResponse>>> GetPinned(int channelId)
+    {
+        var channel = await _db.Channels.FirstOrDefaultAsync(c => c.Id == channelId);
+        if (channel is null) return NotFound();
+        if (!await _permissions.IsMemberAsync(CurrentUserId, channel.GuildServerId))
+            return Forbid();
+
+        var messages = await _db.Messages
+            .Where(m => m.ChannelId == channelId && m.PinnedAt != null)
+            .OrderByDescending(m => m.PinnedAt)
+            .Include(m => m.Author)
+            .ToListAsync();
+
+        var reactionsByMessage = await LoadReactionsAsync(messages.Select(m => m.Id).ToList());
+
+        var response = messages
+            .Select(m => new MessageResponse(m.Id, m.Content, m.ChannelId, m.AuthorId, m.Author!.Username, m.SentAt, m.AttachmentUrl, m.Author!.AvatarUrl, m.EditedAt, reactionsByMessage.GetValueOrDefault(m.Id), m.PinnedAt))
+            .ToList();
+
+        return Ok(response);
+    }
+
+    // Pinning requires being able to manage the server (owner/moderator) -
+    // unlike Delete, authorship alone doesn't grant it, matching Discord's
+    // own "Manage Messages" permission rather than this app's simpler
+    // author-or-moderator rule used elsewhere.
+    [HttpPut("{messageId}/pin")]
+    public async Task<ActionResult> Pin(int channelId, int messageId)
+    {
+        var message = await _db.Messages
+            .Include(m => m.Channel)
+            .FirstOrDefaultAsync(m => m.Id == messageId && m.ChannelId == channelId);
+        if (message is null) return NotFound();
+
+        if (!await _permissions.CanManageServerAsync(CurrentUserId, message.Channel!.GuildServerId))
+            return Forbid();
+
+        message.PinnedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        await _hub.Clients.Group(GroupName(channelId)).SendAsync("MessagePinned", channelId, messageId, message.PinnedAt);
+
+        return Ok();
+    }
+
+    [HttpDelete("{messageId}/pin")]
+    public async Task<ActionResult> Unpin(int channelId, int messageId)
+    {
+        var message = await _db.Messages
+            .Include(m => m.Channel)
+            .FirstOrDefaultAsync(m => m.Id == messageId && m.ChannelId == channelId);
+        if (message is null) return NotFound();
+
+        if (!await _permissions.CanManageServerAsync(CurrentUserId, message.Channel!.GuildServerId))
+            return Forbid();
+
+        message.PinnedAt = null;
+        await _db.SaveChangesAsync();
+        await _hub.Clients.Group(GroupName(channelId)).SendAsync("MessageUnpinned", channelId, messageId);
+
+        return Ok();
+    }
+
+    // Aggregated per (message, emoji) rather than shipping every individual
+    // reaction row - ReactionSummaryResponse.ReactedByMe is computed against
+    // CurrentUserId here so the client never needs to know every reactor's
+    // identity just to render its own "you reacted" state.
+    private async Task<Dictionary<int, List<ReactionSummaryResponse>>> LoadReactionsAsync(List<int> messageIds)
+    {
+        if (messageIds.Count == 0) return new();
+
+        var rows = await _db.MessageReactions
+            .Where(r => messageIds.Contains(r.MessageId))
+            .ToListAsync();
+
+        return rows
+            .GroupBy(r => r.MessageId)
+            .ToDictionary(g => g.Key, g => g
+                .GroupBy(r => r.Emoji)
+                .Select(eg => new ReactionSummaryResponse(eg.Key, eg.Count(), eg.Any(r => r.UserId == CurrentUserId)))
+                .ToList());
     }
 
     // Author-only - unlike Delete, moderators can remove someone else's
@@ -87,7 +175,8 @@ public class MessagesController : ControllerBase
         message.EditedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
 
-        var response = new MessageResponse(message.Id, message.Content, channelId, message.AuthorId, message.Author!.Username, message.SentAt, message.AttachmentUrl, message.Author.AvatarUrl, message.EditedAt);
+        var reactions = (await LoadReactionsAsync(new List<int> { messageId })).GetValueOrDefault(messageId);
+        var response = new MessageResponse(message.Id, message.Content, channelId, message.AuthorId, message.Author!.Username, message.SentAt, message.AttachmentUrl, message.Author.AvatarUrl, message.EditedAt, reactions, message.PinnedAt);
         await _hub.Clients.Group(GroupName(channelId)).SendAsync("MessageEdited", response);
 
         return Ok(response);
@@ -107,6 +196,12 @@ public class MessagesController : ControllerBase
         var canManage = await _permissions.CanManageServerAsync(CurrentUserId, message.Channel!.GuildServerId);
 
         if (!isAuthor && !canManage) return Forbid();
+
+        // No FK/cascade configured between MessageReaction and Message (see
+        // AppDbContext) - clean these up explicitly so deleting a reacted-to
+        // message doesn't leave orphaned reaction rows behind forever.
+        var reactions = await _db.MessageReactions.Where(r => r.MessageId == messageId).ToListAsync();
+        _db.MessageReactions.RemoveRange(reactions);
 
         _db.Messages.Remove(message);
         await _db.SaveChangesAsync();

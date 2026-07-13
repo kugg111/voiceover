@@ -18,6 +18,8 @@ public class AppDbContext : DbContext
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<ServerMemberKey> ServerMemberKeys => Set<ServerMemberKey>();
     public DbSet<CallRecord> CallRecords => Set<CallRecord>();
+    public DbSet<MessageReaction> MessageReactions => Set<MessageReaction>();
+    public DbSet<DirectMessageReaction> DirectMessageReactions => Set<DirectMessageReaction>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -151,5 +153,16 @@ public class AppDbContext : DbContext
 
         modelBuilder.Entity<CallRecord>()
             .HasIndex(c => new { c.CalleeId, c.EndedAt });
+
+        // Unique so "react again with the same emoji removes it" (see
+        // ChatHub.ToggleMessageReaction) can never end up with two rows for
+        // the same (message, user, emoji) triple even under a race.
+        modelBuilder.Entity<MessageReaction>()
+            .HasIndex(r => new { r.MessageId, r.UserId, r.Emoji })
+            .IsUnique();
+
+        modelBuilder.Entity<DirectMessageReaction>()
+            .HasIndex(r => new { r.DirectMessageId, r.UserId, r.Emoji })
+            .IsUnique();
     }
 }

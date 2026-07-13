@@ -27,6 +27,8 @@ public partial class SettingsWindow : FluentWindow
         AccountAvatarView.ImageUrl = _api.CurrentUserAvatarUrl;
         AccountUsernameText.Text = _api.CurrentUsername;
         CustomStatusBox.Text = _api.CurrentUserCustomStatus ?? "";
+        UpdateCustomStatusCounter();
+        LightThemeCheckBox.IsChecked = ThemeStorage.LoadIsLightTheme();
 
         UpdateStatusText.Text = $"You're on version {UpdateChecker.CurrentVersion}" +
             (UpdateChecker.IsInstalled ? " (installed)." : " (portable).");
@@ -112,6 +114,16 @@ public partial class SettingsWindow : FluentWindow
         AccountAvatarView.ImageUrl = _api.CurrentUserAvatarUrl;
         AccountStatusText.Text = "Avatar updated.";
     }
+
+    private void CustomStatusBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e) => UpdateCustomStatusCounter();
+
+    // Only saved here - not applied live, see App.ApplyTheme for why a
+    // restart is required.
+    private void LightThemeCheckBox_Changed(object sender, RoutedEventArgs e) =>
+        ThemeStorage.SaveIsLightTheme(LightThemeCheckBox.IsChecked == true);
+
+    private void UpdateCustomStatusCounter() =>
+        CustomStatusCounterText.Text = $"{CustomStatusBox.Text.Length}/{CustomStatusBox.MaxLength}";
 
     private async void SaveCustomStatusButton_Click(object sender, RoutedEventArgs e)
     {

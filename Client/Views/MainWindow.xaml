@@ -256,6 +256,11 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
+                <TextBlock DockPanel.Dock="Top" x:Name="DmConversationsEmptyText"
+                           Text="No conversations yet - search for a friend above to start chatting."
+                           FontSize="12" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}"
+                           Visibility="Collapsed" Margin="14,8,14,0"/>
+
                 <ScrollViewer>
                     <ItemsControl x:Name="DmConversationList">
                         <ItemsControl.ItemTemplate>
@@ -415,20 +420,67 @@
                             Background="Transparent" Foreground="{StaticResource TextMuted}"
                             BorderThickness="0" Cursor="Hand" Visibility="Collapsed"
                             Click="DmCallButton_Click"/>
+                    <Button x:Name="PinnedMessagesButton" DockPanel.Dock="Right" Content="📌" ToolTip="Pinned Messages" Margin="0,0,12,0"
+                            Background="Transparent" Foreground="{StaticResource TextMuted}"
+                            BorderThickness="0" Cursor="Hand" Visibility="Collapsed"
+                            Click="PinnedMessagesButton_Click"/>
+                    <Button x:Name="SearchMessagesButton" DockPanel.Dock="Right" Content="🔍" ToolTip="Search Messages" Margin="0,0,12,0"
+                            Background="Transparent" Foreground="{StaticResource TextMuted}"
+                            BorderThickness="0" Cursor="Hand" Visibility="Collapsed"
+                            Click="SearchMessagesButton_Click"/>
                     <TextBlock x:Name="ChannelNameText" Text="# select-a-channel"
                                Foreground="{StaticResource TextNormal}" FontWeight="Bold"
                                VerticalAlignment="Center" Margin="16,0,0,0"/>
                 </DockPanel>
             </Border>
 
-            <ScrollViewer Grid.Row="1" x:Name="MessageScroll" Padding="16,8">
-              <StackPanel>
-                <Button x:Name="LoadOlderMessagesButton" Content="Load Older Messages" HorizontalAlignment="Center"
-                        Margin="0,0,0,12" Padding="12,6" Visibility="Collapsed" Cursor="Hand"
+            <DockPanel Grid.Row="1">
+                <Button x:Name="LoadOlderMessagesButton" DockPanel.Dock="Top" Content="Load Older Messages" HorizontalAlignment="Center"
+                        Margin="0,8,0,0" Padding="12,6" Visibility="Collapsed" Cursor="Hand"
                         Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
                         BorderThickness="0" Click="LoadOlderMessagesButton_Click"/>
-                <ItemsControl x:Name="MessageList">
-                    <ItemsControl.ItemTemplate>
+
+                <Grid>
+                <TextBlock x:Name="MessagesEmptyText" Text="No messages yet - say hi! 👋"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           FontSize="14" Foreground="{StaticResource TextMuted}" Visibility="Collapsed"/>
+
+                <!-- ListBox rather than ItemsControl - a plain ItemsControl's
+                     default panel (StackPanel) realizes every item in the
+                     visual tree regardless of scroll position, so a long
+                     channel/DM history (especially after several "load older"
+                     pages) keeps costing more to lay out and render the
+                     further it grows. ListBox's default panel is a
+                     VirtualizingStackPanel wired to its own internal
+                     ScrollViewer, so off-screen rows are actually virtualized
+                     - but that internal ScrollViewer means MainWindow.xaml.cs
+                     can no longer reference a MessageScroll element directly;
+                     see GetMessageListScrollViewer(), which finds it once via
+                     VisualTreeHelper and reuses the same ScrollToEnd/
+                     ExtentHeight/ScrollToVerticalOffset calls that used to
+                     target MessageScroll. ItemContainerStyle below strips
+                     ListBoxItem's default selection/hover chrome so it's
+                     visually identical to the old ItemsControl rows - nothing
+                     here is meant to be selectable. -->
+                <ListBox x:Name="MessageList" Padding="16,8" Background="Transparent" BorderThickness="0"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         VirtualizingPanel.IsVirtualizing="True"
+                         VirtualizingPanel.VirtualizationMode="Recycling">
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                            <Setter Property="Focusable" Value="False"/>
+                            <Setter Property="Padding" Value="0"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListBoxItem">
+                                        <ContentPresenter/>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                    <ListBox.ItemTemplate>
                         <DataTemplate>
                             <Grid x:Name="MessageRow" Margin="0,6,0,6">
                                 <Grid.ColumnDefinitions>
@@ -442,6 +494,10 @@
                                                   Visibility="{Binding EditMenuVisibility}"/>
                                         <MenuItem Header="Delete Message" Tag="{Binding Id}" Click="DeleteMessageMenuItem_Click"
                                                   Visibility="{Binding DeleteMenuVisibility}"/>
+                                        <MenuItem Header="Pin Message" Tag="{Binding Id}" Click="PinMessageMenuItem_Click"
+                                                  Visibility="{Binding PinMenuVisibility}"/>
+                                        <MenuItem Header="Unpin Message" Tag="{Binding Id}" Click="UnpinMessageMenuItem_Click"
+                                                  Visibility="{Binding UnpinMenuVisibility}"/>
                                     </ContextMenu>
                                 </Grid.ContextMenu>
                                 <local:AvatarView Grid.Column="0" Size="36" DisplayName="{Binding AuthorUsername}"
@@ -460,6 +516,22 @@
                                             </Style.Triggers>
                                         </Style>
                                     </StackPanel.Style>
+                                    <Button Content="😀" Tag="{Binding}" Click="ReactButton_Click"
+                                            ToolTip="Add Reaction"
+                                            Width="26" Height="26" Padding="0" FontSize="12" Margin="0,0,4,0"
+                                            Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
+                                            BorderThickness="0" Cursor="Hand">
+                                        <Button.ContextMenu>
+                                            <ContextMenu Placement="Bottom">
+                                                <MenuItem Header="👍" Tag="{Binding}" Click="ReactionMenuItem_Click"/>
+                                                <MenuItem Header="❤️" Tag="{Binding}" Click="ReactionMenuItem_Click"/>
+                                                <MenuItem Header="😂" Tag="{Binding}" Click="ReactionMenuItem_Click"/>
+                                                <MenuItem Header="😮" Tag="{Binding}" Click="ReactionMenuItem_Click"/>
+                                                <MenuItem Header="😢" Tag="{Binding}" Click="ReactionMenuItem_Click"/>
+                                                <MenuItem Header="🎉" Tag="{Binding}" Click="ReactionMenuItem_Click"/>
+                                            </ContextMenu>
+                                        </Button.ContextMenu>
+                                    </Button>
                                     <Button Content="✏️" Tag="{Binding Id}" Click="EditMessageMenuItem_Click"
                                             Visibility="{Binding EditMenuVisibility}" ToolTip="Edit"
                                             Width="26" Height="26" Padding="0" FontSize="12" Margin="0,0,4,0"
@@ -480,8 +552,11 @@
                                         <TextBlock Text="(edited)" FontSize="11" Margin="4,0,0,0"
                                                    Foreground="{StaticResource TextMuted}" VerticalAlignment="Center"
                                                    Visibility="{Binding EditedTagVisibility}"/>
+                                        <TextBlock Text="📌 Pinned" FontSize="11" Margin="4,0,0,0"
+                                                   Foreground="{StaticResource TextMuted}" VerticalAlignment="Center"
+                                                   Visibility="{Binding PinnedTagVisibility}"/>
                                     </StackPanel>
-                                    <TextBlock Text="{Binding Content}" Foreground="{StaticResource TextNormal}"
+                                    <TextBlock local:FormattedTextBehavior.Content="{Binding Content}" Foreground="{StaticResource TextNormal}"
                                                TextWrapping="Wrap" Visibility="{Binding ContentVisibility}"/>
                                     <StackPanel Visibility="{Binding EditBoxVisibility}" Margin="0,2,0,0">
                                         <TextBox Text="{Binding EditingContent, UpdateSourceTrigger=PropertyChanged}"
@@ -500,13 +575,41 @@
                                                Tag="{Binding AttachmentUrl}"/>
                                     <TextBlock Text="✓ Read" FontSize="10" Foreground="{StaticResource TextMuted}"
                                                Visibility="{Binding ReadReceiptVisibility}"/>
+                                    <ItemsControl ItemsSource="{Binding Reactions}" Margin="0,4,0,0">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <WrapPanel Orientation="Horizontal"/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Button Content="{Binding Display}" Click="ReactionPill_Click"
+                                                        Padding="6,2" Margin="0,0,4,4" FontSize="12" Cursor="Hand"
+                                                        BorderThickness="1">
+                                                    <Button.Style>
+                                                        <Style TargetType="Button">
+                                                            <Setter Property="Background" Value="{StaticResource BgSidebar}"/>
+                                                            <Setter Property="BorderBrush" Value="{StaticResource BgSidebar}"/>
+                                                            <Setter Property="Foreground" Value="{StaticResource TextNormal}"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding ReactedByMe}" Value="True">
+                                                                    <Setter Property="Background" Value="#3A3F8F"/>
+                                                                    <Setter Property="BorderBrush" Value="{StaticResource AccentBlurple}"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Button.Style>
+                                                </Button>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
                                 </StackPanel>
                             </Grid>
                         </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-              </StackPanel>
-            </ScrollViewer>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+                </Grid>
+            </DockPanel>
 
             <Grid Grid.Row="2" Margin="16,0,16,16">
                 <Grid.ColumnDefinitions>

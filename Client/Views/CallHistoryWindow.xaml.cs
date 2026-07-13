@@ -8,17 +8,30 @@ namespace Voiceover.Client.Views;
 
 public class CallHistoryItem
 {
+    public int Id { get; set; }
     public string OtherUsername { get; set; } = string.Empty;
     public string? OtherUserAvatarUrl { get; set; }
     public string Summary { get; set; } = string.Empty;
+
+    // A hex string, not a Brush - CallHistoryWindow.xaml binds this directly
+    // to a TextBlock.Foreground (a Brush property). That works because WPF's
+    // binding engine falls back to the target property's own TypeConverter
+    // (BrushConverter, which parses "#RRGGBB") when the source value is a
+    // string, but it's an implicit fallback rather than an explicit
+    // IValueConverter - if this binding is ever rewritten to go through one,
+    // this needs to become a real Brush at that point instead.
     public string SummaryColor { get; set; } = "#B9BBBE";
     public string TimeDisplay { get; set; } = string.Empty;
 }
 
 public partial class CallHistoryWindow : FluentWindow
 {
+    private const int PageSize = 50;
+
     private readonly ApiService _api;
     private readonly ObservableCollection<CallHistoryItem> _calls = new();
+    private bool _hasMore;
+    private bool _isLoadingMore;
 
     public CallHistoryWindow(ApiService api)
     {
@@ -38,6 +51,30 @@ public partial class CallHistoryWindow : FluentWindow
             _calls.Add(ToCallHistoryItem(c));
 
         EmptyStateText.Visibility = _calls.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        SetHasMore(history.Count);
+    }
+
+    private async void LoadMoreButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_isLoadingMore || !_hasMore || _calls.Count == 0) return;
+
+        _isLoadingMore = true;
+        LoadMoreButton.IsEnabled = false;
+
+        var oldest = _calls[^1].Id;
+        var older = await _api.GetCallHistoryAsync(oldest);
+        foreach (var c in older)
+            _calls.Add(ToCallHistoryItem(c));
+
+        SetHasMore(older.Count);
+        _isLoadingMore = false;
+        LoadMoreButton.IsEnabled = true;
+    }
+
+    private void SetHasMore(int lastPageCount)
+    {
+        _hasMore = lastPageCount >= PageSize;
+        LoadMoreButton.Visibility = _hasMore ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private static CallHistoryItem ToCallHistoryItem(CallRecordResponse c)
@@ -54,6 +91,7 @@ public partial class CallHistoryWindow : FluentWindow
 
         return new CallHistoryItem
         {
+            Id = c.Id,
             OtherUsername = c.OtherUsername,
             OtherUserAvatarUrl = App.ResolveUploadUrl(c.OtherUserAvatarUrl),
             Summary = summary,

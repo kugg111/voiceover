@@ -69,6 +69,16 @@ public static class AvatarImageCache
             var bitmap = new BitmapImage();
             bitmap.BeginInit();
             bitmap.CacheOption = BitmapCacheOption.OnLoad;
+            // Avatars are uploaded at whatever resolution the user's source
+            // photo happened to be (easily 1000px+) but the largest AvatarView
+            // anywhere in the UI renders at 80px - decoding at full native
+            // resolution just to downscale it in the visual tree wastes
+            // decode time and, since this bitmap is cached forever (see the
+            // type-level comment), that waste sits in memory for the rest of
+            // the session for every distinct avatar ever shown. 160px covers
+            // the largest on-screen size with headroom for high-DPI displays
+            // without ballooning back up to arbitrary source resolution.
+            bitmap.DecodePixelWidth = 160;
             bitmap.StreamSource = stream;
             bitmap.EndInit();
             // Required to hand a BitmapImage across threads/store it in a

@@ -43,7 +43,7 @@ public class DirectMessagesController : ControllerBase
     // pulled every DM the user ever sent or received into memory before
     // grouping in C#.
     [HttpGet("conversations")]
-    public async Task<ActionResult<List<DmConversationResponse>>> GetConversations()
+    public async Task<ActionResult<List<DmConversationResponse>>> GetConversations(int take = 100)
     {
         var currentUserId = CurrentUserId;
 
@@ -76,6 +76,11 @@ public class DirectMessagesController : ControllerBase
             .Where(u => otherUserIds.Contains(u.Id))
             .ToDictionaryAsync(u => u.Id, u => new { u.Username, u.AvatarUrl });
 
+        // Bounds what actually goes out over the wire (and gets decrypted
+        // client-side) to the most recently active conversations - the DISTINCT
+        // ON query above still has to touch every partner to find each one's
+        // latest message, but a user with hundreds of DM partners doesn't need
+        // all of them re-sent and re-decrypted on every Messages-tab open.
         var result = latestMessages
             .Select(m =>
             {
@@ -84,6 +89,7 @@ public class DirectMessagesController : ControllerBase
                 return new DmConversationResponse(otherUserId, info?.Username ?? "Unknown", m.Content, m.SentAt, info?.AvatarUrl);
             })
             .OrderByDescending(c => c.LastMessageAt)
+            .Take(take)
             .ToList();
 
         return Ok(result);
@@ -106,11 +112,31 @@ public class DirectMessagesController : ControllerBase
             .OrderBy(m => m.Id)
             .ToListAsync();
 
+        var reactionsByMessage = await LoadReactionsAsync(messages.Select(m => m.Id).ToList());
+
         var response = messages
-            .Select(m => new DirectMessageResponse(m.Id, m.Content, m.SenderId, m.RecipientId, m.SentAt, m.EditedAt, m.ReadAt))
+            .Select(m => new DirectMessageResponse(m.Id, m.Content, m.SenderId, m.RecipientId, m.SentAt, m.EditedAt, m.ReadAt, reactionsByMessage.GetValueOrDefault(m.Id)))
             .ToList();
 
         return Ok(response);
+    }
+
+    // Same aggregation shape as MessagesController.LoadReactionsAsync, over
+    // DirectMessageReaction instead of MessageReaction.
+    private async Task<Dictionary<int, List<ReactionSummaryResponse>>> LoadReactionsAsync(List<int> messageIds)
+    {
+        if (messageIds.Count == 0) return new();
+
+        var rows = await _db.DirectMessageReactions
+            .Where(r => messageIds.Contains(r.DirectMessageId))
+            .ToListAsync();
+
+        return rows
+            .GroupBy(r => r.DirectMessageId)
+            .ToDictionary(g => g.Key, g => g
+                .GroupBy(r => r.Emoji)
+                .Select(eg => new ReactionSummaryResponse(eg.Key, eg.Count(), eg.Any(r => r.UserId == CurrentUserId)))
+                .ToList());
     }
 
     // Author-only, always - DMs have no moderator concept the way server
@@ -134,7 +160,8 @@ public class DirectMessagesController : ControllerBase
         // Broadcasts exactly what was stored - both sides decrypt it
         // themselves client-side (see ChatHub.SendDirectMessage for the
         // same reasoning on the send path).
-        var response = new DirectMessageResponse(message.Id, message.Content, message.SenderId, message.RecipientId, message.SentAt, message.EditedAt, message.ReadAt);
+        var reactions = (await LoadReactionsAsync(new List<int> { messageId })).GetValueOrDefault(messageId);
+        var response = new DirectMessageResponse(message.Id, message.Content, message.SenderId, message.RecipientId, message.SentAt, message.EditedAt, message.ReadAt, reactions);
 
         // Same dual-send pattern SendDirectMessage already uses - both
         // participants' own connections need the update, there's no shared
@@ -154,6 +181,12 @@ public class DirectMessagesController : ControllerBase
 
         var senderId = message.SenderId;
         var recipientId = message.RecipientId;
+
+        // No FK/cascade configured between DirectMessageReaction and
+        // DirectMessage (see AppDbContext) - clean these up explicitly, same
+        // reasoning as MessagesController.Delete.
+        var reactions = await _db.DirectMessageReactions.Where(r => r.DirectMessageId == messageId).ToListAsync();
+        _db.DirectMessageReactions.RemoveRange(reactions);
 
         _db.DirectMessages.Remove(message);
         await _db.SaveChangesAsync();

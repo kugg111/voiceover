@@ -1,0 +1,15 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- Discord-accurate palette - the app's default and only theme until
+         the light variant was added (see LightPalette.xaml), kept as-is. -->
+    <SolidColorBrush x:Key="BgDark" Color="#2B2D31"/>
+    <SolidColorBrush x:Key="BgDarker" Color="#1E1F22"/>
+    <SolidColorBrush x:Key="BgSidebar" Color="#232428"/>
+    <SolidColorBrush x:Key="AccentBlurple" Color="#5865F2"/>
+    <SolidColorBrush x:Key="TextNormal" Color="#DBDEE1"/>
+    <SolidColorBrush x:Key="TextMuted" Color="#949BA4"/>
+    <!-- Used only for your own voice-member row while it's still connecting
+         (see VoiceMemberItem.IsJoining) - light blue so it reads as "in
+         progress" rather than the flat gray every other row uses. -->
+    <SolidColorBrush x:Key="TextJoining" Color="#8AB4F8"/>
+</ResourceDictionary>

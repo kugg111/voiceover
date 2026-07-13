@@ -24,15 +24,21 @@ public class CallsController : ControllerBase
 
     private int CurrentUserId => int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
-    // GET /api/calls/history?take=50 -> most recent calls first, both
-    // outgoing and incoming, across every friend (not scoped to one
-    // conversation - see CallRecord for why this needs its own table).
+    // GET /api/calls/history?take=50                -> most recent calls first, both
+    //     outgoing and incoming, across every friend (not scoped to one
+    //     conversation - see CallRecord for why this needs its own table).
+    // GET /api/calls/history?take=50&beforeId=X      -> the 50 calls immediately
+    //     before record X ("load more" - Id is used as the cursor rather than
+    //     EndedAt since it's collision-free and, because rows are inserted at
+    //     the moment a call ends, Id order and EndedAt order always agree).
     [HttpGet("history")]
-    public async Task<ActionResult<List<CallRecordResponse>>> GetHistory(int take = 50)
+    public async Task<ActionResult<List<CallRecordResponse>>> GetHistory(int take = 50, int? beforeId = null)
     {
-        var records = await _db.CallRecords
-            .Where(c => c.CallerId == CurrentUserId || c.CalleeId == CurrentUserId)
-            .OrderByDescending(c => c.EndedAt)
+        var query = _db.CallRecords.Where(c => c.CallerId == CurrentUserId || c.CalleeId == CurrentUserId);
+        if (beforeId.HasValue) query = query.Where(c => c.Id < beforeId.Value);
+
+        var records = await query
+            .OrderByDescending(c => c.Id)
             .Take(take)
             .ToListAsync();
 
