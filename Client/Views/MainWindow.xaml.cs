@@ -2103,8 +2103,13 @@ public partial class MainWindow : FluentWindow
 
                 // Same "not actually looking at this conversation" logic as
                 // OnMessageReceived - either a different view is open, or this
-                // DM is open but the window itself isn't focused.
-                if (!isOwnMessage && (!isCurrentlyOpen || !IsActive))
+                // DM is open but the window itself isn't focused. Skipped
+                // entirely for call-event messages (missed/declined/ended) -
+                // OnCallEndedRemotely already shows its own dedicated "Missed
+                // Call" toast for the one case that actually needs one, and
+                // this generic path has no idea how to prettify the content
+                // beyond the raw sentinel text.
+                if (!isOwnMessage && (!isCurrentlyOpen || !IsActive) && !CallEventMessage.IsCallEvent(content))
                 {
                     NotificationService.PlayMessageSound();
                     var preview = content.Length > 80 ? content[..80] + "…" : content;

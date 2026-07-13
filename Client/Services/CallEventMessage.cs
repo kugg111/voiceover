@@ -16,6 +16,8 @@ public static class CallEventMessage
 
     public static string Format(string outcome) => Prefix + outcome;
 
+    public static bool IsCallEvent(string content) => content.StartsWith(Prefix);
+
     // Returns the original content unchanged for anything that isn't a call
     // event - safe to call on every message/preview string unconditionally.
     public static string Prettify(string content)
