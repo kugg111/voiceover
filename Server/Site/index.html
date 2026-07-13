@@ -3,7 +3,24 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Voiceover</title>
+<title>Voiceover — Free Discord Alternative for Windows with Voice, Calls &amp; E2EE Chat</title>
+<meta name="description" content="Voiceover is a free, open-source desktop chat app for Windows: servers &amp; channels, direct messages, friends, voice channels, private 1:1 calls, screen sharing with system audio, and end-to-end encrypted messaging.">
+<link rel="canonical" href="https://www.voiceover-app.hu/">
+<meta name="robots" content="index, follow">
+
+<!-- Open Graph / social previews -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://www.voiceover-app.hu/">
+<meta property="og:title" content="Voiceover — Free Discord Alternative for Windows">
+<meta property="og:description" content="Servers &amp; channels, direct messages, friends, voice channels, private calls, screen sharing with system audio, and end-to-end encrypted messaging — a free, open-source desktop app for Windows.">
+<meta property="og:image" content="https://www.voiceover-app.hu/images/gallery-voice.png">
+<meta property="og:site_name" content="Voiceover">
+
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Voiceover — Free Discord Alternative for Windows">
+<meta name="twitter:description" content="Servers, channels, DMs, voice calls, screen sharing, and end-to-end encrypted messaging — free and open-source.">
+<meta name="twitter:image" content="https://www.voiceover-app.hu/images/gallery-voice.png">
+
 <link rel="icon" type="image/x-icon" href="/images/favicon.ico">
 <link rel="icon" type="image/png" href="/images/favicon.png">
 <style>
@@ -26,6 +43,7 @@
       radial-gradient(ellipse 900px 500px at 50% -10%, rgba(88, 101, 242, 0.20), transparent 60%),
       var(--bg-darker);
     color: var(--text-normal);
+    overflow-x: hidden;
   }
 
   header {
@@ -76,7 +94,7 @@
   .hero p.tagline {
     font-size: clamp(16px, 2vw, 20px);
     color: var(--text-muted);
-    max-width: 560px;
+    max-width: 620px;
     margin: 0 auto 32px;
     line-height: 1.5;
   }
@@ -114,38 +132,59 @@
   }
   .download-secondary:hover { color: var(--text-normal); }
 
-  .gallery {
-    max-width: 1200px;
-    margin: 48px auto 0;
-    padding: 0 6vw;
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 20px;
+  /* Auto-scrolling gallery - a continuous, seamless marquee rather than a
+     static grid, so the (large) screenshots get room to actually be seen
+     at size instead of being squeezed three-across. The track holds the
+     image list twice back to back and animates translateX by exactly
+     -50% - since both halves are identical, the loop point is invisible. */
+  .gallery-viewport {
+    width: 100vw;
+    margin: 56px calc(50% - 50vw) 0;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(to right, transparent 0, black 4%, black 96%, transparent 100%);
+    mask-image: linear-gradient(to right, transparent 0, black 4%, black 96%, transparent 100%);
   }
 
-  .gallery figure {
+  .gallery-track {
+    display: flex;
+    width: max-content;
+    gap: 28px;
+    padding: 0 28px;
+    animation: gallery-scroll 40s linear infinite;
+  }
+
+  .gallery-viewport:hover .gallery-track {
+    animation-play-state: paused;
+  }
+
+  @keyframes gallery-scroll {
+    from { transform: translateX(0); }
+    to { transform: translateX(-50%); }
+  }
+
+  .gallery-track figure {
     margin: 0;
+    flex: none;
   }
 
-  .gallery img {
-    width: 100%;
+  .gallery-track img {
+    height: 460px;
+    width: auto;
     display: block;
-    border-radius: 12px;
+    border-radius: 14px;
     border: 1px solid var(--bg-sidebar);
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
-    transition: transform 0.15s ease, border-color 0.15s ease;
   }
 
-  .gallery img:hover {
-    transform: translateY(-3px);
-    border-color: var(--accent);
-  }
-
-  .gallery figcaption {
+  .gallery-track figcaption {
     margin-top: 10px;
     font-size: 13px;
     color: var(--text-muted);
     text-align: center;
+  }
+
+  @media (max-width: 800px) {
+    .gallery-track img { height: 260px; }
   }
 
   .features {
@@ -165,13 +204,8 @@
      hero/footer text columns closer to their normal width since long text
      lines get harder to read, not easier, as they get wider. */
   @media (min-width: 1800px) {
-    .gallery { max-width: 1900px; grid-template-columns: repeat(3, 1fr); }
     .features { max-width: 1400px; }
     .hero { max-width: 1300px; }
-  }
-
-  @media (max-width: 800px) {
-    .gallery { grid-template-columns: 1fr; }
   }
 
   .feature {
@@ -217,49 +251,106 @@
 
 <section class="hero">
   <h1>Your people, your server,<br>your voice.</h1>
-  <p class="tagline">Servers, text channels, direct messages, friends, and mesh voice chat — a lightweight desktop client for you and your friends.</p>
+  <p class="tagline">Servers, text channels, direct messages, friends, voice channels, private calls with screen sharing, and end-to-end encrypted messaging — a free, open-source desktop app for you and your friends.</p>
   <a class="download-btn" href="https://github.com/kugg111/voiceover/releases/download/v1.0.8/Voiceover-Setup.exe" id="download-link">
     <span>⬇</span> Download for Windows
   </a>
   <span class="platform-note">Windows 10/11 · Installer, no admin rights needed</span>
   <a class="download-secondary" href="https://github.com/kugg111/voiceover/releases/download/v1.0.8/Voiceover-Client.zip">Prefer a ZIP instead? Download without the installer</a>
+</section>
 
-  <div class="gallery">
+<div class="gallery-viewport" aria-hidden="false">
+  <div class="gallery-track">
     <figure>
-      <img src="/images/gallery-chat.png" alt="Text channel with a conversation in Voiceover" loading="lazy">
+      <img src="/images/gallery-chat.png" alt="Text channel with a conversation in Voiceover">
       <figcaption>Text channels</figcaption>
     </figure>
     <figure>
-      <img src="/images/gallery-voice.png" alt="Voice channel with two members connected, mute button visible" loading="lazy">
+      <img src="/images/gallery-voice.png" alt="Voice channel with two members connected, mute button visible">
       <figcaption>Voice chat with mute &amp; noise suppression</figcaption>
     </figure>
     <figure>
-      <img src="/images/gallery-friends.png" alt="Friends list showing an accepted friend" loading="lazy">
+      <img src="/images/gallery-friends.png" alt="Friends list showing an accepted friend">
+      <figcaption>Friends</figcaption>
+    </figure>
+    <!-- Duplicate set - the track animates exactly -50%, so this second
+         copy is what scrolls into view once the first one scrolls out,
+         making the loop seamless. -->
+    <figure>
+      <img src="/images/gallery-chat.png" alt="" aria-hidden="true">
+      <figcaption>Text channels</figcaption>
+    </figure>
+    <figure>
+      <img src="/images/gallery-voice.png" alt="" aria-hidden="true">
+      <figcaption>Voice chat with mute &amp; noise suppression</figcaption>
+    </figure>
+    <figure>
+      <img src="/images/gallery-friends.png" alt="" aria-hidden="true">
       <figcaption>Friends</figcaption>
     </figure>
   </div>
-</section>
+</div>
 
 <section class="features">
   <div class="feature">
     <div class="icon">💬</div>
     <h3>Servers &amp; channels</h3>
-    <p>Create servers, organize text and voice channels, invite friends with shareable codes.</p>
+    <p>Create servers, organize text and voice channels, invite friends with shareable codes, roles for moderators and owners.</p>
   </div>
   <div class="feature">
     <div class="icon">🎙️</div>
-    <h3>Voice chat</h3>
-    <p>Live voice channels with mute, noise suppression, and a speaking indicator — real peer-to-peer WebRTC audio.</p>
+    <h3>Voice channels</h3>
+    <p>SFU-routed voice chat with mute, deafen, per-user volume, push-to-talk/push-to-mute, and real noise suppression.</p>
+  </div>
+  <div class="feature">
+    <div class="icon">📞</div>
+    <h3>Private voice calls</h3>
+    <p>1:1 calls with any friend, outside any server — ringing, accept/decline, call duration, and a Recent Calls history.</p>
+  </div>
+  <div class="feature">
+    <div class="icon">🖥️</div>
+    <h3>Screen sharing</h3>
+    <p>Share your screen in a voice channel or a private call, with selectable resolution/framerate and your system audio included.</p>
+  </div>
+  <div class="feature">
+    <div class="icon">🔒</div>
+    <h3>End-to-end encryption</h3>
+    <p>Channel messages and DMs are encrypted client-side — the server only ever relays and stores ciphertext it can't read.</p>
   </div>
   <div class="feature">
     <div class="icon">✉️</div>
     <h3>Direct messages</h3>
-    <p>1:1 conversations with a real-time inbox, separate from your servers.</p>
+    <p>Real-time 1:1 conversations with edit/delete, read receipts, and "load older messages" history.</p>
   </div>
   <div class="feature">
     <div class="icon">🧑‍🤝‍🧑</div>
     <h3>Friends</h3>
-    <p>Send and accept friend requests, see them update live.</p>
+    <p>Send and accept friend requests, see them come online live, and set a custom status for anyone to see.</p>
+  </div>
+  <div class="feature">
+    <div class="icon">🟢</div>
+    <h3>Presence</h3>
+    <p>Online, Away, or In a Call status, driven by real system idle detection — no manual toggling required.</p>
+  </div>
+  <div class="feature">
+    <div class="icon">🔔</div>
+    <h3>Notifications</h3>
+    <p>Toast and sound alerts for messages, voice activity, and missed calls — gated on window focus so they're not noisy.</p>
+  </div>
+  <div class="feature">
+    <div class="icon">📎</div>
+    <h3>File &amp; image attachments</h3>
+    <p>Share files and images in channels or DMs, with avatars and server icons throughout.</p>
+  </div>
+  <div class="feature">
+    <div class="icon">🔄</div>
+    <h3>Self-updating client</h3>
+    <p>Checks for new releases and installs them in the background — no manual downloads after the first install.</p>
+  </div>
+  <div class="feature">
+    <div class="icon">🛡️</div>
+    <h3>Built with security in mind</h3>
+    <p>Hashed passwords, short-lived JWTs with revocation, rate limiting, and TLS everywhere — including to the database.</p>
   </div>
 </section>
 
