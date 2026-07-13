@@ -22,6 +22,8 @@ public partial class CallWindow : FluentWindow
 {
     public string CallId { get; }
     public CallWindowState State { get; private set; }
+    public int OtherPartyUserId { get; }
+    public string OtherPartyUsername { get; }
 
     // Raised on Accept (incoming ring only). MainWindow owns the actual
     // hub call + VoiceService.JoinCallAsync - this window only reports intent.
@@ -44,11 +46,13 @@ public partial class CallWindow : FluentWindow
     private bool _suppressEndedEvent;
     private ScreenShareViewerWindow? _remoteViewer;
 
-    public CallWindow(string callId, string otherUsername, string? otherAvatarUrl, bool isOutgoing,
+    public CallWindow(string callId, int otherUserId, string otherUsername, string? otherAvatarUrl, bool isOutgoing,
         string selfUsername, string? selfAvatarUrl, VoiceService voice)
     {
         InitializeComponent();
         CallId = callId;
+        OtherPartyUserId = otherUserId;
+        OtherPartyUsername = otherUsername;
         _voice = voice;
 
         RosterList.ItemsSource = _roster;
@@ -132,31 +136,52 @@ public partial class CallWindow : FluentWindow
         ScreenSharePresetMenu.IsOpen = true;
     }
 
-    // Same bitrate-scales-with-fps reasoning as MainWindow's channel-voice
-    // screen share buttons - see the Phase 2 spike notes on the plan.
-    private async void ScreenShare30Fps_Click(object sender, RoutedEventArgs e) => await StartScreenShareWithPresetAsync(30, 8_000_000);
-    private async void ScreenShare60Fps_Click(object sender, RoutedEventArgs e) => await StartScreenShareWithPresetAsync(60, 20_000_000);
-    private async void ScreenShare120Fps_Click(object sender, RoutedEventArgs e) => await StartScreenShareWithPresetAsync(120, 35_000_000);
+    // Same resolution/bitrate-scales-with-fps reasoning as MainWindow's
+    // channel-voice screen share buttons - see the Phase 2 spike notes on
+    // the plan.
+    private async void ScreenShare480p30Fps_Click(object sender, RoutedEventArgs e) => await StartScreenShareWithPresetAsync(30, 2_500_000, 854, 480);
+    private async void ScreenShare720p60Fps_Click(object sender, RoutedEventArgs e) => await StartScreenShareWithPresetAsync(60, 6_000_000, 1280, 720);
+    private async void ScreenShareNative120Fps_Click(object sender, RoutedEventArgs e) => await StartScreenShareWithPresetAsync(120, 35_000_000, null, null);
 
-    private async Task StartScreenShareWithPresetAsync(uint fps, uint bitrate)
+    // Bypasses ScreenCaptureSource.LastPickedItem to force the OS picker
+    // even if a source is already remembered - see MainWindow's identical
+    // handler for why.
+    private async void ScreenShareChooseSource_Click(object sender, RoutedEventArgs e)
     {
-        Windows.Graphics.Capture.GraphicsCaptureItem? item;
+        var item = await PickScreenShareSourceAsync();
+        if (item is null) return;
+
+        await StartScreenShareWithItemAsync(item, 60, 6_000_000, 1280, 720);
+    }
+
+    private async Task StartScreenShareWithPresetAsync(uint fps, uint bitrate, int? maxWidth, int? maxHeight)
+    {
+        var item = ScreenCaptureSource.LastPickedItem ?? await PickScreenShareSourceAsync();
+        if (item is null) return;
+
+        await StartScreenShareWithItemAsync(item, fps, bitrate, maxWidth, maxHeight);
+    }
+
+    private async Task<Windows.Graphics.Capture.GraphicsCaptureItem?> PickScreenShareSourceAsync()
+    {
         try
         {
             var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-            item = await ScreenCaptureSource.PickItemAsync(hwnd);
+            return await ScreenCaptureSource.PickItemAsync(hwnd);
         }
         catch (Exception ex)
         {
             MessageBox.Show($"Could not open the screen/window picker:\n{ex.Message}", "Error",
                 MessageBoxButton.OK, MessageBoxImage.Error);
-            return;
+            return null;
         }
-        if (item is null) return; // user cancelled the OS picker
+    }
 
+    private async Task StartScreenShareWithItemAsync(Windows.Graphics.Capture.GraphicsCaptureItem item, uint fps, uint bitrate, int? maxWidth, int? maxHeight)
+    {
         try
         {
-            await _voice.StartScreenShareAsync(item, fps, bitrate);
+            await _voice.StartScreenShareAsync(item, fps, bitrate, maxWidth, maxHeight);
         }
         catch (Exception ex)
         {

@@ -19,8 +19,9 @@ public class ChatHub : Hub
     private readonly MessageRateLimiter _messageRateLimiter;
     private readonly UserAvatarCache _avatarCache;
     private readonly CallSignalingService _callSignaling;
+    private readonly CallRateLimiter _callRateLimiter;
 
-    public ChatHub(AppDbContext db, VoicePresenceService voicePresence, LiveKitTokenService liveKitTokens, PresenceService presence, MessageRateLimiter messageRateLimiter, UserAvatarCache avatarCache, CallSignalingService callSignaling)
+    public ChatHub(AppDbContext db, VoicePresenceService voicePresence, LiveKitTokenService liveKitTokens, PresenceService presence, MessageRateLimiter messageRateLimiter, UserAvatarCache avatarCache, CallSignalingService callSignaling, CallRateLimiter callRateLimiter)
     {
         _db = db;
         _voicePresence = voicePresence;
@@ -29,6 +30,7 @@ public class ChatHub : Hub
         _messageRateLimiter = messageRateLimiter;
         _avatarCache = avatarCache;
         _callSignaling = callSignaling;
+        _callRateLimiter = callRateLimiter;
     }
 
     private int CurrentUserId => int.Parse(Context.User!.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -167,6 +169,8 @@ public class ChatHub : Hub
     // rather than assuming it's ringing.
     public async Task<string?> InitiateCall(int calleeId)
     {
+        if (!_callRateLimiter.TryAcquire(CurrentUserId)) return null;
+
         var areFriends = await _db.Friendships.AnyAsync(f =>
             f.Status == FriendshipStatus.Accepted &&
             ((f.RequesterId == CurrentUserId && f.AddresseeId == calleeId) ||
@@ -321,11 +325,12 @@ public class ChatHub : Hub
     // Away is the only state the client actively reports, when its own
     // idle detection crosses the threshold (see IdleDetector client-side). ---
 
-    // Client calls this only with "Online" or "Away" - Offline is never
+    // Client calls this with "Online"/"Away" (idle detection) or "InCall"
+    // (entering/leaving a voice channel or private call) - Offline is never
     // accepted from here, it can only happen via disconnection.
     public async Task SetPresenceState(string state)
     {
-        if (state is not ("Online" or "Away")) return;
+        if (state is not ("Online" or "Away" or "InCall")) return;
 
         // The client always confirms "Online" once right after connecting
         // (closes a race with this hub's own OnConnectedAsync - see

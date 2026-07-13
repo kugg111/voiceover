@@ -302,12 +302,18 @@ public class FriendListItem : INotifyPropertyChanged
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(OnlineDotVisibility)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AwayDotVisibility)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(OfflineDotVisibility)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(InCallDotVisibility)));
         }
     }
 
+    // "InCall" covers both server voice channels and private calls - either
+    // way, the server only ever reports one presence string per user (see
+    // PresenceService), so friends see the same "busy" signal regardless of
+    // which kind of voice you're actually in.
     public Visibility OnlineDotVisibility => PresenceState == "Online" ? Visibility.Visible : Visibility.Collapsed;
     public Visibility AwayDotVisibility => PresenceState == "Away" ? Visibility.Visible : Visibility.Collapsed;
     public Visibility OfflineDotVisibility => PresenceState == "Offline" ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility InCallDotVisibility => PresenceState == "InCall" ? Visibility.Visible : Visibility.Collapsed;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 }
@@ -358,12 +364,14 @@ public class MemberListItem : INotifyPropertyChanged
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(OnlineDotVisibility)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AwayDotVisibility)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(OfflineDotVisibility)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(InCallDotVisibility)));
         }
     }
 
     public Visibility OnlineDotVisibility => PresenceState == "Online" ? Visibility.Visible : Visibility.Collapsed;
     public Visibility AwayDotVisibility => PresenceState == "Away" ? Visibility.Visible : Visibility.Collapsed;
     public Visibility OfflineDotVisibility => PresenceState == "Offline" ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility InCallDotVisibility => PresenceState == "InCall" ? Visibility.Visible : Visibility.Collapsed;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 }
@@ -507,8 +515,24 @@ public partial class MainWindow : FluentWindow
     {
         await _hub.ConnectAsync(App.HubUrl, _api.GetFreshAccessTokenAsync);
         _voice = new VoiceService(_hub, _api.CurrentUserId!.Value);
-        _voice.PeerConnected += userId => Dispatcher.Invoke(() => ConnectionStatusText.Text = "Voice connected");
-        _voice.PeerDisconnected += userId => Dispatcher.Invoke(() => ConnectionStatusText.Text = "");
+        // PeerConnected/PeerDisconnected fire for the local user's own Room
+        // regardless of whether it came from a server voice channel or a
+        // private call, so this is the one place that needs to know about
+        // either to keep friends' "in a call" dot accurate - restoring
+        // Away vs Online on disconnect from IdleDetector's own idle check
+        // rather than hardcoding Online, so leaving a call while genuinely
+        // away doesn't misreport you as active.
+        _voice.PeerConnected += userId => Dispatcher.Invoke(() =>
+        {
+            ConnectionStatusText.Text = "Voice connected";
+            _ = SetPresenceStateSafeAsync("InCall");
+        });
+        _voice.PeerDisconnected += userId => Dispatcher.Invoke(() =>
+        {
+            ConnectionStatusText.Text = "";
+            var restored = IdleDetector.GetIdleTime() >= IdleDetector.AwayThreshold ? "Away" : "Online";
+            _ = SetPresenceStateSafeAsync(restored);
+        });
         _voice.LocalSpeakingChanged += isSpeaking => _ = OnLocalSpeakingChangedAsync(isSpeaking);
         _voice.RemoteScreenShareStarted += (userId, playback) => Dispatcher.Invoke(() => OnRemoteScreenShareStarted(userId, playback));
         _voice.RemoteScreenShareStopped += userId => Dispatcher.Invoke(() => OnRemoteScreenShareStopped(userId));
@@ -994,13 +1018,13 @@ public partial class MainWindow : FluentWindow
         var callId = await _hub.InitiateCallAsync(calleeId);
         if (callId is null)
         {
-            MessageBox.Show("Couldn't start the call - you may not be friends, or they're already in a call.",
+            MessageBox.Show("Couldn't start the call - you may not be friends, they're already in a call, or you're calling too fast.",
                 "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
         }
 
         _currentCallId = callId;
-        _callWindow = new CallWindow(callId, calleeUsername, calleeAvatarUrl, isOutgoing: true,
+        _callWindow = new CallWindow(callId, calleeId, calleeUsername, calleeAvatarUrl, isOutgoing: true,
             _api.CurrentUsername ?? "You", _api.CurrentUserAvatarUrl, _voice);
         _callWindow.Ended += wasDecline => _ = EndOrDeclineCallAsync(callId, wasDecline);
         _callWindow.Closed += (_, _) => OnCallWindowClosed(callId);
@@ -1016,7 +1040,7 @@ public partial class MainWindow : FluentWindow
             if (_voice is null || _callWindow is not null) return; // already ringing/in a call - shouldn't happen (server allows one call at a time), guard anyway
 
             _currentCallId = callId;
-            _callWindow = new CallWindow(callId, callerUsername, App.ResolveUploadUrl(callerAvatarUrl), isOutgoing: false,
+            _callWindow = new CallWindow(callId, callerId, callerUsername, App.ResolveUploadUrl(callerAvatarUrl), isOutgoing: false,
                 _api.CurrentUsername ?? "You", _api.CurrentUserAvatarUrl, _voice);
             _callWindow.Accepted += () => _ = AcceptIncomingCallAsync(callId);
             _callWindow.Ended += wasDecline => _ = EndOrDeclineCallAsync(callId, wasDecline);
@@ -1076,14 +1100,52 @@ public partial class MainWindow : FluentWindow
         _callWindow?.SwitchToActive();
     }
 
-    private Task EndOrDeclineCallAsync(string callId, bool wasDecline) =>
-        wasDecline ? _hub.DeclineCallAsync(callId) : _hub.EndCallAsync(callId);
+    private async Task EndOrDeclineCallAsync(string callId, bool wasDecline)
+    {
+        // Read before the hub call below - by the time this runs, State
+        // still reflects whatever it was right before Close() (see
+        // CallWindow_Closing's Ended?.Invoke), so it tells us exactly what
+        // kind of end this was: declining an incoming ring, cancelling one
+        // we placed, or hanging up an already-active call.
+        if (_callWindow is not null)
+        {
+            var outcome = wasDecline ? "Declined" : _callWindow.State == CallWindowState.Active ? "Ended" : "Missed";
+            _ = SendCallEventMessageAsync(_callWindow.OtherPartyUserId, outcome);
+        }
+
+        if (wasDecline) await _hub.DeclineCallAsync(callId);
+        else await _hub.EndCallAsync(callId);
+    }
+
+    // Best-effort, fire-and-forget - see CallEventMessage for why this reuses
+    // the normal encrypted DM pipeline instead of a dedicated schema.
+    private async Task SendCallEventMessageAsync(int otherUserId, string outcome)
+    {
+        try
+        {
+            var encrypted = await _api.E2ee.EncryptAsync(otherUserId, CallEventMessage.Format(outcome));
+            if (encrypted is null) return; // keys not unlocked/established yet - skip rather than send plaintext
+            await _hub.SendDirectMessageAsync(otherUserId, encrypted);
+        }
+        catch
+        {
+            // A missing call-event message isn't worth surfacing an error for.
+        }
+    }
 
     private void OnCallEndedRemotely(string callId)
     {
         Dispatcher.Invoke(() =>
         {
             if (_currentCallId != callId) return;
+
+            // Only reachable here (rather than through our own Decline/Cancel
+            // click) when the OTHER party ended things first - if we were
+            // still the callee and still ringing, that means they cancelled
+            // or timed out before we ever answered, i.e. a genuine missed call.
+            if (_callWindow is { State: CallWindowState.IncomingRinging })
+                NotificationService.ShowToast("Missed Call", $"{_callWindow.OtherPartyUsername} called you");
+
             _callWindow?.CloseSilently();
             _ = _voice?.LeaveAllAsync();
         });
@@ -1128,6 +1190,7 @@ public partial class MainWindow : FluentWindow
         {
             CancelRingTimeout();
             if (_currentCallId != callId) return;
+            if (_callWindow is not null) _ = SendCallEventMessageAsync(_callWindow.OtherPartyUserId, "Missed");
             _ = _hub.EndCallAsync(callId);
             _callWindow?.CloseSilently();
         };
@@ -1157,36 +1220,60 @@ public partial class MainWindow : FluentWindow
         ScreenSharePresetMenu.IsOpen = true;
     }
 
-    // Bitrate ceilings scale with the frame-rate target so a higher fps
-    // preset isn't starved by the same cap a 30fps share would use - see the
-    // Phase 2 spike notes on the plan for why a shared fixed cap skewed its
-    // fps comparison. 120fps stays labelled experimental in the UI since the
-    // spike couldn't confirm it holds up through the SFU in practice.
-    private async void ScreenShare30Fps_Click(object sender, RoutedEventArgs e) => await StartScreenShareWithPresetAsync(30, 8_000_000);
-    private async void ScreenShare60Fps_Click(object sender, RoutedEventArgs e) => await StartScreenShareWithPresetAsync(60, 20_000_000);
-    private async void ScreenShare120Fps_Click(object sender, RoutedEventArgs e) => await StartScreenShareWithPresetAsync(120, 35_000_000);
+    // Resolution+bitrate pairs scale with the frame-rate target so a higher
+    // fps preset isn't starved by the same cap a 30fps share would use -
+    // see the Phase 2 spike notes on the plan for why a shared fixed cap
+    // skewed its fps comparison. Native/120fps stays labelled experimental
+    // in the UI since the spike couldn't confirm it holds up through the
+    // SFU in practice.
+    private async void ScreenShare480p30Fps_Click(object sender, RoutedEventArgs e) => await StartScreenShareWithPresetAsync(30, 2_500_000, 854, 480);
+    private async void ScreenShare720p60Fps_Click(object sender, RoutedEventArgs e) => await StartScreenShareWithPresetAsync(60, 6_000_000, 1280, 720);
+    private async void ScreenShareNative120Fps_Click(object sender, RoutedEventArgs e) => await StartScreenShareWithPresetAsync(120, 35_000_000, null, null);
 
-    private async Task StartScreenShareWithPresetAsync(uint fps, uint bitrate)
+    // Bypasses ScreenCaptureSource.LastPickedItem to force the OS picker
+    // even if a source is already remembered - the only way to switch
+    // windows/monitors once one's been picked, since the preset items above
+    // reuse the remembered source instead of re-prompting every time.
+    private async void ScreenShareChooseSource_Click(object sender, RoutedEventArgs e)
     {
         if (_voice is null) return;
 
-        Windows.Graphics.Capture.GraphicsCaptureItem? item;
+        var item = await PickScreenShareSourceAsync();
+        if (item is null) return;
+
+        await StartScreenShareWithItemAsync(item, 60, 6_000_000, 1280, 720);
+    }
+
+    private async Task StartScreenShareWithPresetAsync(uint fps, uint bitrate, int? maxWidth, int? maxHeight)
+    {
+        var item = ScreenCaptureSource.LastPickedItem ?? await PickScreenShareSourceAsync();
+        if (item is null) return;
+
+        await StartScreenShareWithItemAsync(item, fps, bitrate, maxWidth, maxHeight);
+    }
+
+    private async Task<Windows.Graphics.Capture.GraphicsCaptureItem?> PickScreenShareSourceAsync()
+    {
         try
         {
             var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-            item = await ScreenCaptureSource.PickItemAsync(hwnd);
+            return await ScreenCaptureSource.PickItemAsync(hwnd);
         }
         catch (Exception ex)
         {
             MessageBox.Show($"Could not open the screen/window picker:\n{ex.Message}", "Error",
                 MessageBoxButton.OK, MessageBoxImage.Error);
-            return;
+            return null;
         }
-        if (item is null) return; // user cancelled the OS picker
+    }
+
+    private async Task StartScreenShareWithItemAsync(Windows.Graphics.Capture.GraphicsCaptureItem item, uint fps, uint bitrate, int? maxWidth, int? maxHeight)
+    {
+        if (_voice is null) return;
 
         try
         {
-            await _voice.StartScreenShareAsync(item, fps, bitrate);
+            await _voice.StartScreenShareAsync(item, fps, bitrate, maxWidth, maxHeight);
         }
         catch (Exception ex)
         {
@@ -2001,7 +2088,7 @@ public partial class MainWindow : FluentWindow
                     OtherUserId = otherUserId,
                     OtherUsername = existing?.OtherUsername ?? _dmActiveUsername ?? "user",
                     OtherUserAvatarUrl = existing?.OtherUserAvatarUrl,
-                    LastMessagePreview = content,
+                    LastMessagePreview = CallEventMessage.Prettify(content),
                     LastMessageAt = dm.SentAt,
                     UnreadCount = newUnreadCount
                 });
@@ -2349,7 +2436,7 @@ public partial class MainWindow : FluentWindow
         AuthorAvatarUrl = dm.SenderId == _api.CurrentUserId
             ? _api.CurrentUserAvatarUrl
             : _dmConversations.FirstOrDefault(c => c.OtherUserId == _dmActiveUserId)?.OtherUserAvatarUrl,
-        Content = contentOverride ?? dm.Content,
+        Content = CallEventMessage.Prettify(contentOverride ?? dm.Content),
         TimeDisplay = dm.SentAt.ToLocalTime().ToString("t"),
         IsEdited = dm.EditedAt is not null,
         IsOwnMessage = dm.SenderId == _api.CurrentUserId,
@@ -2361,7 +2448,7 @@ public partial class MainWindow : FluentWindow
         OtherUserId = c.OtherUserId,
         OtherUsername = c.OtherUsername,
         OtherUserAvatarUrl = App.ResolveUploadUrl(c.OtherUserAvatarUrl),
-        LastMessagePreview = c.LastMessagePreview,
+        LastMessagePreview = CallEventMessage.Prettify(c.LastMessagePreview),
         LastMessageAt = c.LastMessageAt
     };
 

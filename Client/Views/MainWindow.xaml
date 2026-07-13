@@ -107,12 +107,15 @@
                         BorderThickness="0" HorizontalContentAlignment="Left" Visibility="Collapsed"
                         Click="ScreenShareButton_Click">
                     <Button.ContextMenu>
-                        <!-- Frame-rate presets from the Phase 2 spike (see the plan) - 30/60 are
-                             the committed tiers, 120 is explicitly experimental/best-effort. -->
+                        <!-- Resolution+framerate presets from the Phase 2 spike (see the plan) -
+                             480p30/720p60 are the committed tiers, Native/120fps is explicitly
+                             experimental/best-effort. -->
                         <ContextMenu x:Name="ScreenSharePresetMenu">
-                            <MenuItem Header="30 fps (safe)" Click="ScreenShare30Fps_Click"/>
-                            <MenuItem Header="60 fps (high)" Click="ScreenShare60Fps_Click"/>
-                            <MenuItem Header="120 fps (experimental)" Click="ScreenShare120Fps_Click"/>
+                            <MenuItem Header="480p @ 30 fps (safe)" Click="ScreenShare480p30Fps_Click"/>
+                            <MenuItem Header="720p @ 60 fps (high)" Click="ScreenShare720p60Fps_Click"/>
+                            <MenuItem Header="Native @ 120 fps (experimental)" Click="ScreenShareNative120Fps_Click"/>
+                            <Separator/>
+                            <MenuItem Header="Choose Different Source..." Click="ScreenShareChooseSource_Click"/>
                         </ContextMenu>
                     </Button.ContextMenu>
                 </Button>
@@ -362,6 +365,8 @@
                                                          Fill="#F0B232" Visibility="{Binding AwayDotVisibility}" ToolTip="Away"/>
                                                 <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
                                                          Fill="#80848E" Visibility="{Binding OfflineDotVisibility}" ToolTip="Offline"/>
+                                                <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
+                                                         Fill="#9B59B6" Visibility="{Binding InCallDotVisibility}" ToolTip="In a call"/>
                                             </StackPanel>
                                         </Button>
                                         <Button Grid.Column="1" Tag="{Binding UserId}" Click="CallFriendButton_Click"
@@ -528,6 +533,8 @@
                                                      Fill="#F0B232" Visibility="{Binding AwayDotVisibility}" ToolTip="Away"/>
                                             <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
                                                      Fill="#80848E" Visibility="{Binding OfflineDotVisibility}" ToolTip="Offline"/>
+                                            <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
+                                                     Fill="#9B59B6" Visibility="{Binding InCallDotVisibility}" ToolTip="In a call"/>
                                         </StackPanel>
                                         <TextBlock Text="{Binding Role}" Foreground="{StaticResource TextMuted}" FontSize="11"/>
                                     </StackPanel>

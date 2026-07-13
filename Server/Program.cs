@@ -108,6 +108,10 @@ builder.Services.AddScoped<PermissionService>();
 // this can't just be the HTTP rate limiter below (SignalR hub calls don't
 // go through the HTTP middleware pipeline at all).
 builder.Services.AddSingleton(new MessageRateLimiter(limit: 10, window: TimeSpan.FromSeconds(10)));
+// InitiateCall anti-spam - a much tighter budget than messages since a ring
+// is far more disruptive than a chat message (sound + popup on the callee's
+// screen, not just an unread badge).
+builder.Services.AddSingleton(new CallRateLimiter(limit: 5, window: TimeSpan.FromMinutes(1)));
 
 builder.Services.AddControllers();
 builder.Services.AddSignalR();

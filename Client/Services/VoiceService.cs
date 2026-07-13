@@ -468,20 +468,27 @@ public class VoiceService : IAsyncDisposable
     // Publishes a screen/window capture as a video track - maxFramerate
     // drives both the capture pipeline's actual frame rate ceiling (see
     // ScreenCaptureSource) and what LiveKit is told to expect, so encoder
-    // bitrate allocation matches what's really being sent. Only one share
-    // at a time; starting a new one while already sharing stops the old
-    // capture first rather than publishing two video tracks.
-    public async Task StartScreenShareAsync(GraphicsCaptureItem item, uint maxFramerate, uint maxBitrate)
+    // bitrate allocation matches what's really being sent. maxWidth/
+    // maxHeight cap the published resolution (null = native/uncapped).
+    // Only one share at a time; starting a new one while already sharing
+    // stops the old capture first rather than publishing two video tracks.
+    public async Task StartScreenShareAsync(GraphicsCaptureItem item, uint maxFramerate, uint maxBitrate,
+        int? maxWidth = null, int? maxHeight = null)
     {
         if (_room?.LocalParticipant is null) return;
         if (_screenCapture is not null) await StopScreenShareAsync();
 
-        var capture = new ScreenCaptureSource(item);
+        var capture = new ScreenCaptureSource(item, maxWidth, maxHeight);
         var track = LocalVideoTrack.Create("screen", capture.Source);
         var options = new TrackPublishOptions
         {
             Source = TrackSource.SourceScreenshare,
-            VideoEncoding = new VideoEncodingOptions { MaxFramerate = maxFramerate, MaxBitrate = maxBitrate }
+            VideoEncoding = new VideoEncodingOptions { MaxFramerate = maxFramerate, MaxBitrate = maxBitrate },
+            // Lets LiveKit generate lower-quality simulcast layers alongside
+            // the full one, so a viewer on a weaker connection gets a
+            // downgraded layer from the SFU instead of the sender's raw
+            // target bitrate regardless of what the viewer can actually take.
+            Simulcast = true
         };
 
         await _room.LocalParticipant.PublishTrackAsync(track, options, CancellationToken.None);
