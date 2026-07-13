@@ -8,6 +8,12 @@ public class User
     public string? AvatarUrl { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
+    // Free-text custom status ("brb", "working", etc.) - unlike
+    // PresenceState (Online/Away/InCall, entirely in-memory - see
+    // PresenceService) this is account data the user sets deliberately, so
+    // it's persisted and survives reconnects/logins like AvatarUrl does.
+    public string? CustomStatus { get; set; }
+
     // E2EE key material for DMs (see E2eeService client-side) - all null
     // until the user's client next logs in/registers after this shipped.
     // PublicKey is an SPKI-encoded ECDH P-256 public key, safe to hand to

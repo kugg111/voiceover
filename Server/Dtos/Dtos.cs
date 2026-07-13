@@ -2,7 +2,7 @@ namespace Voiceover.Server.Dtos;
 
 public record RegisterRequest(string Username, string Password);
 public record LoginRequest(string Username, string Password);
-public record AuthResponse(string Token, DateTime ExpiresAtUtc, string RefreshToken, int UserId, string Username, string? AvatarUrl = null);
+public record AuthResponse(string Token, DateTime ExpiresAtUtc, string RefreshToken, int UserId, string Username, string? AvatarUrl = null, string? CustomStatus = null);
 public record RefreshRequest(string RefreshToken);
 public record LogoutRequest(string RefreshToken);
 
@@ -24,8 +24,13 @@ public record UploadResponse(string Url);
 // Content/LastMessagePreview are opaque E2EE ciphertext - the client
 // decrypts them itself (see Client/Services/E2eeService.cs); the server
 // never has a usable key.
-public record DirectMessageResponse(int Id, string Content, int SenderId, int RecipientId, DateTime SentAt, DateTime? EditedAt = null);
+public record DirectMessageResponse(int Id, string Content, int SenderId, int RecipientId, DateTime SentAt, DateTime? EditedAt = null, DateTime? ReadAt = null);
 public record DmConversationResponse(int OtherUserId, string OtherUsername, string LastMessagePreview, DateTime LastMessageAt, string? OtherUserAvatarUrl = null);
+
+// "Recent Calls" history (see CallsController/CallRecord) - Outcome is one
+// of "Completed"/"Missed"/"Declined"/"Cancelled". DurationSeconds is only
+// meaningful (non-null) for Completed calls.
+public record CallRecordResponse(int Id, int OtherUserId, string OtherUsername, bool WasIncoming, string Outcome, DateTime StartedAt, DateTime EndedAt, int? DurationSeconds, string? OtherUserAvatarUrl = null);
 public record UserSummaryResponse(int Id, string Username, string? AvatarUrl = null);
 
 // --- E2EE key material (identity keys, DM-oriented - see Client/Services/E2eeService.cs) ---
@@ -41,7 +46,8 @@ public record VoiceParticipant(int UserId, string Username, string? AvatarUrl = 
 public record ChannelVoiceRoster(int ChannelId, List<VoiceParticipant> Members);
 public record SetAvatarRequest(string Url);
 
-public record FriendResponse(int UserId, string Username, string? AvatarUrl = null, string PresenceState = "Offline");
+public record FriendResponse(int UserId, string Username, string? AvatarUrl = null, string PresenceState = "Offline", string? CustomStatus = null);
+public record SetCustomStatusRequest(string? Status);
 public record FriendRequestResponse(int Id, int UserId, string Username, string Direction, string? AvatarUrl = null); // Direction: "Incoming" or "Outgoing"
 
 public record LiveKitJoinResponse(string Token, string ServerUrl);

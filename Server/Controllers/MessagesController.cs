@@ -36,9 +36,12 @@ public class MessagesController : ControllerBase
 
     private int CurrentUserId => int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
-    // GET /api/channels/5/messages?take=50  -> most recent 50 messages, oldest first
+    // GET /api/channels/5/messages?take=50           -> most recent 50 messages, oldest first
+    // GET /api/channels/5/messages?take=50&beforeId=X -> the 50 messages immediately before
+    //     message X (for "load older" - Id is a strictly monotonic cursor, safer than SentAt
+    //     since two messages can share a timestamp but never an Id).
     [HttpGet]
-    public async Task<ActionResult<List<MessageResponse>>> GetHistory(int channelId, int take = 50)
+    public async Task<ActionResult<List<MessageResponse>>> GetHistory(int channelId, int take = 50, int? beforeId = null)
     {
         var channel = await _db.Channels.FirstOrDefaultAsync(c => c.Id == channelId);
         if (channel is null) return NotFound();
@@ -46,11 +49,13 @@ public class MessagesController : ControllerBase
         if (!await _permissions.IsMemberAsync(CurrentUserId, channel.GuildServerId))
             return Forbid();
 
-        var messages = await _db.Messages
-            .Where(m => m.ChannelId == channelId)
-            .OrderByDescending(m => m.SentAt)
+        var query = _db.Messages.Where(m => m.ChannelId == channelId);
+        if (beforeId.HasValue) query = query.Where(m => m.Id < beforeId.Value);
+
+        var messages = await query
+            .OrderByDescending(m => m.Id)
             .Take(take)
-            .OrderBy(m => m.SentAt)
+            .OrderBy(m => m.Id)
             .Include(m => m.Author)
             .ToListAsync();
 

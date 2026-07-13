@@ -73,6 +73,9 @@ public partial class VoiceSettingsPanel : UserControl
         }
         HotkeyPanel.Visibility = _voice.InputMode == VoiceInputMode.VoiceActivity ? Visibility.Collapsed : Visibility.Visible;
 
+        RingTimeoutSlider.Value = _voice.RingTimeoutSeconds;
+        UpdateRingTimeoutDisplay();
+
         _loaded = true;
     }
 
@@ -141,6 +144,16 @@ public partial class VoiceSettingsPanel : UserControl
 
     private void UpdateAttenuationLimitDisplay() =>
         AttenuationLimitDisplay.Text = $"{AttenuationLimitSlider.Value:0} dB";
+
+    private void RingTimeoutSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        UpdateRingTimeoutDisplay();
+        if (!_loaded) return;
+        _voice!.RingTimeoutSeconds = (int)e.NewValue;
+    }
+
+    private void UpdateRingTimeoutDisplay() =>
+        RingTimeoutDisplay.Text = $"{RingTimeoutSlider.Value:0}s";
 
     private void InputModeRadio_Changed(object sender, RoutedEventArgs e)
     {

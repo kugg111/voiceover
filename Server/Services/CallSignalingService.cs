@@ -2,7 +2,7 @@ namespace Voiceover.Server.Services;
 
 public enum CallState { Ringing, Active }
 
-public record CallSession(string CallId, int CallerId, int CalleeId, CallState State);
+public record CallSession(string CallId, int CallerId, int CalleeId, CallState State, DateTime StartedAt, DateTime? ConnectedAt = null);
 
 // Tracks active/ringing private 1:1 voice calls between friends, in memory
 // only - no DB table, same tradeoff PresenceService/VoicePresenceService
@@ -29,7 +29,7 @@ public class CallSignalingService
             if (_userToCallId.ContainsKey(callerId) || _userToCallId.ContainsKey(calleeId))
                 return null;
 
-            var session = new CallSession($"call-{Guid.NewGuid():N}", callerId, calleeId, CallState.Ringing);
+            var session = new CallSession($"call-{Guid.NewGuid():N}", callerId, calleeId, CallState.Ringing, DateTime.UtcNow);
             _calls[session.CallId] = session;
             _userToCallId[callerId] = session.CallId;
             _userToCallId[calleeId] = session.CallId;
@@ -47,7 +47,7 @@ public class CallSignalingService
         lock (_lock)
         {
             if (!_calls.TryGetValue(callId, out var session)) return null;
-            var updated = session with { State = CallState.Active };
+            var updated = session with { State = CallState.Active, ConnectedAt = DateTime.UtcNow };
             _calls[callId] = updated;
             return updated;
         }

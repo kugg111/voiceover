@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Voiceover.Server.Controllers;
 
-public record MemberResponse(int UserId, string Username, string Role, string? AvatarUrl = null, string PresenceState = "Offline");
+public record MemberResponse(int UserId, string Username, string Role, string? AvatarUrl = null, string PresenceState = "Offline", string? CustomStatus = null);
 public record ChangeRoleRequest(string Role); // "Member" or "Moderator"
 
 [ApiController]
@@ -105,11 +105,11 @@ public class ServersController : ControllerBase
         if (take.HasValue) query = query.Take(take.Value);
 
         var members = await query
-            .Select(m => new { m.UserId, m.User!.Username, Role = m.Role.ToString(), m.User!.AvatarUrl })
+            .Select(m => new { m.UserId, m.User!.Username, Role = m.Role.ToString(), m.User!.AvatarUrl, m.User!.CustomStatus })
             .ToListAsync();
 
         var result = members
-            .Select(m => new MemberResponse(m.UserId, m.Username, m.Role, m.AvatarUrl, _presence.GetState(m.UserId)))
+            .Select(m => new MemberResponse(m.UserId, m.Username, m.Role, m.AvatarUrl, _presence.GetState(m.UserId), m.CustomStatus))
             .ToList();
 
         return Ok(result);

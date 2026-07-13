@@ -69,5 +69,16 @@
             <TextBlock Text="Click the button above, then press the key or mouse button you want to use (middle-click or a side button - left/right click aren't recordable). Works even while Voiceover isn't the focused window - pick something you don't press often."
                        FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}"/>
         </StackPanel>
+
+        <TextBlock Text="Call Ring Timeout" FontWeight="Bold"
+                   Foreground="{StaticResource TextNormal}" Margin="0,16,0,4"/>
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+            <Slider x:Name="RingTimeoutSlider" Width="200" Minimum="10" Maximum="120" TickFrequency="10"
+                    ValueChanged="RingTimeoutSlider_ValueChanged"/>
+            <TextBlock x:Name="RingTimeoutDisplay" Width="46" Margin="6,0,0,0"
+                       VerticalAlignment="Center" Foreground="{StaticResource TextMuted}"/>
+        </StackPanel>
+        <TextBlock Text="How long an outgoing private call rings before it auto-cancels as unanswered."
+                   FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}"/>
     </StackPanel>
 </UserControl>

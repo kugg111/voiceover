@@ -27,6 +27,7 @@ public class ApiService
     public int? CurrentUserId { get; private set; }
     public string? CurrentUsername { get; private set; }
     public string? CurrentUserAvatarUrl { get; set; }
+    public string? CurrentUserCustomStatus { get; set; }
 
     // Owns this session's E2EE keypair/derived-key cache once unlocked (see
     // AuthFlow.TryAuthenticateAsync and App.xaml.cs's "remember me" restore
@@ -74,6 +75,7 @@ public class ApiService
         CurrentUserId = auth.UserId;
         CurrentUsername = auth.Username;
         CurrentUserAvatarUrl = App.ResolveUploadUrl(auth.AvatarUrl);
+        CurrentUserCustomStatus = auth.CustomStatus;
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token);
     }
 
@@ -216,8 +218,9 @@ public class ApiService
             : null;
     }
 
-    public async Task<List<MessageResponse>> GetMessageHistoryAsync(int channelId)
-        => await _http.GetFromJsonAsync<List<MessageResponse>>($"api/channels/{channelId}/messages") ?? new();
+    public async Task<List<MessageResponse>> GetMessageHistoryAsync(int channelId, int? beforeId = null)
+        => await _http.GetFromJsonAsync<List<MessageResponse>>(
+            $"api/channels/{channelId}/messages?take=50{(beforeId.HasValue ? $"&beforeId={beforeId}" : "")}") ?? new();
 
     public async Task<MessageResponse?> EditMessageAsync(int channelId, int messageId, string content)
     {
@@ -270,9 +273,10 @@ public class ApiService
     // (MainWindow) always see plaintext Content. Decrypted in parallel, not
     // one at a time - Task.WhenAll preserves input order (still
     // oldest-first), same fix already applied to GetDmConversationsAsync.
-    public async Task<List<DirectMessageResponse>> GetDmHistoryAsync(int otherUserId)
+    public async Task<List<DirectMessageResponse>> GetDmHistoryAsync(int otherUserId, int? beforeId = null)
     {
-        var messages = await _http.GetFromJsonAsync<List<DirectMessageResponse>>($"api/dm/{otherUserId}") ?? new();
+        var messages = await _http.GetFromJsonAsync<List<DirectMessageResponse>>(
+            $"api/dm/{otherUserId}?take=50{(beforeId.HasValue ? $"&beforeId={beforeId}" : "")}") ?? new();
         var decrypted = await Task.WhenAll(messages.Select(async m =>
             m with { Content = await E2ee.DecryptAsync(otherUserId, m.Content) }));
         return decrypted.ToList();
@@ -313,6 +317,9 @@ public class ApiService
             c with { LastMessagePreview = await E2ee.DecryptAsync(c.OtherUserId, c.LastMessagePreview) }));
         return decrypted.ToList();
     }
+
+    public async Task<List<CallRecordResponse>> GetCallHistoryAsync()
+        => await _http.GetFromJsonAsync<List<CallRecordResponse>>("api/calls/history") ?? new();
 
     // --- E2EE key material ---
     public async Task<bool> SetMyKeyMaterialAsync(string publicKey, string wrappedPrivateKey, string privateKeySalt)
@@ -382,6 +389,13 @@ public class ApiService
     // url is a relative /uploads/... path already returned by UploadFileAsync.
     public async Task<bool> SetMyAvatarAsync(string url)
         => (await _http.PutAsJsonAsync("api/users/me/avatar", new SetAvatarRequest(url))).IsSuccessStatusCode;
+
+    public async Task<bool> SetMyCustomStatusAsync(string? status)
+    {
+        var response = await _http.PutAsJsonAsync("api/users/me/status", new SetCustomStatusRequest(status));
+        if (response.IsSuccessStatusCode) CurrentUserCustomStatus = string.IsNullOrWhiteSpace(status) ? null : status.Trim();
+        return response.IsSuccessStatusCode;
+    }
 
     // --- File upload ---
     private const long MaxUploadSizeBytes = 8 * 1024 * 1024; // matches UploadController server-side

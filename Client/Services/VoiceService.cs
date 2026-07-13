@@ -48,6 +48,14 @@ public class VoiceService : IAsyncDisposable
     private LocalVideoTrack? _screenShareTrack;
     private readonly ConcurrentDictionary<int, RemoteVideoPlayback> _remoteVideoPlaybacks = new();
 
+    // System-audio track published alongside the screen-share video track
+    // (see ScreenAudioCaptureSource) - kept entirely separate from the mic
+    // track/_remotePlaybacks above, since a sharing participant publishes
+    // both at once and each side needs its own playback/volume/deafen state.
+    private ScreenAudioCaptureSource? _screenAudioCapture;
+    private LocalAudioTrack? _screenAudioTrack;
+    private readonly ConcurrentDictionary<int, RemoteAudioPlayback> _remoteScreenAudioPlaybacks = new();
+
     public bool IsScreenSharing => _screenCapture is not null;
 
     // Fires when the LOCAL user's own screen-share state changes - lets the
@@ -175,6 +183,20 @@ public class VoiceService : IAsyncDisposable
         }
     }
 
+    // How long an outgoing private call rings before auto-cancelling (see
+    // MainWindow.StartRingTimeout) - a local-machine preference like the
+    // rest of this class's settings, not something worth a server round trip.
+    private int _ringTimeoutSeconds = 40;
+    public int RingTimeoutSeconds
+    {
+        get => _ringTimeoutSeconds;
+        set
+        {
+            _ringTimeoutSeconds = value;
+            SaveSettings();
+        }
+    }
+
     // Not persisted (see SaveSettings) - deafen/mute are session states
     // like Discord's, not preferences, so a fresh login always starts
     // undeafened/unmuted regardless of how a previous session ended.
@@ -196,6 +218,7 @@ public class VoiceService : IAsyncDisposable
         {
             _isDeafened = value;
             foreach (var playback in _remotePlaybacks.Values) playback.Deafened = value;
+            foreach (var playback in _remoteScreenAudioPlaybacks.Values) playback.Deafened = value;
             IsMicMuted = value || _inputMode == VoiceInputMode.PushToTalk;
             DeafenedChanged?.Invoke(value);
         }
@@ -237,7 +260,7 @@ public class VoiceService : IAsyncDisposable
     // this existed they'd silently reset to defaults every login.
     private void SaveSettings() =>
         VoiceSettingsStorage.Save(new SavedVoiceSettings(
-            InputDeviceIndex, OutputDeviceIndex, NoiseSuppressionEnabled, _inputMode, PushToTalkKey, PushToTalkMouseButton, _noiseSuppressionBackend, _deepFilterAttenuationLimit));
+            InputDeviceIndex, OutputDeviceIndex, NoiseSuppressionEnabled, _inputMode, PushToTalkKey, PushToTalkMouseButton, _noiseSuppressionBackend, _deepFilterAttenuationLimit, _ringTimeoutSeconds));
 
     private void LoadSettings()
     {
@@ -249,6 +272,7 @@ public class VoiceService : IAsyncDisposable
         _noiseSuppressionEnabled = saved.NoiseSuppressionEnabled;
         _noiseSuppressionBackend = saved.NoiseSuppressionBackend;
         _deepFilterAttenuationLimit = saved.DeepFilterAttenuationLimit;
+        _ringTimeoutSeconds = saved.RingTimeoutSeconds;
 
         // Mouse button takes priority if somehow both are set in the saved
         // file (shouldn't happen given the mutual-exclusivity setters, but
@@ -413,7 +437,16 @@ public class VoiceService : IAsyncDisposable
                 Deafened = IsDeafened,
                 PlaybackVolume = UserVolumeStorage.GetVolume(userId) ?? 1.0f
             };
-            _remotePlaybacks[userId] = playback;
+
+            // Two possible audio tracks per participant now (mic + this
+            // person's screen-share system audio, see
+            // ScreenAudioCaptureSource) - Name distinguishes which one this
+            // subscription is for so they land in separate dictionaries
+            // instead of one overwriting the other.
+            if (audioTrack.Name == "system-audio")
+                _remoteScreenAudioPlaybacks[userId] = playback;
+            else
+                _remotePlaybacks[userId] = playback;
         }
         else if (e.Track is RemoteVideoTrack videoTrack)
         {
@@ -430,10 +463,17 @@ public class VoiceService : IAsyncDisposable
         // Scoped to the specific track kind that went away - a participant
         // can have both an audio and a screen-share video track at once, so
         // one ending (e.g. they stop sharing) must not tear down the other.
-        if (e.Track is RemoteAudioTrack)
+        if (e.Track is RemoteAudioTrack audioTrack)
         {
-            if (_remotePlaybacks.TryRemove(userId, out var playback))
+            if (audioTrack.Name == "system-audio")
+            {
+                if (_remoteScreenAudioPlaybacks.TryRemove(userId, out var screenAudioPlayback))
+                    await screenAudioPlayback.DisposeAsync();
+            }
+            else if (_remotePlaybacks.TryRemove(userId, out var playback))
+            {
                 await playback.DisposeAsync();
+            }
         }
         else if (e.Track is RemoteVideoTrack)
         {
@@ -455,6 +495,9 @@ public class VoiceService : IAsyncDisposable
         // fire for some reason.
         if (_remotePlaybacks.TryRemove(userId, out var playback))
             await playback.DisposeAsync();
+
+        if (_remoteScreenAudioPlaybacks.TryRemove(userId, out var screenAudioPlayback))
+            await screenAudioPlayback.DisposeAsync();
 
         if (_remoteVideoPlaybacks.TryRemove(userId, out var videoPlayback))
         {
@@ -496,6 +539,33 @@ public class VoiceService : IAsyncDisposable
         _screenCapture = capture;
         _screenShareTrack = track;
         ScreenSharingChanged?.Invoke(true);
+
+        await StartScreenAudioAsync();
+    }
+
+    // Best-effort second track alongside the video one above - a failure
+    // here (see ScreenAudioCaptureSource for why loopback capture can fail)
+    // must never take down an otherwise-working video-only share.
+    private async Task StartScreenAudioAsync()
+    {
+        if (_room?.LocalParticipant is null) return;
+
+        try
+        {
+            var audioCapture = new ScreenAudioCaptureSource();
+            var audioTrack = LocalAudioTrack.Create("system-audio", audioCapture.Source);
+            var audioOptions = new TrackPublishOptions { Source = TrackSource.SourceScreenshareAudio };
+            await _room.LocalParticipant.PublishTrackAsync(audioTrack, audioOptions, CancellationToken.None);
+
+            _screenAudioCapture = audioCapture;
+            _screenAudioTrack = audioTrack;
+        }
+        catch
+        {
+            _screenAudioCapture?.Dispose();
+            _screenAudioCapture = null;
+            _screenAudioTrack = null;
+        }
     }
 
     public async Task StopScreenShareAsync()
@@ -508,12 +578,24 @@ public class VoiceService : IAsyncDisposable
             // raced LeaveAllAsync), there's nothing left to unpublish from.
             try { await _room.LocalParticipant.UnpublishTrackAsync(_screenShareTrack.Sid, CancellationToken.None); }
             catch { }
+
+            if (_screenAudioTrack is not null)
+            {
+                try { await _room.LocalParticipant.UnpublishTrackAsync(_screenAudioTrack.Sid, CancellationToken.None); }
+                catch { }
+            }
         }
 
         _screenShareTrack.Dispose();
         _screenShareTrack = null;
         _screenCapture?.Dispose();
         _screenCapture = null;
+
+        _screenAudioTrack?.Dispose();
+        _screenAudioTrack = null;
+        _screenAudioCapture?.Dispose();
+        _screenAudioCapture = null;
+
         ScreenSharingChanged?.Invoke(false);
     }
 
@@ -533,6 +615,10 @@ public class VoiceService : IAsyncDisposable
             if (_remotePlaybacks.TryRemove(userId, out var playback))
                 await playback.DisposeAsync();
 
+        foreach (var userId in _remoteScreenAudioPlaybacks.Keys.ToList())
+            if (_remoteScreenAudioPlaybacks.TryRemove(userId, out var screenAudioPlayback))
+                await screenAudioPlayback.DisposeAsync();
+
         foreach (var userId in _remoteVideoPlaybacks.Keys.ToList())
         {
             if (_remoteVideoPlaybacks.TryRemove(userId, out var videoPlayback))
@@ -549,6 +635,11 @@ public class VoiceService : IAsyncDisposable
         _screenShareTrack = null;
         _screenCapture?.Dispose();
         _screenCapture = null;
+
+        _screenAudioTrack?.Dispose();
+        _screenAudioTrack = null;
+        _screenAudioCapture?.Dispose();
+        _screenAudioCapture = null;
 
         if (_micCapture is not null)
         {

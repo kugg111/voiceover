@@ -17,6 +17,7 @@ public class AppDbContext : DbContext
     public DbSet<Friendship> Friendships => Set<Friendship>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<ServerMemberKey> ServerMemberKeys => Set<ServerMemberKey>();
+    public DbSet<CallRecord> CallRecords => Set<CallRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -141,5 +142,14 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<ServerMemberKey>()
             .HasIndex(k => new { k.GuildServerId, k.UserId })
             .IsUnique();
+
+        // "Recent Calls" (CallsController.GetHistory) filters CallerId == X
+        // OR CalleeId == X, ordered by EndedAt - same "both sides of an OR
+        // need their own index" reasoning as DirectMessage/Friendship above.
+        modelBuilder.Entity<CallRecord>()
+            .HasIndex(c => new { c.CallerId, c.EndedAt });
+
+        modelBuilder.Entity<CallRecord>()
+            .HasIndex(c => new { c.CalleeId, c.EndedAt });
     }
 }

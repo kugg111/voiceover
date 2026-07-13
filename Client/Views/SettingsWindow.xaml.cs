@@ -26,6 +26,7 @@ public partial class SettingsWindow : FluentWindow
         AccountAvatarView.DisplayName = _api.CurrentUsername ?? "?";
         AccountAvatarView.ImageUrl = _api.CurrentUserAvatarUrl;
         AccountUsernameText.Text = _api.CurrentUsername;
+        CustomStatusBox.Text = _api.CurrentUserCustomStatus ?? "";
 
         UpdateStatusText.Text = $"You're on version {UpdateChecker.CurrentVersion}" +
             (UpdateChecker.IsInstalled ? " (installed)." : " (portable).");
@@ -110,6 +111,17 @@ public partial class SettingsWindow : FluentWindow
         _api.CurrentUserAvatarUrl = App.ResolveUploadUrl(upload.Url);
         AccountAvatarView.ImageUrl = _api.CurrentUserAvatarUrl;
         AccountStatusText.Text = "Avatar updated.";
+    }
+
+    private async void SaveCustomStatusButton_Click(object sender, RoutedEventArgs e)
+    {
+        SaveCustomStatusButton.IsEnabled = false;
+        AccountStatusText.Text = "Saving...";
+
+        var success = await _api.SetMyCustomStatusAsync(CustomStatusBox.Text);
+        SaveCustomStatusButton.IsEnabled = true;
+
+        AccountStatusText.Text = success ? "Status updated." : "Could not update your status.";
     }
 
     private async void CheckForUpdateButton_Click(object sender, RoutedEventArgs e)

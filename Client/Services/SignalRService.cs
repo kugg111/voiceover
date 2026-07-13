@@ -13,6 +13,7 @@ public class SignalRService
     public event Action<DirectMessageResponse>? DirectMessageReceived;
     public event Action<DirectMessageResponse>? DirectMessageEdited;
     public event Action<int, int, int>? DirectMessageDeleted; // messageId, senderId, recipientId
+    public event Action<int, int, DateTime>? DirectMessagesRead; // readerId, otherUserId, readAtUtc
     public event Action<string, int>? UserTyping;
     public event Action<int, string, int, string?>? VoiceUserJoined;
     public event Action<int, string, int>? VoiceUserLeft;
@@ -22,6 +23,7 @@ public class SignalRService
     public event Action<int, int, string>? FriendRequestReceived;
     public event Action<int, int>? FriendRequestAccepted;
     public event Action<int, string>? PresenceChanged;
+    public event Action<int, string?>? CustomStatusChanged;
     public event Action<int, int>? ServerKeyRequested; // serverId, requestingUserId
     public event Action<int>? ServerKeyProvisioned; // serverId
     public event Action<string, int, string, string?>? IncomingCall; // callId, callerId, callerUsername, callerAvatarUrl
@@ -56,6 +58,7 @@ public class SignalRService
         _connection.On<DirectMessageResponse>("ReceiveDirectMessage", dm => DirectMessageReceived?.Invoke(dm));
         _connection.On<DirectMessageResponse>("DirectMessageEdited", dm => DirectMessageEdited?.Invoke(dm));
         _connection.On<int, int, int>("DirectMessageDeleted", (messageId, senderId, recipientId) => DirectMessageDeleted?.Invoke(messageId, senderId, recipientId));
+        _connection.On<int, int, DateTime>("DirectMessagesRead", (readerId, otherUserId, readAtUtc) => DirectMessagesRead?.Invoke(readerId, otherUserId, readAtUtc));
         _connection.On<string, int>("UserTyping", (username, channelId) => UserTyping?.Invoke(username, channelId));
         _connection.On<int, string, int, string?>("VoiceUserJoined", (userId, username, channelId, avatarUrl) => VoiceUserJoined?.Invoke(userId, username, channelId, avatarUrl));
         _connection.On<int, string, int>("VoiceUserLeft", (userId, username, channelId) => VoiceUserLeft?.Invoke(userId, username, channelId));
@@ -65,6 +68,7 @@ public class SignalRService
         _connection.On<int, int, string>("FriendRequestReceived", (friendshipId, requesterId, requesterUsername) => FriendRequestReceived?.Invoke(friendshipId, requesterId, requesterUsername));
         _connection.On<int, int>("FriendRequestAccepted", (friendshipId, accepterId) => FriendRequestAccepted?.Invoke(friendshipId, accepterId));
         _connection.On<int, string>("PresenceChanged", (userId, state) => PresenceChanged?.Invoke(userId, state));
+        _connection.On<int, string?>("CustomStatusChanged", (userId, status) => CustomStatusChanged?.Invoke(userId, status));
         _connection.On<int, int>("ServerKeyRequested", (serverId, requestingUserId) => ServerKeyRequested?.Invoke(serverId, requestingUserId));
         _connection.On<int>("ServerKeyProvisioned", serverId => ServerKeyProvisioned?.Invoke(serverId));
         _connection.On<string, int, string, string?>("IncomingCall", (callId, callerId, callerUsername, callerAvatarUrl) => IncomingCall?.Invoke(callId, callerId, callerUsername, callerAvatarUrl));
@@ -85,6 +89,7 @@ public class SignalRService
         => _connection!.InvokeAsync("SendMessage", channelId, content, attachmentUrl);
     public Task NotifyTypingAsync(int channelId) => _connection!.InvokeAsync("NotifyTyping", channelId);
     public Task SendDirectMessageAsync(int recipientId, string content) => _connection!.InvokeAsync("SendDirectMessage", recipientId, content);
+    public Task MarkDmReadAsync(int otherUserId) => _connection!.InvokeAsync("MarkDmRead", otherUserId);
     public Task<List<VoiceParticipant>> JoinVoiceChannelAsync(int channelId) => _connection!.InvokeAsync<List<VoiceParticipant>>("JoinVoiceChannel", channelId);
     public Task LeaveVoiceChannelAsync(int channelId) => _connection!.InvokeAsync("LeaveVoiceChannel", channelId);
     public Task<LiveKitJoinResponse> GetLiveKitTokenAsync(int channelId) => _connection!.InvokeAsync<LiveKitJoinResponse>("GetLiveKitToken", channelId);

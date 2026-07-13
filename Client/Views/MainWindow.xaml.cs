@@ -215,6 +215,25 @@ public class MessageListItem : INotifyPropertyChanged
         }
     }
 
+    // DM read receipts only - null for channel messages (no per-recipient
+    // read state there) and for the other party's own messages. Set from
+    // DirectMessageResponse.ReadAt at load time, and live-updated from
+    // ChatHub's DirectMessagesRead event (see OnDirectMessagesRead).
+    private bool _isRead;
+    public bool IsRead
+    {
+        get => _isRead;
+        set
+        {
+            if (_isRead == value) return;
+            _isRead = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsRead)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ReadReceiptVisibility)));
+        }
+    }
+
+    public Visibility ReadReceiptVisibility => IsOwnMessage && !IsChannelMessage && IsRead ? Visibility.Visible : Visibility.Collapsed;
+
     // Local-only UI state (not persisted/broadcast) - true while this row's
     // inline edit box is open, swapping the read-only TextBlock for an
     // editable TextBox in the DataTemplate.
@@ -315,6 +334,21 @@ public class FriendListItem : INotifyPropertyChanged
     public Visibility OfflineDotVisibility => PresenceState == "Offline" ? Visibility.Visible : Visibility.Collapsed;
     public Visibility InCallDotVisibility => PresenceState == "InCall" ? Visibility.Visible : Visibility.Collapsed;
 
+    private string? _customStatus;
+    public string? CustomStatus
+    {
+        get => _customStatus;
+        set
+        {
+            if (_customStatus == value) return;
+            _customStatus = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CustomStatus)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CustomStatusVisibility)));
+        }
+    }
+
+    public Visibility CustomStatusVisibility => string.IsNullOrEmpty(CustomStatus) ? Visibility.Collapsed : Visibility.Visible;
+
     public event PropertyChangedEventHandler? PropertyChanged;
 }
 
@@ -373,6 +407,21 @@ public class MemberListItem : INotifyPropertyChanged
     public Visibility OfflineDotVisibility => PresenceState == "Offline" ? Visibility.Visible : Visibility.Collapsed;
     public Visibility InCallDotVisibility => PresenceState == "InCall" ? Visibility.Visible : Visibility.Collapsed;
 
+    private string? _customStatus;
+    public string? CustomStatus
+    {
+        get => _customStatus;
+        set
+        {
+            if (_customStatus == value) return;
+            _customStatus = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CustomStatus)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CustomStatusVisibility)));
+        }
+    }
+
+    public Visibility CustomStatusVisibility => string.IsNullOrEmpty(CustomStatus) ? Visibility.Collapsed : Visibility.Visible;
+
     public event PropertyChangedEventHandler? PropertyChanged;
 }
 
@@ -388,6 +437,12 @@ public partial class MainWindow : FluentWindow
     private int? _currentVoiceChannelId;
     private int? _dmActiveUserId;
     private string? _dmActiveUsername;
+
+    // "Load older messages" - whether the currently open channel/DM history
+    // might have more before what's loaded (heuristic: the last page came
+    // back full), and a re-entrancy guard for the load-more click itself.
+    private bool _hasMoreHistory;
+    private bool _isLoadingOlderMessages;
 
     // Private calls (see CallWindow) - at most one at a time, same
     // "one voice context" rule as _currentVoiceChannelId.
@@ -462,6 +517,7 @@ public partial class MainWindow : FluentWindow
         _hub.DirectMessageReceived += OnDirectMessageReceived;
         _hub.DirectMessageEdited += OnDirectMessageEdited;
         _hub.DirectMessageDeleted += OnDirectMessageDeleted;
+        _hub.DirectMessagesRead += (readerId, otherUserId, readAtUtc) => Dispatcher.Invoke(() => OnDirectMessagesRead(readerId, otherUserId, readAtUtc));
         _hub.ServerKeyRequested += OnServerKeyRequested;
         _hub.ServerKeyProvisioned += OnServerKeyProvisioned;
         _hub.UserTyping += OnUserTyping;
@@ -555,6 +611,7 @@ public partial class MainWindow : FluentWindow
         _voice.ScreenSharingChanged += isSharing => Dispatcher.Invoke(() => OnLocalScreenSharingChanged(isSharing));
 
         _hub.PresenceChanged += (userId, state) => Dispatcher.Invoke(() => OnPresenceChanged(userId, state));
+        _hub.CustomStatusChanged += (userId, status) => Dispatcher.Invoke(() => OnCustomStatusChanged(userId, status));
         _idleDetector.IdleChanged += isIdle => _ = OnIdleChangedAsync(isIdle);
         _idleDetector.Start();
 
@@ -604,6 +661,15 @@ public partial class MainWindow : FluentWindow
 
         var friend = _friends.FirstOrDefault(f => f.UserId == userId);
         if (friend is not null) friend.PresenceState = state;
+    }
+
+    private void OnCustomStatusChanged(int userId, string? status)
+    {
+        var member = _members.FirstOrDefault(m => m.UserId == userId);
+        if (member is not null) member.CustomStatus = status;
+
+        var friend = _friends.FirstOrDefault(f => f.UserId == userId);
+        if (friend is not null) friend.CustomStatus = status;
     }
 
     private async Task LoadServersAsync()
@@ -714,7 +780,8 @@ public partial class MainWindow : FluentWindow
                 IsSelf = isSelf,
                 CanChangeRole = isOwner && m.Role != "Owner" && !isSelf,
                 CanKick = canManageServer && m.Role != "Owner" && !isSelf,
-                PresenceState = m.PresenceState
+                PresenceState = m.PresenceState,
+                CustomStatus = m.CustomStatus
             };
         }));
     }
@@ -840,6 +907,7 @@ public partial class MainWindow : FluentWindow
         var items = await Task.WhenAll(history.Select(async m =>
             ToListItem(m, await _api.E2ee.DecryptForServerAsync(serverId, m.Content))));
         _messages.ReplaceAll(items);
+        SetHasMoreHistory(items.Length);
 
         ScrollToBottom();
     }
@@ -1185,7 +1253,8 @@ public partial class MainWindow : FluentWindow
     private void StartRingTimeout(string callId)
     {
         CancelRingTimeout();
-        _ringTimeoutTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(40) };
+        var timeoutSeconds = _voice?.RingTimeoutSeconds ?? 40;
+        _ringTimeoutTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(timeoutSeconds) };
         _ringTimeoutTimer.Tick += (_, _) =>
         {
             CancelRingTimeout();
@@ -1213,6 +1282,16 @@ public partial class MainWindow : FluentWindow
         if (_voice.IsScreenSharing)
         {
             _ = StopScreenShareAsync();
+            return;
+        }
+
+        // Once a preset's been used this session, a plain click reuses it
+        // directly instead of reprompting - right-click (the ContextMenu's
+        // normal WPF trigger, still wired below) is always available to
+        // pick a different one.
+        if (ScreenCaptureSource.LastPreset is { } preset)
+        {
+            _ = StartScreenShareWithPresetAsync(preset.Fps, preset.Bitrate, preset.MaxWidth, preset.MaxHeight);
             return;
         }
 
@@ -1281,6 +1360,8 @@ public partial class MainWindow : FluentWindow
                 MessageBoxButton.OK, MessageBoxImage.Error);
             return;
         }
+
+        ScreenCaptureSource.LastPreset = (fps, bitrate, maxWidth, maxHeight);
 
         UpdateScreenShareButtonVisual();
     }
@@ -1578,6 +1659,11 @@ public partial class MainWindow : FluentWindow
         UpdateMessagesUnreadBadge();
     }
 
+    private void RecentCallsButton_Click(object sender, RoutedEventArgs e)
+    {
+        new CallHistoryWindow(_api) { Owner = this }.ShowDialog();
+    }
+
     private async void FriendsButton_Click(object sender, RoutedEventArgs e)
     {
         await LeaveServerContentAsync();
@@ -1685,14 +1771,19 @@ public partial class MainWindow : FluentWindow
 
         var history = await _api.GetDmHistoryAsync(userId);
         _messages.ReplaceAll(history.Select(m => ToDmListItem(m)));
+        SetHasMoreHistory(history.Count);
 
         ScrollToBottom();
+
+        // Best-effort - marks the other party's messages as read now that
+        // this conversation is open. Failure here shouldn't block viewing.
+        try { await _hub.MarkDmReadAsync(userId); } catch { }
     }
 
     private async Task LoadFriendsAsync()
     {
         var friends = await _api.GetFriendsAsync();
-        _friends.ReplaceAll(friends.Select(f => new FriendListItem { UserId = f.UserId, Username = f.Username, AvatarUrl = App.ResolveUploadUrl(f.AvatarUrl), PresenceState = f.PresenceState }));
+        _friends.ReplaceAll(friends.Select(f => new FriendListItem { UserId = f.UserId, Username = f.Username, AvatarUrl = App.ResolveUploadUrl(f.AvatarUrl), PresenceState = f.PresenceState, CustomStatus = f.CustomStatus }));
     }
 
     private async Task LoadFriendRequestsAsync()
@@ -2097,6 +2188,16 @@ public partial class MainWindow : FluentWindow
                 {
                     _messages.Add(ToDmListItem(dm, content));
                     ScrollToBottom();
+
+                    // The conversation is already open, so this incoming
+                    // message is effectively seen immediately - mark it read
+                    // right away instead of waiting for the next time the
+                    // conversation is (re)opened.
+                    if (!isOwnMessage)
+                    {
+                        var senderId = otherUserId;
+                        _ = Task.Run(async () => { try { await _hub.MarkDmReadAsync(senderId); } catch { } });
+                    }
                 }
 
                 UpdateMessagesUnreadBadge();
@@ -2196,6 +2297,18 @@ public partial class MainWindow : FluentWindow
             var item = _messages.FirstOrDefault(m => m.Id == messageId);
             if (item is not null) _messages.Remove(item);
         });
+    }
+
+    // readerId just read our messages in this conversation (see
+    // ChatHub.MarkDmRead) - if that conversation is the one currently open,
+    // flip all our own already-rendered messages to "read" live. If it's
+    // not open right now, no UI update is needed: next time it's opened,
+    // ToDmListItem populates IsRead from the persisted ReadAt column.
+    private void OnDirectMessagesRead(int readerId, int otherUserId, DateTime readAtUtc)
+    {
+        if (_dmActiveUserId != readerId) return;
+        foreach (var m in _messages.Where(m => m.IsOwnMessage))
+            m.IsRead = true;
     }
 
     // A fellow member's device just asked for a copy of this server's
@@ -2445,7 +2558,8 @@ public partial class MainWindow : FluentWindow
         TimeDisplay = dm.SentAt.ToLocalTime().ToString("t"),
         IsEdited = dm.EditedAt is not null,
         IsOwnMessage = dm.SenderId == _api.CurrentUserId,
-        IsChannelMessage = false
+        IsChannelMessage = false,
+        IsRead = dm.ReadAt is not null
     };
 
     private static DmConversationListItem ToDmConversationItem(DmConversationResponse c) => new()
@@ -2477,6 +2591,61 @@ public partial class MainWindow : FluentWindow
     }
 
     private void ScrollToBottom() => MessageScroll.ScrollToEnd();
+
+    // A full page (server take=50 default) suggests there might be more
+    // before it; anything short of that means we've hit the start of history.
+    private void SetHasMoreHistory(int lastPageCount)
+    {
+        _hasMoreHistory = lastPageCount >= 50;
+        LoadOlderMessagesButton.Visibility = _hasMoreHistory ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private async void LoadOlderMessagesButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_isLoadingOlderMessages || !_hasMoreHistory) return;
+        if (_messages.FirstOrDefault() is not { } oldest) return;
+
+        _isLoadingOlderMessages = true;
+        LoadOlderMessagesButton.IsEnabled = false;
+
+        try
+        {
+            List<MessageListItem> olderItems;
+            if (_dmActiveUserId.HasValue)
+            {
+                var history = await _api.GetDmHistoryAsync(_dmActiveUserId.Value, oldest.Id);
+                olderItems = history.Select(m => ToDmListItem(m)).ToList();
+            }
+            else if (_currentChannelId.HasValue && _currentServerId.HasValue)
+            {
+                var history = await _api.GetMessageHistoryAsync(_currentChannelId.Value, oldest.Id);
+                var decrypted = await Task.WhenAll(history.Select(async m =>
+                    ToListItem(m, await _api.E2ee.DecryptForServerAsync(_currentServerId.Value, m.Content))));
+                olderItems = decrypted.ToList();
+            }
+            else
+            {
+                return;
+            }
+
+            SetHasMoreHistory(olderItems.Count);
+            if (olderItems.Count == 0) return;
+
+            // Inserting above the current viewport shifts everything down
+            // unless the scroll offset is corrected by the same amount the
+            // content grew - ExtentHeight only reflects the new layout after
+            // a layout pass, hence the Yield before reading it again.
+            var oldExtentHeight = MessageScroll.ExtentHeight;
+            _messages.PrependRange(olderItems);
+            await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Loaded);
+            MessageScroll.ScrollToVerticalOffset(MessageScroll.ExtentHeight - oldExtentHeight);
+        }
+        finally
+        {
+            _isLoadingOlderMessages = false;
+            LoadOlderMessagesButton.IsEnabled = true;
+        }
+    }
 
     private string? PromptForText(string title, string label)
     {

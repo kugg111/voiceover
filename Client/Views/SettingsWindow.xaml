@@ -51,6 +51,16 @@
                     <Button x:Name="ChangeAvatarButton" Content="Change Avatar" Height="40" Width="160"
                             HorizontalAlignment="Left" Click="ChangeAvatarButton_Click"
                             Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}" BorderThickness="0"/>
+
+                    <TextBlock Text="Custom Status" FontWeight="Bold" Foreground="{StaticResource TextNormal}" Margin="0,20,0,6"/>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBox x:Name="CustomStatusBox" Width="220" Height="34" Padding="8,6" MaxLength="128"
+                                 Background="{StaticResource BgDarker}" Foreground="{StaticResource TextNormal}" BorderThickness="0"/>
+                        <Button x:Name="SaveCustomStatusButton" Content="Save" Width="70" Height="34" Margin="8,0,0,0"
+                                Click="SaveCustomStatusButton_Click"
+                                Background="{StaticResource AccentBlurple}" Foreground="White" BorderThickness="0"/>
+                    </StackPanel>
+
                     <TextBlock x:Name="AccountStatusText" FontSize="11" TextWrapping="Wrap"
                                Foreground="{StaticResource TextMuted}" Margin="0,8,0,0"/>
                 </StackPanel>

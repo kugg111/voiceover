@@ -13,4 +13,8 @@ public class DirectMessage
     public int RecipientId { get; set; }
     public DateTime SentAt { get; set; } = DateTime.UtcNow;
     public DateTime? EditedAt { get; set; }
+
+    // Set when the recipient has opened this conversation on or after this
+    // message arrived (see ChatHub.MarkDmRead) - null means unread.
+    public DateTime? ReadAt { get; set; }
 }

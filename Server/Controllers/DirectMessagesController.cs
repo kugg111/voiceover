@@ -89,21 +89,25 @@ public class DirectMessagesController : ControllerBase
         return Ok(result);
     }
 
-    // GET /api/dm/5  -> history between the current user and user 5, oldest first
+    // GET /api/dm/5                    -> history with user 5, oldest first
+    // GET /api/dm/5?take=50&beforeId=X  -> the 50 messages immediately before message X
+    //     ("load older" - see MessagesController.GetHistory for why Id, not SentAt, is the cursor)
     [HttpGet("{otherUserId:int}")]
-    public async Task<ActionResult<List<DirectMessageResponse>>> GetHistory(int otherUserId, int take = 50)
+    public async Task<ActionResult<List<DirectMessageResponse>>> GetHistory(int otherUserId, int take = 50, int? beforeId = null)
     {
-        var messages = await _db.DirectMessages
-            .Where(m =>
-                (m.SenderId == CurrentUserId && m.RecipientId == otherUserId) ||
-                (m.SenderId == otherUserId && m.RecipientId == CurrentUserId))
-            .OrderByDescending(m => m.SentAt)
+        var query = _db.DirectMessages.Where(m =>
+            (m.SenderId == CurrentUserId && m.RecipientId == otherUserId) ||
+            (m.SenderId == otherUserId && m.RecipientId == CurrentUserId));
+        if (beforeId.HasValue) query = query.Where(m => m.Id < beforeId.Value);
+
+        var messages = await query
+            .OrderByDescending(m => m.Id)
             .Take(take)
-            .OrderBy(m => m.SentAt)
+            .OrderBy(m => m.Id)
             .ToListAsync();
 
         var response = messages
-            .Select(m => new DirectMessageResponse(m.Id, m.Content, m.SenderId, m.RecipientId, m.SentAt, m.EditedAt))
+            .Select(m => new DirectMessageResponse(m.Id, m.Content, m.SenderId, m.RecipientId, m.SentAt, m.EditedAt, m.ReadAt))
             .ToList();
 
         return Ok(response);
@@ -130,7 +134,7 @@ public class DirectMessagesController : ControllerBase
         // Broadcasts exactly what was stored - both sides decrypt it
         // themselves client-side (see ChatHub.SendDirectMessage for the
         // same reasoning on the send path).
-        var response = new DirectMessageResponse(message.Id, message.Content, message.SenderId, message.RecipientId, message.SentAt, message.EditedAt);
+        var response = new DirectMessageResponse(message.Id, message.Content, message.SenderId, message.RecipientId, message.SentAt, message.EditedAt, message.ReadAt);
 
         // Same dual-send pattern SendDirectMessage already uses - both
         // participants' own connections need the update, there's no shared

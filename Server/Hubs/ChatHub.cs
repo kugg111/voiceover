@@ -157,6 +157,23 @@ public class ChatHub : Hub
         await Clients.User(CurrentUserId.ToString()).SendAsync("ReceiveDirectMessage", response);
     }
 
+    // Called when the current user opens/refreshes a DM conversation - marks
+    // every unread message the *other* user sent them as read, and tells the
+    // other side's own connections so their UI can show read receipts live.
+    public async Task MarkDmRead(int otherUserId)
+    {
+        var unread = await _db.DirectMessages
+            .Where(m => m.SenderId == otherUserId && m.RecipientId == CurrentUserId && m.ReadAt == null)
+            .ToListAsync();
+        if (unread.Count == 0) return;
+
+        var readAt = DateTime.UtcNow;
+        foreach (var m in unread) m.ReadAt = readAt;
+        await _db.SaveChangesAsync();
+
+        await Clients.User(otherUserId.ToString()).SendAsync("DirectMessagesRead", CurrentUserId, otherUserId, readAt);
+    }
+
     // --- Private calls (1:1, friends-only, outside any server/channel -
     // see CallSignalingService for the in-memory ringing/active tracking
     // this all sits on top of). Audio itself flows through the same
@@ -213,8 +230,36 @@ public class ChatHub : Hub
         if (session.CallerId != CurrentUserId && session.CalleeId != CurrentUserId) return;
 
         _callSignaling.Remove(callId);
+        await RecordCallEndedAsync(session, eventName, CurrentUserId);
         var otherUserId = session.CallerId == CurrentUserId ? session.CalleeId : session.CallerId;
         await Clients.User(otherUserId.ToString()).SendAsync(eventName, callId);
+    }
+
+    // Persists unencrypted call-history metadata (see CallRecord for why
+    // this is separate from the E2EE call-event chat messages) - called
+    // from both the normal decline/hangup path above and the
+    // OnDisconnectedAsync cleanup path below, so every way a call can end
+    // gets exactly one row.
+    private async Task RecordCallEndedAsync(CallSession session, string eventName, int endedByUserId)
+    {
+        var outcome = eventName == "CallDeclined"
+            ? CallOutcome.Declined
+            : session.State == CallState.Active
+                ? CallOutcome.Completed
+                : endedByUserId == session.CallerId
+                    ? CallOutcome.Cancelled
+                    : CallOutcome.Missed;
+
+        _db.CallRecords.Add(new CallRecord
+        {
+            CallerId = session.CallerId,
+            CalleeId = session.CalleeId,
+            StartedAt = session.StartedAt,
+            ConnectedAt = session.ConnectedAt,
+            EndedAt = DateTime.UtcNow,
+            Outcome = outcome
+        });
+        await _db.SaveChangesAsync();
     }
 
     // Mints a LiveKit token for this specific call's room - only callable by
@@ -412,6 +457,7 @@ public class ChatHub : Hub
         if (activeCall is not null)
         {
             _callSignaling.Remove(activeCall.CallId);
+            await RecordCallEndedAsync(activeCall, "CallEnded", CurrentUserId);
             var otherUserId = activeCall.CallerId == CurrentUserId ? activeCall.CalleeId : activeCall.CallerId;
             await Clients.User(otherUserId.ToString()).SendAsync("CallEnded", activeCall.CallId);
         }

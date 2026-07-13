@@ -1,9 +1,12 @@
 using System.Security.Claims;
 using Voiceover.Server.Data;
 using Voiceover.Server.Dtos;
+using Voiceover.Server.Hubs;
+using Voiceover.Server.Models;
 using Voiceover.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
 namespace Voiceover.Server.Controllers;
@@ -15,11 +18,13 @@ public class UsersController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly UserAvatarCache _avatarCache;
+    private readonly IHubContext<ChatHub> _hub;
 
-    public UsersController(AppDbContext db, UserAvatarCache avatarCache)
+    public UsersController(AppDbContext db, UserAvatarCache avatarCache, IHubContext<ChatHub> hub)
     {
         _db = db;
         _avatarCache = avatarCache;
+        _hub = hub;
     }
 
     private int CurrentUserId => int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -55,6 +60,39 @@ public class UsersController : ControllerBase
         // ChatHub.SendMessage's cache (which exists specifically to avoid
         // a DB round trip per message) from serving a stale URL.
         _avatarCache.Set(CurrentUserId, user.AvatarUrl);
+
+        return Ok();
+    }
+
+    // Free-text custom status ("brb", "working", etc.) - persisted (see
+    // User.CustomStatus), unlike PresenceState which is entirely in-memory.
+    // Broadcast to the same audience BroadcastPresenceChangeAsync uses
+    // (friends + fellow members of servers this user belongs to) so it
+    // updates live without a refresh, same reasoning as presence itself.
+    [HttpPut("me/status")]
+    public async Task<ActionResult> SetCustomStatus(SetCustomStatusRequest req)
+    {
+        var user = await _db.Users.FindAsync(CurrentUserId);
+        if (user is null) return NotFound();
+
+        var status = req.Status?.Trim();
+        if (status is { Length: > 128 }) status = status[..128];
+        user.CustomStatus = string.IsNullOrEmpty(status) ? null : status;
+        await _db.SaveChangesAsync();
+
+        var friendIds = await _db.Friendships
+            .Where(f => f.Status == FriendshipStatus.Accepted && (f.RequesterId == CurrentUserId || f.AddresseeId == CurrentUserId))
+            .Select(f => f.RequesterId == CurrentUserId ? f.AddresseeId : f.RequesterId)
+            .ToListAsync();
+        if (friendIds.Count > 0)
+            await _hub.Clients.Users(friendIds.Select(id => id.ToString())).SendAsync("CustomStatusChanged", CurrentUserId, user.CustomStatus);
+
+        var serverIds = await _db.Memberships
+            .Where(m => m.UserId == CurrentUserId)
+            .Select(m => m.GuildServerId)
+            .ToListAsync();
+        foreach (var serverId in serverIds)
+            await _hub.Clients.Group($"server-presence-{serverId}").SendAsync("CustomStatusChanged", CurrentUserId, user.CustomStatus);
 
         return Ok();
     }

@@ -46,6 +46,11 @@ public class ScreenCaptureSource : IDisposable
     // don't have to reopen the OS picker from scratch every time.
     public static GraphicsCaptureItem? LastPickedItem { get; private set; }
 
+    // Remembers the last resolution/fps preset used this session, same
+    // reasoning as LastPickedItem - clicking Share Screen again shouldn't
+    // require re-picking a tier every time.
+    public static (uint Fps, uint Bitrate, int? MaxWidth, int? MaxHeight)? LastPreset { get; set; }
+
     // maxWidth/maxHeight cap the published resolution (e.g. 720p) - null
     // means native/uncapped. Downscaling happens during the row-copy itself
     // (skip unneeded rows, sample columns from the ones we do read) rather
@@ -179,7 +184,21 @@ public class ScreenCaptureSource : IDisposable
         var picker = new GraphicsCapturePicker();
         picker.SetWindow(ownerHwnd);
         var item = await picker.PickSingleItemAsync();
-        if (item is not null) LastPickedItem = item;
+        if (item is not null) RememberItem(item);
         return item;
+    }
+
+    // Closed fires when the captured window closes or the monitor is
+    // disconnected - clearing LastPickedItem here means a later reuse
+    // attempt naturally falls back to the OS picker (see the ?? in
+    // MainWindow/CallWindow's StartScreenShareWithPresetAsync) instead of
+    // silently trying to capture something that no longer exists.
+    private static void RememberItem(GraphicsCaptureItem item)
+    {
+        LastPickedItem = item;
+        item.Closed += (sender, _) =>
+        {
+            if (ReferenceEquals(LastPickedItem, sender)) LastPickedItem = null;
+        };
     }
 }

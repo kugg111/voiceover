@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Voiceover.Client.Services;
 using Wpf.Ui.Controls;
 using MessageBox = System.Windows.MessageBox;
@@ -45,6 +46,8 @@ public partial class CallWindow : FluentWindow
     private readonly VoiceMemberItem _otherRosterItem;
     private bool _suppressEndedEvent;
     private ScreenShareViewerWindow? _remoteViewer;
+    private DispatcherTimer? _durationTimer;
+    private DateTime _activeStartUtc;
 
     public CallWindow(string callId, int otherUserId, string otherUsername, string? otherAvatarUrl, bool isOutgoing,
         string selfUsername, string? selfAvatarUrl, VoiceService voice)
@@ -97,13 +100,17 @@ public partial class CallWindow : FluentWindow
                 EndButton.Content = "Decline";
                 break;
             case CallWindowState.Active:
-                StatusText.Text = "Connected";
                 RingingButtonsPanel.Visibility = Visibility.Collapsed;
                 ActivePanel.Visibility = Visibility.Visible;
                 _roster.Add(_selfRosterItem);
                 _roster.Add(_otherRosterItem);
                 UpdateMuteVisual(_voice.IsMicMuted);
                 UpdateDeafenVisual(_voice.IsDeafened);
+                // Topmost matters while ringing (so you actually notice the
+                // call) but just gets in the way once you're mid-conversation
+                // and trying to do other things - drop it once connected.
+                Topmost = false;
+                StartDurationTimer();
                 break;
         }
     }
@@ -114,6 +121,22 @@ public partial class CallWindow : FluentWindow
     {
         State = CallWindowState.Active;
         ApplyState();
+    }
+
+    private void StartDurationTimer()
+    {
+        _activeStartUtc = DateTime.UtcNow;
+        UpdateDurationText();
+
+        _durationTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _durationTimer.Tick += (_, _) => UpdateDurationText();
+        _durationTimer.Start();
+    }
+
+    private void UpdateDurationText()
+    {
+        var elapsed = DateTime.UtcNow - _activeStartUtc;
+        StatusText.Text = elapsed.TotalHours >= 1 ? elapsed.ToString(@"h\:mm\:ss") : elapsed.ToString(@"mm\:ss");
     }
 
     private void AcceptButton_Click(object sender, RoutedEventArgs e) => Accepted?.Invoke();
@@ -129,6 +152,12 @@ public partial class CallWindow : FluentWindow
         if (_voice.IsScreenSharing)
         {
             _ = _voice.StopScreenShareAsync();
+            return;
+        }
+
+        if (ScreenCaptureSource.LastPreset is { } preset)
+        {
+            _ = StartScreenShareWithPresetAsync(preset.Fps, preset.Bitrate, preset.MaxWidth, preset.MaxHeight);
             return;
         }
 
@@ -187,7 +216,10 @@ public partial class CallWindow : FluentWindow
         {
             MessageBox.Show($"Could not start screen sharing:\n{ex.Message}", "Error",
                 MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
         }
+
+        ScreenCaptureSource.LastPreset = (fps, bitrate, maxWidth, maxHeight);
     }
 
     private void OnLocalScreenSharingChanged(bool isSharing) => Dispatcher.Invoke(() =>
@@ -255,6 +287,8 @@ public partial class CallWindow : FluentWindow
 
     private void CallWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
+        _durationTimer?.Stop();
+
         _voice.MicMutedChanged -= OnMicMutedChanged;
         _voice.DeafenedChanged -= OnDeafenedChanged;
         _voice.LocalSpeakingChanged -= OnLocalSpeakingChanged;

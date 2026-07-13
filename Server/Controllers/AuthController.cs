@@ -148,6 +148,6 @@ public class AuthController : ControllerBase
         });
         await _db.SaveChangesAsync();
 
-        return new AuthResponse(accessToken, expiresAtUtc, rawRefreshToken, user.Id, user.Username, user.AvatarUrl);
+        return new AuthResponse(accessToken, expiresAtUtc, rawRefreshToken, user.Id, user.Username, user.AvatarUrl, user.CustomStatus);
     }
 }

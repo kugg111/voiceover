@@ -52,13 +52,13 @@ public class FriendsController : ControllerBase
 
         var userInfo = await _db.Users
             .Where(u => otherUserIds.Contains(u.Id))
-            .ToDictionaryAsync(u => u.Id, u => new { u.Username, u.AvatarUrl });
+            .ToDictionaryAsync(u => u.Id, u => new { u.Username, u.AvatarUrl, u.CustomStatus });
 
         var result = otherUserIds
             .Select(id =>
             {
                 var info = userInfo.GetValueOrDefault(id);
-                return new FriendResponse(id, info?.Username ?? "Unknown", info?.AvatarUrl, _presence.GetState(id));
+                return new FriendResponse(id, info?.Username ?? "Unknown", info?.AvatarUrl, _presence.GetState(id), info?.CustomStatus);
             })
             .ToList();
 

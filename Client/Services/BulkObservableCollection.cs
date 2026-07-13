@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
+using System.Linq;
 
 namespace Voiceover.Client.Services;
 
@@ -24,6 +25,19 @@ public class BulkObservableCollection<T> : ObservableCollection<T>
         // Base ObservableCollection's own Add/Clear raise these alongside
         // CollectionChanged - bypassing them via Items directly means doing
         // it manually so anything bound to Count (e.g. a badge) stays correct.
+        OnPropertyChanged(new PropertyChangedEventArgs(nameof(Count)));
+        OnPropertyChanged(new PropertyChangedEventArgs("Item[]"));
+        OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+    }
+
+    // "Load older messages" - inserts a batch at the front (oldest-first
+    // order preserved) as one Reset notification instead of N individual
+    // Insert(0, ...) events.
+    public void PrependRange(IEnumerable<T> items)
+    {
+        var list = items as IList<T> ?? items.ToList();
+        for (var i = list.Count - 1; i >= 0; i--) Items.Insert(0, list[i]);
+
         OnPropertyChanged(new PropertyChangedEventArgs(nameof(Count)));
         OnPropertyChanged(new PropertyChangedEventArgs("Item[]"));
         OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));

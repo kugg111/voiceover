@@ -224,9 +224,19 @@
         <!-- MESSAGES SIDEBAR (conversation list) -->
         <Border x:Name="MessagesSidebarPanel" Grid.Column="1" Background="{StaticResource BgSidebar}" Visibility="Collapsed">
             <DockPanel>
-                <TextBlock DockPanel.Dock="Top" Text="Direct Messages"
-                           FontWeight="Bold" FontSize="15" Foreground="{StaticResource TextNormal}"
-                           Padding="14,14,0,10"/>
+                <Grid DockPanel.Dock="Top">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Direct Messages"
+                               FontWeight="Bold" FontSize="15" Foreground="{StaticResource TextNormal}"
+                               Padding="14,14,0,10" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" Content="📞" Width="30" Height="30" Margin="0,8,10,0"
+                            Click="RecentCallsButton_Click" ToolTip="Recent Calls"
+                            Background="Transparent" Foreground="{StaticResource TextNormal}"
+                            BorderThickness="0" FontSize="14" Cursor="Hand"/>
+                </Grid>
                 <TextBox DockPanel.Dock="Top" x:Name="DmSearchBox" Height="34" Margin="10,0,10,8" Padding="8,6"
                          Background="{StaticResource BgDarker}" Foreground="{StaticResource TextNormal}"
                          BorderThickness="0" TextChanged="DmSearchBox_TextChanged"/>
@@ -359,6 +369,10 @@
                                             <StackPanel Orientation="Horizontal">
                                                 <local:AvatarView Size="24" DisplayName="{Binding Username}" ImageUrl="{Binding AvatarUrl}" Margin="0,0,8,0"/>
                                                 <TextBlock Text="{Binding Username}" VerticalAlignment="Center"/>
+                                                <TextBlock Text="{Binding CustomStatus, StringFormat=' — {0}'}" VerticalAlignment="Center"
+                                                           Foreground="{StaticResource TextMuted}" FontSize="11"
+                                                           TextTrimming="CharacterEllipsis" MaxWidth="120"
+                                                           Visibility="{Binding CustomStatusVisibility}"/>
                                                 <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
                                                          Fill="#3BA55D" Visibility="{Binding OnlineDotVisibility}" ToolTip="Online"/>
                                                 <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
@@ -407,6 +421,11 @@
             </Border>
 
             <ScrollViewer Grid.Row="1" x:Name="MessageScroll" Padding="16,8">
+              <StackPanel>
+                <Button x:Name="LoadOlderMessagesButton" Content="Load Older Messages" HorizontalAlignment="Center"
+                        Margin="0,0,0,12" Padding="12,6" Visibility="Collapsed" Cursor="Hand"
+                        Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
+                        BorderThickness="0" Click="LoadOlderMessagesButton_Click"/>
                 <ItemsControl x:Name="MessageList">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
@@ -478,11 +497,14 @@
                                                Visibility="{Binding AttachmentVisibility}"
                                                MouseLeftButtonUp="AttachmentLink_MouseLeftButtonUp"
                                                Tag="{Binding AttachmentUrl}"/>
+                                    <TextBlock Text="✓ Read" FontSize="10" Foreground="{StaticResource TextMuted}"
+                                               Visibility="{Binding ReadReceiptVisibility}"/>
                                 </StackPanel>
                             </Grid>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
+              </StackPanel>
             </ScrollViewer>
 
             <Grid Grid.Row="2" Margin="16,0,16,16">
@@ -537,6 +559,9 @@
                                                      Fill="#9B59B6" Visibility="{Binding InCallDotVisibility}" ToolTip="In a call"/>
                                         </StackPanel>
                                         <TextBlock Text="{Binding Role}" Foreground="{StaticResource TextMuted}" FontSize="11"/>
+                                        <TextBlock Text="{Binding CustomStatus}" Foreground="{StaticResource TextMuted}" FontSize="11"
+                                                   TextTrimming="CharacterEllipsis" MaxWidth="140"
+                                                   Visibility="{Binding CustomStatusVisibility}"/>
                                     </StackPanel>
                                 </StackPanel>
                             </DataTemplate>
