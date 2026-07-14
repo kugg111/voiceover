@@ -42,7 +42,7 @@ public class FriendsController : ControllerBase
                         (f.RequesterId == CurrentUserId || f.AddresseeId == CurrentUserId))
             .OrderBy(f => f.Id)
             .Skip(skip ?? 0);
-        if (take.HasValue) query = query.Take(take.Value);
+        if (PaginationLimits.Clamp(take) is { } clampedTake) query = query.Take(clampedTake);
 
         var friendships = await query.ToListAsync();
 
@@ -76,7 +76,7 @@ public class FriendsController : ControllerBase
                         (f.RequesterId == CurrentUserId || f.AddresseeId == CurrentUserId))
             .OrderBy(f => f.Id)
             .Skip(skip ?? 0);
-        if (take.HasValue) query = query.Take(take.Value);
+        if (PaginationLimits.Clamp(take) is { } clampedTake) query = query.Take(clampedTake);
 
         var pending = await query.ToListAsync();
 

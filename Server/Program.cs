@@ -98,6 +98,17 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 
 builder.Services.AddSingleton(new UploadsPathOptions(uploadsDir));
 builder.Services.AddSingleton<JwtTokenService>();
+// VoicePresenceService, PresenceService, CallSignalingService,
+// PresenceAudienceCache, UserAvatarCache below, plus MessageRateLimiter/
+// SlowModeLimiter/CallRateLimiter further down, all hold in-process state
+// with no shared store behind them - correct for this app's current single
+// Railway instance, but a second replica would see a split view of
+// presence/voice rosters and an effectively-doubled rate-limit budget
+// (each instance enforces its own copy independently). Same caveat applies
+// to AddSignalR() below - its groups/Clients.User() only reach connections
+// on the same process. Scaling to 2+ replicas needs a SignalR backplane
+// (e.g. Redis) and moving this state to a shared store first; out of scope
+// while this runs as a single instance.
 builder.Services.AddSingleton<VoicePresenceService>();
 builder.Services.AddSingleton<PresenceService>();
 builder.Services.AddSingleton<UserAvatarCache>();
@@ -116,9 +127,14 @@ builder.Services.AddSingleton<SlowModeLimiter>();
 // is far more disruptive than a chat message (sound + popup on the callee's
 // screen, not just an unread badge).
 builder.Services.AddSingleton(new CallRateLimiter(limit: 5, window: TimeSpan.FromMinutes(1)));
+// Periodic purge of expired RefreshTokens/Invites - see CleanupService.
+builder.Services.AddHostedService<CleanupService>();
 
 builder.Services.AddControllers();
+// See the in-process-state caveat above the singleton registrations - this
+// has no backplane, so it only reaches connections on this one instance.
 builder.Services.AddSignalR();
+builder.Services.AddHealthChecks().AddDbContextCheck<AppDbContext>();
 
 builder.Services.AddRateLimiter(options =>
 {
@@ -154,6 +170,19 @@ builder.Services.AddRateLimiter(options =>
         factory: _ => new FixedWindowRateLimiterOptions
         {
             PermitLimit = 10,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0
+        }));
+
+    // Invite redemption: a separate, slightly looser budget than invite
+    // creation above - joining is a different action than generating codes,
+    // and an 8-char invite code is guessable enough to be worth throttling
+    // repeated join attempts against.
+    options.AddPolicy("invite-join", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "unknown",
+        factory: _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 15,
             Window = TimeSpan.FromMinutes(1),
             QueueLimit = 0
         }));
@@ -242,6 +271,25 @@ app.UseSerilogRequestLogging(options =>
 
 app.UseCors();
 
+// Defense-in-depth response headers. nosniff is the highest-value one here
+// since it also hardens the /uploads static route (paired with the
+// magic-byte content validation in UploadController) against a browser
+// trying to execute an uploaded file as script/HTML based on a sniffed
+// content type. No CSP: Server/Site/'s landing page hasn't been audited for
+// inline <script>/<style> usage a strict policy would need to account for.
+// No UseHttpsRedirection - Kestrel listens on plain HTTP behind Railway's
+// TLS-terminating proxy (see UseUrls above), so a redirect middleware here
+// would just loop; HSTS is still worth advertising as a header for direct
+// requests that do reach this origin over HTTPS.
+app.Use(async (context, next) =>
+{
+    context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+    context.Response.Headers["X-Frame-Options"] = "DENY";
+    context.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+    context.Response.Headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains";
+    await next();
+});
+
 // Public landing page (Server/Site/) - a static download page for the
 // client build, served at the root path. Unlike wwwroot/uploads above,
 // this is committed to source control (it's app content, not user data).
@@ -261,6 +309,9 @@ app.UseRateLimiter();
 
 app.MapControllers();
 app.MapHub<ChatHub>("/hubs/chat");
+// Anonymous, unauthenticated - Railway (or any orchestrator) needs to be
+// able to probe this without a token to detect "process is up but wedged."
+app.MapHealthChecks("/health").AllowAnonymous();
 
 app.Run();
 

@@ -67,7 +67,7 @@ public class InvitesController : ControllerBase
             .Where(i => i.GuildServerId == serverId)
             .OrderByDescending(i => i.CreatedAt)
             .Skip(skip ?? 0);
-        if (take.HasValue) query = query.Take(take.Value);
+        if (PaginationLimits.Clamp(take) is { } clampedTake) query = query.Take(clampedTake);
 
         var invites = await query
             .Select(i => new InviteResponse(i.Code, i.ExpiresAt, i.MaxUses, i.UseCount))
@@ -97,6 +97,7 @@ public class InviteJoinController : ControllerBase
     private int CurrentUserId => int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
     [HttpPost("{code}/join")]
+    [EnableRateLimiting("invite-join")]
     public async Task<ActionResult<GuildServerResponse>> Join(string code)
     {
         var invite = await _db.Invites.Include(i => i.GuildServer)
@@ -111,8 +112,18 @@ public class InviteJoinController : ControllerBase
         var alreadyMember = await _db.Memberships.AnyAsync(m => m.UserId == CurrentUserId && m.GuildServerId == invite.GuildServerId);
         if (!alreadyMember)
         {
+            // IsValid() above is just a friendly early-exit for the common case -
+            // it reads a snapshot of UseCount, so two joins landing on the last
+            // remaining use at the same time could both pass it. This atomic
+            // conditional update is the actual guard: only one of them can flip
+            // UseCount past MaxUses, and the loser sees claimed == 0 here instead
+            // of both being let in.
+            var claimed = await _db.Invites
+                .Where(i => i.Id == invite.Id && (i.MaxUses == null || i.UseCount < i.MaxUses))
+                .ExecuteUpdateAsync(s => s.SetProperty(i => i.UseCount, i => i.UseCount + 1));
+            if (claimed == 0) return BadRequest("This invite has expired or reached its use limit.");
+
             _db.Memberships.Add(new Membership { UserId = CurrentUserId, GuildServerId = invite.GuildServerId });
-            invite.UseCount++;
             await _db.SaveChangesAsync();
         }
 
