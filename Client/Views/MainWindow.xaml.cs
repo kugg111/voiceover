@@ -837,17 +837,17 @@ public partial class MainWindow : FluentWindow
 
     // Themed in-window replacement for MessageBox.Show(..., YesNo, ...) /
     // the old ConfirmDialog window.
-    public async Task<bool> ConfirmAsync(string title, string message, string confirmText = "Confirm", bool destructive = false)
+    public async Task<bool> ConfirmAsync(string title, string message, string confirmText = "Confirm", bool destructive = false, string cancelText = "Cancel")
     {
         ModalTitleText.Text = title;
         ModalStandardPanel.Visibility = Visibility.Visible;
         ModalCreateOrJoinPanel.Visibility = Visibility.Collapsed;
         ModalMessageText.Text = message;
-        ModalMessageText.Visibility = Visibility.Visible;
+        ModalMessageText.Visibility = string.IsNullOrEmpty(message) ? Visibility.Collapsed : Visibility.Visible;
         ModalInputBox.Visibility = Visibility.Collapsed;
         ModalCustomContentScroll.Visibility = Visibility.Collapsed;
         ModalButtonsPanel.Children.Clear();
-        ModalButtonsPanel.Children.Add(BuildModalButton("Cancel", ModalButtonStyle.Plain, () => CompleteModal(false)));
+        ModalButtonsPanel.Children.Add(BuildModalButton(cancelText, ModalButtonStyle.Plain, () => CompleteModal(false)));
         ModalButtonsPanel.Children.Add(BuildModalButton(confirmText,
             destructive ? ModalButtonStyle.Destructive : ModalButtonStyle.Primary, () => CompleteModal(true)));
 
@@ -1992,7 +1992,7 @@ public partial class MainWindow : FluentWindow
     {
         if (sender is not System.Windows.Controls.MenuItem { Tag: int serverId }) return;
 
-        var isVoice = await ConfirmAsync("Channel Type", "Make this a voice channel?", "Voice Channel");
+        var isVoice = await ConfirmAsync("Choose channel type", "", "Voice Channel", cancelText: "Text Channel");
 
         var name = await PromptAsync("Add Channel", "Channel name:");
         if (string.IsNullOrWhiteSpace(name)) return;
