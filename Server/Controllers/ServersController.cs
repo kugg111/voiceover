@@ -159,6 +159,12 @@ public class ServersController : ControllerBase
         _db.Memberships.Remove(target);
         await _db.SaveChangesAsync();
         await _modLog.LogAsync(serverId, CurrentUserId, CurrentUsername, "Kick", userId, target.User?.Username);
+
+        // Without this, a kicked user's already-open client keeps showing
+        // the server until their next full reload (next login/restart) -
+        // they'd click into it and just get a 403 on whatever they try.
+        // Same Clients.User(...) mechanism already used for YouWereBanned.
+        await _hub.Clients.User(userId.ToString()).SendAsync("YouWereKicked", serverId);
         return Ok();
     }
 

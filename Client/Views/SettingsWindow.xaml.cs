@@ -16,6 +16,14 @@ public partial class SettingsWindow : FluentWindow
     private readonly ApiService _api;
     private VersionInfo? _latestVersion;
 
+    // Set right before Close() in DeleteAccountButton_Click. MainWindow
+    // checks this after ShowDialog() returns and does the actual
+    // LoginWindow/Owner-closing sequence itself - closing our own Owner from
+    // inside this window's own event handler, while still nested inside our
+    // own ShowDialog() message pump, is a known-risky WPF pattern that was
+    // producing a LoginWindow with missing elements.
+    public bool AccountWasDeleted { get; private set; }
+
     public SettingsWindow(ApiService api, VoiceService? voice)
     {
         InitializeComponent();
@@ -153,14 +161,12 @@ public partial class SettingsWindow : FluentWindow
             return;
         }
 
-        // Same effect as MainWindow.LogOutButton_Click, just triggered from
-        // here since deleting your own account ends the session the same
-        // way logging out does - clear the saved session, open a fresh
-        // LoginWindow, then close both this dialog and its owning
-        // MainWindow.
+        // Deleting your own account ends the session the same way logging
+        // out does, but the actual LoginWindow/Owner-closing sequence is
+        // done by MainWindow after ShowDialog() returns (see
+        // AccountWasDeleted) - not here.
         SessionStorage.Clear();
-        new LoginWindow().Show();
-        Owner?.Close();
+        AccountWasDeleted = true;
         Close();
     }
 

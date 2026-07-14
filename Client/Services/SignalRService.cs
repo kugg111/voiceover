@@ -20,6 +20,7 @@ public class SignalRService
     public event Action<int, int>? MessageUnpinned; // channelId, messageId
     public event Action<int, int>? MessagesBulkDeletedByUser; // channelId, userId
     public event Action<int>? YouWereBanned; // serverId
+    public event Action<int>? YouWereKicked; // serverId
     public event Action<int>? ForceMuted; // channelId
     public event Action<string, int>? UserTyping;
     public event Action<int, string, int, string?>? VoiceUserJoined;
@@ -72,6 +73,7 @@ public class SignalRService
         _connection.On<int, int>("MessageUnpinned", (channelId, messageId) => MessageUnpinned?.Invoke(channelId, messageId));
         _connection.On<int, int>("MessagesBulkDeletedByUser", (channelId, userId) => MessagesBulkDeletedByUser?.Invoke(channelId, userId));
         _connection.On<int>("YouWereBanned", serverId => YouWereBanned?.Invoke(serverId));
+        _connection.On<int>("YouWereKicked", serverId => YouWereKicked?.Invoke(serverId));
         _connection.On<int>("ForceMuted", channelId => ForceMuted?.Invoke(channelId));
         _connection.On<string, int>("UserTyping", (username, channelId) => UserTyping?.Invoke(username, channelId));
         _connection.On<int, string, int, string?>("VoiceUserJoined", (userId, username, channelId, avatarUrl) => VoiceUserJoined?.Invoke(userId, username, channelId, avatarUrl));

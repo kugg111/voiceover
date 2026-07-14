@@ -172,21 +172,50 @@ public class UsersController : ControllerBase
         return Ok(new UserDataExportResponse(user.Username, user.CreatedAt, user.CustomStatus, servers, friends));
     }
 
-    // Guards against the biggest landmine here: User has no explicit
-    // OnDelete configured anywhere (see AppDbContext), so EF Core's default
-    // cascade behavior means deleting a User who owns a GuildServer would
-    // cascade-delete that entire server - channels, everyone's messages in
-    // it, everything - as an unintended side effect. Rejecting outright is
-    // simpler and safer than trying to special-case an ownership transfer
-    // here.
+    // Deletion must always succeed, even for a user who owns servers: User
+    // has no explicit OnDelete configured anywhere (see AppDbContext), so
+    // EF Core's default cascade behavior means deleting a User who owns a
+    // GuildServer would otherwise cascade-delete that entire server -
+    // channels, everyone's messages in it, everything - as an unintended
+    // side effect. So each owned server is resolved first, below, before
+    // the User row itself is ever removed.
     [HttpDelete("me")]
     public async Task<ActionResult> DeleteMyAccount()
     {
         var user = await _db.Users.FindAsync(CurrentUserId);
         if (user is null) return NotFound();
 
-        if (await _db.GuildServers.AnyAsync(g => g.OwnerId == CurrentUserId))
-            return BadRequest("Transfer or delete servers you own first.");
+        var ownedServers = await _db.GuildServers.Where(g => g.OwnerId == CurrentUserId).ToListAsync();
+        foreach (var server in ownedServers)
+        {
+            // Prefer the most senior remaining member as successor - Role's
+            // enum ordinals (Member=0, Moderator=1) mean a Moderator
+            // naturally outranks a plain Member here; ties broken by whoever
+            // joined first.
+            var successor = await _db.Memberships
+                .Where(m => m.GuildServerId == server.Id && m.UserId != CurrentUserId)
+                .OrderByDescending(m => m.Role)
+                .ThenBy(m => m.JoinedAt)
+                .FirstOrDefaultAsync();
+
+            if (successor is not null)
+            {
+                successor.Role = MemberRole.Owner;
+                server.OwnerId = successor.UserId;
+                continue;
+            }
+
+            // No one left to inherit it - delete the server outright.
+            // Channels/Messages/Invites cascade automatically (real,
+            // required FKs - see AppDbContext), but MessageReaction and
+            // ServerMemberKey have no FK/cascade configured, so clean those
+            // up explicitly first (same reasoning MessagesController.Delete
+            // already documents for MessageReactions).
+            var messageIds = await _db.Messages.Where(m => m.Channel!.GuildServerId == server.Id).Select(m => m.Id).ToListAsync();
+            _db.MessageReactions.RemoveRange(_db.MessageReactions.Where(r => messageIds.Contains(r.MessageId)));
+            _db.ServerMemberKeys.RemoveRange(_db.ServerMemberKeys.Where(k => k.GuildServerId == server.Id));
+            _db.GuildServers.Remove(server);
+        }
 
         // Every one of these columns has no FK/cascade configured (see
         // AppDbContext's own comments on DirectMessage/Friendship/

@@ -646,6 +646,7 @@ public partial class MainWindow : FluentWindow
         _hub.MessageUnpinned += (channelId, messageId) => Dispatcher.Invoke(() => OnMessagePinned(messageId, false));
         _hub.MessagesBulkDeletedByUser += (channelId, userId) => Dispatcher.Invoke(() => OnMessagesBulkDeletedByUser(channelId, userId));
         _hub.YouWereBanned += serverId => Dispatcher.Invoke(() => OnYouWereBanned(serverId));
+        _hub.YouWereKicked += serverId => Dispatcher.Invoke(() => OnYouWereKicked(serverId));
         _hub.ForceMuted += channelId => Dispatcher.Invoke(() => OnForceMuted(channelId));
         _hub.ServerKeyRequested += OnServerKeyRequested;
         _hub.ServerKeyProvisioned += OnServerKeyProvisioned;
@@ -960,9 +961,9 @@ public partial class MainWindow : FluentWindow
     {
         if (sender is not System.Windows.Controls.MenuItem { Tag: int userId } || _currentServerId is null) return;
 
-        var confirm = MessageBox.Show("Remove this member from the server?", "Confirm Kick",
-            MessageBoxButton.YesNo, MessageBoxImage.Warning);
-        if (confirm != MessageBoxResult.Yes) return;
+        var confirm = new ConfirmDialog("Confirm Kick", "Remove this member from the server?", "Kick", destructive: true) { Owner = this };
+        confirm.ShowDialog();
+        if (!confirm.Result) return;
 
         var success = await _api.KickMemberAsync(_currentServerId.Value, userId);
         if (!success)
@@ -979,9 +980,10 @@ public partial class MainWindow : FluentWindow
     {
         if (sender is not System.Windows.Controls.MenuItem { Tag: int userId } || _currentServerId is null) return;
 
-        var confirm = MessageBox.Show("Ban this member? They won't be able to rejoin via any invite link until unbanned.",
-            "Confirm Ban", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-        if (confirm != MessageBoxResult.Yes) return;
+        var confirm = new ConfirmDialog("Confirm Ban",
+            "Ban this member? They won't be able to rejoin via any invite link until unbanned.", "Ban", destructive: true) { Owner = this };
+        confirm.ShowDialog();
+        if (!confirm.Result) return;
 
         var (success, error) = await _api.BanMemberAsync(_currentServerId.Value, userId, reason: null);
         if (!success)
@@ -997,9 +999,10 @@ public partial class MainWindow : FluentWindow
     {
         if (sender is not System.Windows.Controls.MenuItem { Tag: int userId } || _currentChannelId is null) return;
 
-        var confirm = MessageBox.Show("Delete every message this member sent in the current channel? This cannot be undone.",
-            "Confirm Purge", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-        if (confirm != MessageBoxResult.Yes) return;
+        var confirm = new ConfirmDialog("Confirm Purge",
+            "Delete every message this member sent in the current channel? This cannot be undone.", "Purge", destructive: true) { Owner = this };
+        confirm.ShowDialog();
+        if (!confirm.Result) return;
 
         var success = await _api.DeleteAllMessagesFromUserAsync(_currentChannelId.Value, userId);
         if (!success)
@@ -1841,7 +1844,18 @@ public partial class MainWindow : FluentWindow
 
     private void MyAvatarBorder_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
-        new SettingsWindow(_api, _voice) { Owner = this }.ShowDialog();
+        var settings = new SettingsWindow(_api, _voice) { Owner = this };
+        settings.ShowDialog();
+
+        if (settings.AccountWasDeleted)
+        {
+            // Same LoginWindow/Close sequence as LogOutButton_Click - done
+            // here, after the modal dialog has fully closed, rather than
+            // from inside SettingsWindow's own click handler.
+            new LoginWindow().Show();
+            Close();
+            return;
+        }
 
         // Settings' My Account tab may have just changed this - refresh our
         // own copy now that the (modal) dialog has closed.
@@ -2642,10 +2656,18 @@ public partial class MainWindow : FluentWindow
     }
 
     // ChatHub pushes this via Clients.User(...) the moment ServersController.Ban
-    // runs - if we're currently looking at that server, back out of it the
-    // same way LeaveServerMenuItem_Click does, then refresh the server list
-    // so it disappears from the rail entirely.
-    private async void OnYouWereBanned(int serverId)
+    // or KickMember runs - if we're currently looking at that server, back out
+    // of it the same way LeaveServerMenuItem_Click does, then refresh the
+    // server list so it disappears from the rail entirely.
+    private async void OnYouWereBanned(int serverId) => await LeaveServerLocallyIfCurrentlyViewing(serverId);
+
+    // KickMember doesn't block rejoining (unlike a ban), but the already-open
+    // client still needs to drop the server from view immediately - otherwise
+    // it sits in the rail until next reload and clicking into it just throws
+    // 403s from every endpoint.
+    private async void OnYouWereKicked(int serverId) => await LeaveServerLocallyIfCurrentlyViewing(serverId);
+
+    private async Task LeaveServerLocallyIfCurrentlyViewing(int serverId)
     {
         if (serverId == _currentServerId)
         {
