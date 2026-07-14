@@ -747,6 +747,32 @@ public partial class MainWindow : FluentWindow
         PageHostContent.Content = null;
     }
 
+    // Ctrl+F opens message search; Esc closes whichever of PageHost/
+    // ModalOverlay is on top. A window-level check rather than per-dialog
+    // XAML (like the old Window-based dialogs got "for free" via
+    // IsDefault/IsCancel) because PageHost pages don't have a Cancel button
+    // to hang IsCancel off of. ModalOverlay's own Cancel/OK buttons already
+    // get Escape for free from BuildModalButton's IsCancel wiring, so this
+    // only needs to step in for PageHost - when both happen to be open
+    // (e.g. a page also has a confirm prompt showing), the modal takes
+    // priority since it's visually on top and IsCancel already dismisses it.
+    private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape)
+        {
+            if (ModalOverlay.Visibility != Visibility.Visible && PageHost.Visibility == Visibility.Visible)
+            {
+                GoBack();
+                e.Handled = true;
+            }
+        }
+        else if (e.Key == Key.F && Keyboard.Modifiers == ModifierKeys.Control)
+        {
+            SearchMessagesButton_Click(this, e);
+            e.Handled = true;
+        }
+    }
+
     // --- ModalOverlay: in-window replacement for ConfirmDialog/AlertDialog/
     // TextInputDialog/CreateOrJoinDialog. One scrim+card shown/hidden via
     // Visibility, driven by a TaskCompletionSource so callers can just
