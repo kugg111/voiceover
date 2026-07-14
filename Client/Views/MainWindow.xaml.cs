@@ -810,6 +810,7 @@ public partial class MainWindow : FluentWindow
         ModalMessageText.Text = message;
         ModalMessageText.Visibility = Visibility.Visible;
         ModalInputBox.Visibility = Visibility.Collapsed;
+        ModalCustomContentScroll.Visibility = Visibility.Collapsed;
         ModalButtonsPanel.Children.Clear();
         ModalButtonsPanel.Children.Add(BuildModalButton("Cancel", ModalButtonStyle.Plain, () => CompleteModal(false)));
         ModalButtonsPanel.Children.Add(BuildModalButton(confirmText,
@@ -828,6 +829,7 @@ public partial class MainWindow : FluentWindow
         ModalMessageText.Text = message;
         ModalMessageText.Visibility = Visibility.Visible;
         ModalInputBox.Visibility = Visibility.Collapsed;
+        ModalCustomContentScroll.Visibility = Visibility.Collapsed;
         ModalButtonsPanel.Children.Clear();
         var okButton = BuildModalButton("OK", ModalButtonStyle.Primary, () => CompleteModal(null));
         okButton.IsCancel = true; // single button - Escape dismisses same as OK
@@ -847,6 +849,7 @@ public partial class MainWindow : FluentWindow
         ModalMessageText.Visibility = Visibility.Visible;
         ModalInputBox.Text = initialValue;
         ModalInputBox.Visibility = Visibility.Visible;
+        ModalCustomContentScroll.Visibility = Visibility.Collapsed;
         ModalButtonsPanel.Children.Clear();
         ModalButtonsPanel.Children.Add(BuildModalButton("Cancel", ModalButtonStyle.Plain, () => CompleteModal(null)));
         ModalButtonsPanel.Children.Add(BuildModalButton("OK", ModalButtonStyle.Primary, () => CompleteModal(ModalInputBox.Text)));
@@ -857,6 +860,67 @@ public partial class MainWindow : FluentWindow
         // WPF won't hand focus to an element until layout has caught up.
         _ = Dispatcher.BeginInvoke(() => ModalInputBox.Focus());
         return await task as string;
+    }
+
+    // Themed in-window replacement for the old TransferOwnershipWindow -
+    // shown from SettingsPage's delete-account flow when 1+ owned servers
+    // have 2+ other members (no unambiguous auto-pick - a server with 0
+    // other members is just deleted, and exactly 1 auto-promotes server-side
+    // without ever reaching this picker). It never became a PageHost page of
+    // its own - it's a small, transient decision nested inside the
+    // delete-account flow, so it reuses ModalOverlay's standard shape plus a
+    // dynamically built label+ComboBox pair per server. Null return means cancelled.
+    public async Task<List<OwnershipTransfer>?> PickOwnershipTransfersAsync(List<OwnedServerNeedingTransferResponse> servers)
+    {
+        ModalTitleText.Text = "Transfer Ownership";
+        ModalStandardPanel.Visibility = Visibility.Visible;
+        ModalCreateOrJoinPanel.Visibility = Visibility.Collapsed;
+        ModalMessageText.Text = "You own servers with other members - pick who takes over each one before your account is deleted.";
+        ModalMessageText.Visibility = Visibility.Visible;
+        ModalInputBox.Visibility = Visibility.Collapsed;
+
+        var pickers = new Dictionary<int, System.Windows.Controls.ComboBox>();
+        ModalCustomContent.Children.Clear();
+        foreach (var server in servers)
+        {
+            var label = new System.Windows.Controls.TextBlock
+            {
+                Text = server.ServerName,
+                FontWeight = FontWeights.Bold,
+                FontSize = 13,
+                Foreground = (Brush)FindResource("TextNormal"),
+                Margin = new Thickness(0, 0, 0, 4)
+            };
+            var combo = new System.Windows.Controls.ComboBox
+            {
+                ItemsSource = server.Candidates,
+                DisplayMemberPath = nameof(OwnershipCandidate.Username),
+                SelectedIndex = 0,
+                Margin = new Thickness(0, 0, 0, 16)
+            };
+            pickers[server.ServerId] = combo;
+            ModalCustomContent.Children.Add(label);
+            ModalCustomContent.Children.Add(combo);
+        }
+        ModalCustomContentScroll.Visibility = Visibility.Visible;
+
+        ModalButtonsPanel.Children.Clear();
+        ModalButtonsPanel.Children.Add(BuildModalButton("Cancel", ModalButtonStyle.Plain, () => CompleteModal(null)));
+        ModalButtonsPanel.Children.Add(BuildModalButton("Continue", ModalButtonStyle.Primary, () =>
+        {
+            var selections = new List<OwnershipTransfer>();
+            foreach (var (serverId, combo) in pickers)
+            {
+                if (combo.SelectedItem is OwnershipCandidate candidate)
+                    selections.Add(new OwnershipTransfer(serverId, candidate.UserId));
+            }
+            CompleteModal(selections);
+        }));
+
+        var result = await ShowModal() as List<OwnershipTransfer>;
+        ModalCustomContent.Children.Clear();
+        ModalCustomContentScroll.Visibility = Visibility.Collapsed;
+        return result;
     }
 
     private void ModalInputBox_KeyDown(object sender, KeyEventArgs e)
@@ -2091,29 +2155,29 @@ public partial class MainWindow : FluentWindow
         // something copied it, not just wiping the local copy.
         await _api.LogoutAsync();
         SessionStorage.Clear();
+        EndSessionAndShowLogin();
+    }
+
+    private void EndSessionAndShowLogin()
+    {
         var login = new LoginWindow();
         login.Show();
         Close();
     }
 
+    // Called by SettingsPage after a successful account-delete - it already
+    // cleared SessionStorage itself, this just does the same LoginWindow/Close
+    // sequence LogOutButton_Click uses.
+    public void HandleAccountDeleted() => EndSessionAndShowLogin();
+
+    // Called by SettingsPage.Unloaded - My Account may have just changed the
+    // avatar (ChangeAvatarButton_Click updates ApiService.CurrentUserAvatarUrl
+    // directly), so refresh MainWindow's own bound copy once the page closes.
+    public void RefreshMyAvatarView() => MyAvatarView.ImageUrl = _api.CurrentUserAvatarUrl;
+
     private void MyAvatarBorder_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
-        var settings = new SettingsWindow(_api, _voice) { Owner = this };
-        settings.ShowDialog();
-
-        if (settings.AccountWasDeleted)
-        {
-            // Same LoginWindow/Close sequence as LogOutButton_Click - done
-            // here, after the modal dialog has fully closed, rather than
-            // from inside SettingsWindow's own click handler.
-            new LoginWindow().Show();
-            Close();
-            return;
-        }
-
-        // Settings' My Account tab may have just changed this - refresh our
-        // own copy now that the (modal) dialog has closed.
-        MyAvatarView.ImageUrl = _api.CurrentUserAvatarUrl;
+        NavigateTo(new SettingsPage(this, _api, _voice), "Settings");
     }
 
     private async void MessagesButton_Click(object sender, RoutedEventArgs e)

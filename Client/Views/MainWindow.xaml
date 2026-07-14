@@ -773,6 +773,14 @@
                                  Margin="0,0,0,16" Visibility="Collapsed"
                                  Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
                                  BorderThickness="0" KeyDown="ModalInputBox_KeyDown"/>
+                        <!-- Extra shape used only by PickOwnershipTransfersAsync - a
+                             dynamically-built label+ComboBox pair per server, the same
+                             content the old TransferOwnershipWindow built into its own
+                             ServersPanel. Scrollable + capped so owning many servers
+                             can't grow the card past the screen. -->
+                        <ScrollViewer x:Name="ModalCustomContentScroll" MaxHeight="300" Margin="0,0,0,16" Visibility="Collapsed">
+                            <StackPanel x:Name="ModalCustomContent"/>
+                        </ScrollViewer>
                         <StackPanel x:Name="ModalButtonsPanel" Orientation="Horizontal" HorizontalAlignment="Right"/>
                     </StackPanel>
 

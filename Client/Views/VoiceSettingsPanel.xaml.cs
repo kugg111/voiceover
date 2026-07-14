@@ -11,9 +11,9 @@ using Voiceover.Client.Services;
 namespace Voiceover.Client.Views;
 
 // Voice device/input-mode/hotkey settings - embedded as the Sound Options
-// tab of the unified Settings window (opened from the avatar). Kept as its
-// own UserControl (rather than inlined into SettingsWindow directly) so it
-// isn't tied to one specific host window.
+// tab of the unified Settings page (opened from the avatar). Kept as its
+// own UserControl (rather than inlined into SettingsPage directly) so it
+// isn't tied to one specific host.
 public partial class VoiceSettingsPanel : UserControl
 {
     private VoiceService? _voice;

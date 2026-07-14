@@ -1,32 +1,22 @@
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 using Microsoft.Win32;
 using Voiceover.Client.Models;
 using Voiceover.Client.Services;
-using Wpf.Ui.Controls;
-using Button = System.Windows.Controls.Button;
-using MessageBox = System.Windows.MessageBox;
-using MessageBoxButton = System.Windows.MessageBoxButton;
-using MessageBoxImage = System.Windows.MessageBoxImage;
 
 namespace Voiceover.Client.Views;
 
-public partial class SettingsWindow : FluentWindow
+public partial class SettingsPage : UserControl
 {
+    private readonly MainWindow _mainWindow;
     private readonly ApiService _api;
     private VersionInfo? _latestVersion;
 
-    // Set right before Close() in DeleteAccountButton_Click. MainWindow
-    // checks this after ShowDialog() returns and does the actual
-    // LoginWindow/Owner-closing sequence itself - closing our own Owner from
-    // inside this window's own event handler, while still nested inside our
-    // own ShowDialog() message pump, is a known-risky WPF pattern that was
-    // producing a LoginWindow with missing elements.
-    public bool AccountWasDeleted { get; private set; }
-
-    public SettingsWindow(ApiService api, VoiceService? voice)
+    public SettingsPage(MainWindow mainWindow, ApiService api, VoiceService? voice)
     {
         InitializeComponent();
+        _mainWindow = mainWindow;
         _api = api;
 
         if (voice is not null) VoicePanel.Initialize(voice);
@@ -41,6 +31,11 @@ public partial class SettingsWindow : FluentWindow
             (UpdateChecker.IsInstalled ? " (installed)." : " (portable).");
 
         ShowAccountTab();
+
+        // My Account may have just changed the avatar - refresh MainWindow's
+        // own copy once this page leaves the PageHost, the same timing the
+        // old Window-based version refreshed it after ShowDialog() returned.
+        Unloaded += (_, _) => _mainWindow.RefreshMyAvatarView();
     }
 
     private void AccountTabButton_Click(object sender, RoutedEventArgs e) => ShowAccountTab();
@@ -97,7 +92,7 @@ public partial class SettingsWindow : FluentWindow
         if (upload is null)
         {
             AccountStatusText.Text = "";
-            MessageBox.Show(error ?? "Upload failed.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            await _mainWindow.AlertAsync("Error", error ?? "Upload failed.");
             ChangeAvatarButton.IsEnabled = true;
             return;
         }
@@ -108,21 +103,21 @@ public partial class SettingsWindow : FluentWindow
         if (!success)
         {
             AccountStatusText.Text = "";
-            MessageBox.Show("Could not update your avatar.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            await _mainWindow.AlertAsync("Error", "Could not update your avatar.");
             return;
         }
 
         // Not persisted server-side just by uploading - the app's own idea
         // of "your avatar" needs updating too, same as every other place
         // that reads ApiService.CurrentUserAvatarUrl (MainWindow refreshes
-        // its own copy from this once the dialog closes - see
-        // MyAvatarBorder_MouseLeftButtonUp).
+        // its own copy from this once this page unloads - see
+        // MainWindow.RefreshMyAvatarView).
         _api.CurrentUserAvatarUrl = App.ResolveUploadUrl(upload.Url);
         AccountAvatarView.ImageUrl = _api.CurrentUserAvatarUrl;
         AccountStatusText.Text = "Avatar updated.";
     }
 
-    private void CustomStatusBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e) => UpdateCustomStatusCounter();
+    private void CustomStatusBox_TextChanged(object sender, TextChangedEventArgs e) => UpdateCustomStatusCounter();
 
     private async void ExportDataButton_Click(object sender, RoutedEventArgs e)
     {
@@ -132,7 +127,7 @@ public partial class SettingsWindow : FluentWindow
 
         if (data is null)
         {
-            MessageBox.Show("Could not export your data.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            await _mainWindow.AlertAsync("Error", "Could not export your data.");
             return;
         }
 
@@ -146,11 +141,9 @@ public partial class SettingsWindow : FluentWindow
 
     private async void DeleteAccountButton_Click(object sender, RoutedEventArgs e)
     {
-        var confirm = new ConfirmDialog("Delete Account",
+        if (!await _mainWindow.ConfirmAsync("Delete Account",
             "This permanently deletes your account and everything tied to it. This cannot be undone. Are you sure?",
-            "Delete", destructive: true) { Owner = this };
-        confirm.ShowDialog();
-        if (!confirm.Result) return;
+            "Delete", destructive: true)) return;
 
         // Servers with 0 other members just get deleted, and with exactly 1
         // that member is auto-promoted server-side - only surface a picker
@@ -159,10 +152,8 @@ public partial class SettingsWindow : FluentWindow
         var needingTransfer = await _api.GetOwnedServersNeedingTransferAsync();
         if (needingTransfer.Count > 0)
         {
-            var picker = new TransferOwnershipWindow(needingTransfer) { Owner = this };
-            picker.ShowDialog();
-            if (!picker.Result) return;
-            transfers = picker.Selections;
+            transfers = await _mainWindow.PickOwnershipTransfersAsync(needingTransfer);
+            if (transfers is null) return;
         }
 
         DeleteAccountButton.IsEnabled = false;
@@ -170,17 +161,14 @@ public partial class SettingsWindow : FluentWindow
         if (!success)
         {
             DeleteAccountButton.IsEnabled = true;
-            MessageBox.Show(error ?? "Could not delete your account.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            await _mainWindow.AlertAsync("Error", error ?? "Could not delete your account.");
             return;
         }
 
         // Deleting your own account ends the session the same way logging
-        // out does, but the actual LoginWindow/Owner-closing sequence is
-        // done by MainWindow after ShowDialog() returns (see
-        // AccountWasDeleted) - not here.
+        // out does.
         SessionStorage.Clear();
-        AccountWasDeleted = true;
-        Close();
+        _mainWindow.HandleAccountDeleted();
     }
 
     private void UpdateCustomStatusCounter() =>
