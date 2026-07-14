@@ -17,8 +17,8 @@ download the Windows installer or a portable ZIP from the landing page.
   reordering by position
 - **Roles & permissions**: Owner/Moderator/Member — mods can create channels,
   kick members, delete others' messages; only the owner can change roles
-- **Invites**: any member can generate a shareable invite code; a popup
-  lists every active invite with one-click copy
+- **Invites**: any member can generate a shareable invite code; an in-app
+  page lists every active invite with one-click copy
 - **Real-time text chat**: SignalR-backed messaging, typing indicators, edit
   and delete, numeric unread badges, and "load older messages" pagination
 - **Direct messages & friends**: search users by username, send/accept
@@ -51,7 +51,9 @@ download the Windows installer or a portable ZIP from the landing page.
   TLS-required Postgres connection, short-lived JWTs with server-side
   revocation, DM content encrypted at rest
 - **Fluent Design UI** ([WPF-UI](https://github.com/lepoco/wpfui)) with a
-  Discord-inspired dark theme
+  Discord-inspired dark theme — settings, moderation tools, and other
+  secondary views are in-window pages inside the main window rather than
+  separate popups
 
 ## Architecture
 
@@ -85,10 +87,16 @@ Server/                 ASP.NET Core Web API + SignalR
   Auth/                  JWT token issuing/validation
   Site/                  Public landing page (served at the app's root URL)
 Client/                  WPF desktop app
-  Views/                 LoginWindow, RegisterWindow, MainWindow, SettingsWindow,
-                         InvitesWindow, CallWindow, CallHistoryWindow,
-                         ScreenShareViewerWindow, and shared controls
-                         (AvatarView, dialogs)
+  Views/                 LoginWindow, RegisterWindow, MainWindow — hosts most
+                         secondary UI as in-window pages via a PageHost/
+                         ModalOverlay pattern (SettingsPage, BanListPage,
+                         ModerationLogPage, InvitesPage, CallHistoryPage,
+                         PinnedMessagesPage, MessageSearchPage,
+                         EditPermissionsPage) instead of separate popup
+                         windows. Remaining popups are CallWindow (a
+                         non-modal call HUD), ScreenShareViewerWindow, and
+                         ToastNotificationWindow. Shared controls: AvatarView,
+                         VoiceSettingsPanel
   Services/              ApiService (REST), SignalRService (real-time),
                          VoiceService + MicCaptureSource/ScreenCaptureSource/
                          ScreenAudioCaptureSource (LiveKit audio/video,
