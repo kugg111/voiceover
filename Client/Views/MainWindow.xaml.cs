@@ -752,15 +752,24 @@ public partial class MainWindow : FluentWindow
     // XAML (like the old Window-based dialogs got "for free" via
     // IsDefault/IsCancel) because PageHost pages don't have a Cancel button
     // to hang IsCancel off of. ModalOverlay's own Cancel/OK buttons already
-    // get Escape for free from BuildModalButton's IsCancel wiring, so this
-    // only needs to step in for PageHost - when both happen to be open
-    // (e.g. a page also has a confirm prompt showing), the modal takes
-    // priority since it's visually on top and IsCancel already dismisses it.
+    // get Escape for free from BuildModalButton's IsCancel wiring - except
+    // the create-or-join shape, which has no Cancel button at all (see
+    // CreateOrJoinAsync), so that one case needs handling here too. When
+    // both PageHost and ModalOverlay happen to be open, the modal takes
+    // priority since it's visually on top.
     private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.Escape)
         {
-            if (ModalOverlay.Visibility != Visibility.Visible && PageHost.Visibility == Visibility.Visible)
+            if (ModalOverlay.Visibility == Visibility.Visible)
+            {
+                if (ModalCreateOrJoinPanel.Visibility == Visibility.Visible)
+                {
+                    CompleteModal(null);
+                    e.Handled = true;
+                }
+            }
+            else if (PageHost.Visibility == Visibility.Visible)
             {
                 GoBack();
                 e.Handled = true;
@@ -954,10 +963,9 @@ public partial class MainWindow : FluentWindow
         if (e.Key == Key.Enter) CompleteModal(ModalInputBox.Text);
     }
 
-    // true = Create selected, false = Join selected - matches
-    // CreateOrJoinDialog.CreateSelected's convention (minus the null/closed
-    // case, which isn't reachable here yet - Esc-dismissing this mode isn't
-    // wired until the ModalOverlay-wide Escape handling lands).
+    // true = Create selected, false = Join selected, null = dismissed via
+    // Esc (see MainWindow_PreviewKeyDown) - matches CreateOrJoinDialog's old
+    // CreateSelected convention.
     public async Task<bool?> CreateOrJoinAsync()
     {
         ModalTitleText.Text = "Add a Server";
@@ -1984,10 +1992,10 @@ public partial class MainWindow : FluentWindow
     {
         if (sender is not System.Windows.Controls.MenuItem { Tag: int serverId }) return;
 
+        var isVoice = await ConfirmAsync("Channel Type", "Make this a voice channel?", "Voice Channel");
+
         var name = await PromptAsync("Add Channel", "Channel name:");
         if (string.IsNullOrWhiteSpace(name)) return;
-
-        var isVoice = await ConfirmAsync("Channel Type", "Make this a voice channel?", "Voice Channel");
 
         var created = await _api.CreateChannelAsync(serverId, name, isVoice ? "Voice" : "Text");
 

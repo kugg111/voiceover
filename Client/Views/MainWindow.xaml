@@ -789,11 +789,11 @@
                     <!-- Create-or-join shape - two big fixed buttons, no message/input. -->
                     <StackPanel x:Name="ModalCreateOrJoinPanel" Visibility="Collapsed">
                         <Button x:Name="ModalCreateButton" Content="Create a Server" Height="48" Margin="0,0,0,12"
-                                HorizontalContentAlignment="Left" Padding="16,0" FontWeight="Bold"
+                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="16,0" FontWeight="Bold"
                                 Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}" BorderThickness="0"
                                 Cursor="Hand" Click="ModalCreateButton_Click"/>
                         <Button x:Name="ModalJoinButton" Content="Join with a Code" Height="48"
-                                HorizontalContentAlignment="Left" Padding="16,0" FontWeight="Bold"
+                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="16,0" FontWeight="Bold"
                                 Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}" BorderThickness="0"
                                 Cursor="Hand" Click="ModalJoinButton_Click"/>
                     </StackPanel>
