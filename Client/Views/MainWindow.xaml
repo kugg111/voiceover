@@ -752,7 +752,8 @@
                                Foreground="{StaticResource TextNormal}"/>
                 </DockPanel>
             </Border>
-            <ContentControl x:Name="PageHostContent" Grid.Row="1" Margin="16"/>
+            <ContentControl x:Name="PageHostContent" Grid.Row="1" Margin="16"
+                             HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
         </Grid>
 
         <!-- MODAL OVERLAY - in-window replacement for ConfirmDialog/

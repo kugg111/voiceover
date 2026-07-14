@@ -2007,7 +2007,7 @@ public partial class MainWindow : FluentWindow
     {
         if (sender is not System.Windows.Controls.MenuItem { Tag: int serverId }) return;
 
-        NavigateTo(new InvitesPage(this, _api, serverId), "Invites");
+        new InvitesWindow(_api, serverId) { Owner = this }.ShowDialog();
     }
 
     private async void LeaveServerMenuItem_Click(object sender, RoutedEventArgs e)

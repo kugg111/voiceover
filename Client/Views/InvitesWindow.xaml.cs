@@ -1,9 +1,12 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Windows;
-using System.Windows.Controls;
 using System.Windows.Threading;
 using Voiceover.Client.Services;
+using Wpf.Ui.Controls;
+using MessageBox = System.Windows.MessageBox;
+using MessageBoxButton = System.Windows.MessageBoxButton;
+using MessageBoxImage = System.Windows.MessageBoxImage;
 
 namespace Voiceover.Client.Views;
 
@@ -21,28 +24,31 @@ public class InviteListItem : INotifyPropertyChanged
             if (_justCopied == value) return;
             _justCopied = value;
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(JustCopied)));
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CopyIcon)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CopyIconVisibility)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CheckIconVisibility)));
         }
     }
 
     // Briefly swaps to a checkmark after copying so the click has visible
-    // feedback, then reverts on its own (see InvitesPage.CopyButton_Click).
-    public string CopyIcon => JustCopied ? "✅" : "📋";
+    // feedback, then reverts on its own (see InvitesWindow.CopyButton_Click).
+    public Visibility CopyIconVisibility => JustCopied ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility CheckIconVisibility => JustCopied ? Visibility.Visible : Visibility.Collapsed;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 }
 
-public partial class InvitesPage : UserControl
+// A popup by deliberate choice, not an in-window PageHost page like the
+// rest of MainWindow's secondary UI - a small, single-purpose list that
+// doesn't benefit from taking over the whole window.
+public partial class InvitesWindow : FluentWindow
 {
-    private readonly MainWindow _mainWindow;
     private readonly ApiService _api;
     private readonly int _serverId;
     private readonly ObservableCollection<InviteListItem> _invites = new();
 
-    public InvitesPage(MainWindow mainWindow, ApiService api, int serverId)
+    public InvitesWindow(ApiService api, int serverId)
     {
         InitializeComponent();
-        _mainWindow = mainWindow;
         _api = api;
         _serverId = serverId;
         InviteList.ItemsSource = _invites;
@@ -73,7 +79,7 @@ public partial class InvitesPage : UserControl
 
         if (invite is null)
         {
-            await _mainWindow.AlertAsync("Error", "Could not generate an invite.");
+            MessageBox.Show("Could not generate an invite.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
         }
 
