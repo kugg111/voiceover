@@ -752,7 +752,10 @@
                                Foreground="{StaticResource TextNormal}"/>
                 </DockPanel>
             </Border>
-            <ContentControl x:Name="PageHostContent" Grid.Row="1" Margin="16,0,16,16"
+            <!-- No margin here - pages that have an edge-to-edge sidebar
+                 (Settings) need to reach the window's left/bottom edges;
+                 plain-content pages bring their own inner margin instead. -->
+            <ContentControl x:Name="PageHostContent" Grid.Row="1"
                              HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
         </Grid>
 
