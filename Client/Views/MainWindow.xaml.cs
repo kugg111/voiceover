@@ -1780,6 +1780,26 @@ public partial class MainWindow : FluentWindow
         await LoadServersAsync();
     }
 
+    // Sets the "Mute Notifications"/"Unmute Notifications" label to match
+    // this server's current state right before the menu actually opens -
+    // items[2] is the mute entry's fixed position in the ContextMenu below
+    // (Add Channel, Invites, Mute Notifications, Leave Server).
+    private void ServerButton_ContextMenuOpening(object sender, System.Windows.Controls.ContextMenuEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: int serverId } button) return;
+        if (button.ContextMenu?.Items[2] is System.Windows.Controls.MenuItem muteItem)
+            muteItem.Header = NotificationMuteStorage.IsServerMuted(serverId) ? "Unmute Notifications" : "Mute Notifications";
+    }
+
+    // Personal preference (NotificationMuteStorage) - distinct from any
+    // moderation permission, this only silences notifications for whoever
+    // toggles it, on this device.
+    private void ToggleServerMuteMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.MenuItem { Tag: int serverId }) return;
+        NotificationMuteStorage.SetServerMuted(serverId, !NotificationMuteStorage.IsServerMuted(serverId));
+    }
+
     private async void SetSlowModeMenuItem_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not System.Windows.Controls.MenuItem { Tag: int channelId } || _currentServerId is null) return;
@@ -1796,6 +1816,21 @@ public partial class MainWindow : FluentWindow
         var success = await _api.SetSlowModeAsync(_currentServerId.Value, channelId, seconds);
         if (!success)
             new AlertDialog("Error", "Could not set slow mode (you may lack permission).") { Owner = this }.ShowDialog();
+    }
+
+    // Same reasoning as ServerButton_ContextMenuOpening above - items[1] is
+    // the mute entry's fixed position (Set Slow Mode..., Mute Notifications).
+    private void ChannelButton_ContextMenuOpening(object sender, System.Windows.Controls.ContextMenuEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: int channelId } button) return;
+        if (button.ContextMenu?.Items[1] is System.Windows.Controls.MenuItem muteItem)
+            muteItem.Header = NotificationMuteStorage.IsChannelMuted(channelId) ? "Unmute Notifications" : "Mute Notifications";
+    }
+
+    private void ToggleChannelMuteMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.MenuItem { Tag: int channelId }) return;
+        NotificationMuteStorage.SetChannelMuted(channelId, !NotificationMuteStorage.IsChannelMuted(channelId));
     }
 
     private async void DeleteChannelButton_Click(object sender, RoutedEventArgs e)
@@ -2211,6 +2246,37 @@ public partial class MainWindow : FluentWindow
         await SendAttachmentAsync(dialog.FileName);
     }
 
+    private void MessageInputArea_DragOver(object sender, DragEventArgs e)
+    {
+        e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    // Drag-and-drop counterpart to AttachButton_Click - same guards (no
+    // attachments in DMs yet, need a channel selected), reusing
+    // SendAttachmentAsync for the actual upload+send. Loops for a multi-file
+    // drop, sending each as its own message the same way multiple picks
+    // from the file dialog would have to be done one at a time anyway.
+    private async void MessageInputArea_Drop(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetData(DataFormats.FileDrop) is not string[] paths || paths.Length == 0) return;
+
+        if (_dmActiveUserId.HasValue)
+        {
+            new AlertDialog("Not Supported", "Attachments aren't supported in direct messages yet.") { Owner = this }.ShowDialog();
+            return;
+        }
+
+        if (_currentChannelId is null)
+        {
+            new AlertDialog("No Channel Selected", "Select a channel first.") { Owner = this }.ShowDialog();
+            return;
+        }
+
+        foreach (var path in paths)
+            await SendAttachmentAsync(path);
+    }
+
     // Shared by AttachButton_Click (file picker) and MessageInput_Pasting
     // (Ctrl+V an image) - both end up with a local file path to upload and
     // send as an attachment-only message.
@@ -2571,8 +2637,13 @@ public partial class MainWindow : FluentWindow
                 // one is open but the window itself isn't focused. Being on a
                 // different view is the common case (e.g. sitting in Friends or
                 // another channel) and was previously silent because this only
-                // checked window focus, not which view was open.
-                if (!isOwnMessage && (!isCurrentlyOpen || !IsActive))
+                // checked window focus, not which view was open. Personal
+                // channel/server notification mute (NotificationMuteStorage,
+                // distinct from the moderation mute-member permission) also
+                // suppresses this - a muted channel/server still updates the
+                // unread badge above, it just doesn't sound/toast.
+                var isMuted = NotificationMuteStorage.IsChannelMuted(msg.ChannelId) || NotificationMuteStorage.IsServerMuted(serverId);
+                if (!isOwnMessage && (!isCurrentlyOpen || !IsActive) && !isMuted)
                 {
                     NotificationService.PlayMessageSound();
                     if (!isCurrentlyOpen)
