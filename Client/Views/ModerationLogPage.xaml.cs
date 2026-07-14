@@ -1,7 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Windows;
+using System.Windows.Controls;
 using Voiceover.Client.Services;
-using Wpf.Ui.Controls;
 
 namespace Voiceover.Client.Views;
 
@@ -15,7 +15,7 @@ public class ModerationLogItem
     public Visibility DetailsVisibility => string.IsNullOrEmpty(Details) ? Visibility.Collapsed : Visibility.Visible;
 }
 
-public partial class ModerationLogWindow : FluentWindow
+public partial class ModerationLogPage : UserControl
 {
     private readonly ApiService _api;
     private readonly int _serverId;
@@ -23,7 +23,7 @@ public partial class ModerationLogWindow : FluentWindow
     private readonly Action<int>? _onModerationLogChanged;
     private readonly ObservableCollection<ModerationLogItem> _entries = new();
 
-    public ModerationLogWindow(ApiService api, int serverId, SignalRService? hub = null)
+    public ModerationLogPage(ApiService api, int serverId, SignalRService? hub = null)
     {
         InitializeComponent();
         _api = api;
@@ -39,7 +39,10 @@ public partial class ModerationLogWindow : FluentWindow
         {
             _onModerationLogChanged = serverId2 => Dispatcher.Invoke(() => OnModerationLogChanged(serverId2));
             _hub.ModerationLogChanged += _onModerationLogChanged;
-            Closed += (_, _) => _hub.ModerationLogChanged -= _onModerationLogChanged;
+            // PageHost.GoBack() sets PageHostContent.Content = null, which
+            // fires Unloaded on this page - the same unsubscribe hook Closed
+            // used to give the old Window-based version.
+            Unloaded += (_, _) => _hub.ModerationLogChanged -= _onModerationLogChanged;
         }
 
         Loaded += async (_, _) => await LoadAsync();

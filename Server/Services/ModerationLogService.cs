@@ -36,7 +36,7 @@ public class ModerationLogService
         await _db.SaveChangesAsync();
 
         // Every moderation action funnels through here, so this one
-        // broadcast covers live-refreshing ModerationLogWindow for anyone
+        // broadcast covers live-refreshing ModerationLogPage for anyone
         // who has it open, regardless of which specific action fired.
         await _hub.Clients.Group(HubGroups.ServerPresence(serverId)).SendAsync("ModerationLogChanged", serverId);
     }

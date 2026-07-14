@@ -1216,13 +1216,13 @@ public partial class MainWindow : FluentWindow
     private void ModerationLogButton_Click(object sender, RoutedEventArgs e)
     {
         if (_currentServerId is null) return;
-        new ModerationLogWindow(_api, _currentServerId.Value, _hub) { Owner = this }.ShowDialog();
+        NavigateTo(new ModerationLogPage(_api, _currentServerId.Value, _hub), "Moderation Log");
     }
 
     private void BanListButton_Click(object sender, RoutedEventArgs e)
     {
         if (_currentServerId is null) return;
-        new BanListWindow(_api, _currentServerId.Value, _hub) { Owner = this }.ShowDialog();
+        NavigateTo(new BanListPage(_api, _currentServerId.Value, _hub), "Banned Users");
     }
 
     // Populates each voice channel's member list from a server-wide snapshot,

@@ -1,7 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Windows;
+using System.Windows.Controls;
 using Voiceover.Client.Services;
-using Wpf.Ui.Controls;
 
 namespace Voiceover.Client.Views;
 
@@ -13,7 +13,7 @@ public class BannedUserItem
     public string DetailDisplay { get; set; } = string.Empty;
 }
 
-public partial class BanListWindow : FluentWindow
+public partial class BanListPage : UserControl
 {
     private readonly ApiService _api;
     private readonly int _serverId;
@@ -21,7 +21,7 @@ public partial class BanListWindow : FluentWindow
     private readonly Action<int, int>? _onMemberBanChanged;
     private readonly ObservableCollection<BannedUserItem> _bans = new();
 
-    public BanListWindow(ApiService api, int serverId, SignalRService? hub = null)
+    public BanListPage(ApiService api, int serverId, SignalRService? hub = null)
     {
         InitializeComponent();
         _api = api;
@@ -39,7 +39,10 @@ public partial class BanListWindow : FluentWindow
             _onMemberBanChanged = (serverId2, userId) => Dispatcher.Invoke(() => OnMemberBanChanged(serverId2, userId));
             _hub.MemberBanned += _onMemberBanChanged;
             _hub.MemberUnbanned += _onMemberBanChanged;
-            Closed += (_, _) =>
+            // PageHost.GoBack() sets PageHostContent.Content = null, which
+            // fires Unloaded on this page - the same unsubscribe hook Closed
+            // used to give the old Window-based version.
+            Unloaded += (_, _) =>
             {
                 _hub.MemberBanned -= _onMemberBanChanged;
                 _hub.MemberUnbanned -= _onMemberBanChanged;
