@@ -152,8 +152,21 @@ public partial class SettingsWindow : FluentWindow
         confirm.ShowDialog();
         if (!confirm.Result) return;
 
+        // Servers with 0 other members just get deleted, and with exactly 1
+        // that member is auto-promoted server-side - only surface a picker
+        // for servers where a choice actually needs to be made.
+        List<OwnershipTransfer>? transfers = null;
+        var needingTransfer = await _api.GetOwnedServersNeedingTransferAsync();
+        if (needingTransfer.Count > 0)
+        {
+            var picker = new TransferOwnershipWindow(needingTransfer) { Owner = this };
+            picker.ShowDialog();
+            if (!picker.Result) return;
+            transfers = picker.Selections;
+        }
+
         DeleteAccountButton.IsEnabled = false;
-        var (success, error) = await _api.DeleteMyAccountAsync();
+        var (success, error) = await _api.DeleteMyAccountAsync(transfers);
         if (!success)
         {
             DeleteAccountButton.IsEnabled = true;

@@ -25,6 +25,10 @@ public record ModerationLogEntryResponse(int Id, string ActorUsername, string Ac
 public record SetSlowModeRequest(int Seconds);
 public record ExportedMembership(string ServerName, string Role);
 public record UserDataExportResponse(string Username, DateTime CreatedAt, string? CustomStatus, List<ExportedMembership> Servers, List<string> Friends);
+public record OwnershipCandidate(int UserId, string Username, string? AvatarUrl);
+public record OwnedServerNeedingTransferResponse(int ServerId, string ServerName, List<OwnershipCandidate> Candidates);
+public record OwnershipTransfer(int ServerId, int NewOwnerUserId);
+public record DeleteAccountRequest(List<OwnershipTransfer>? Transfers);
 
 // Mirrors Server's ServerPermission [Flags] enum exactly - bit values must
 // stay in lockstep, see Server/Models/Membership.cs.

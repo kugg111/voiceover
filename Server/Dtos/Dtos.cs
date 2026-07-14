@@ -13,6 +13,19 @@ public record LogoutRequest(string RefreshToken);
 public record ExportedMembership(string ServerName, string Role);
 public record UserDataExportResponse(string Username, DateTime CreatedAt, string? CustomStatus, List<ExportedMembership> Servers, List<string> Friends);
 
+// Returned by GET /api/users/me/owned-servers-needing-transfer before a
+// delete-account call - only includes servers where the caller is Owner
+// and has 2+ other members, since with 0 the server is just deleted and
+// with exactly 1 that member is auto-promoted, no picker needed either way.
+public record OwnershipCandidate(int UserId, string Username, string? AvatarUrl);
+public record OwnedServerNeedingTransferResponse(int ServerId, string ServerName, List<OwnershipCandidate> Candidates);
+
+// Sent with DELETE /api/users/me - only required for servers that came back
+// from the endpoint above; servers with 0 or 1 other member are resolved
+// automatically without needing an entry here.
+public record OwnershipTransfer(int ServerId, int NewOwnerUserId);
+public record DeleteAccountRequest(List<OwnershipTransfer>? Transfers);
+
 public record CreateServerRequest(string Name);
 public record GuildServerResponse(int Id, string Name, string? IconUrl, int OwnerId);
 public record SetIconRequest(string Url);

@@ -186,9 +186,20 @@ public class ApiService
     public async Task<UserDataExportResponse?> ExportMyDataAsync()
         => await _http.GetFromJsonAsync<UserDataExportResponse>("api/users/me/export");
 
-    public async Task<(bool Success, string? Error)> DeleteMyAccountAsync()
+    public async Task<List<OwnedServerNeedingTransferResponse>> GetOwnedServersNeedingTransferAsync()
+        => await _http.GetFromJsonAsync<List<OwnedServerNeedingTransferResponse>>("api/users/me/owned-servers-needing-transfer") ?? new();
+
+    // HttpClient.DeleteAsync has no way to attach a body, but the server
+    // needs the caller's owner-transfer picks for servers with 2+ other
+    // members (see GetOwnedServersNeedingTransferAsync) - build the request
+    // manually so DELETE can still carry a JSON payload.
+    public async Task<(bool Success, string? Error)> DeleteMyAccountAsync(List<OwnershipTransfer>? transfers = null)
     {
-        var response = await _http.DeleteAsync("api/users/me");
+        var request = new HttpRequestMessage(HttpMethod.Delete, "api/users/me")
+        {
+            Content = JsonContent.Create(new DeleteAccountRequest(transfers))
+        };
+        var response = await _http.SendAsync(request);
         if (response.IsSuccessStatusCode) return (true, null);
         return (false, await response.Content.ReadAsStringAsync());
     }
