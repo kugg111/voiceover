@@ -1,8 +1,11 @@
+using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using NAudio.Wave;
+using SoundFlow.Extensions.WebRtc.Apm;
 using Voiceover.Client.Services;
 
 namespace Voiceover.Client.Views;
@@ -16,6 +19,7 @@ public partial class VoiceSettingsPanel : UserControl
     private VoiceService? _voice;
     private bool _loaded;
     private bool _recordingHotkey;
+    private bool _testingMic;
     private Window? _hostWindow;
 
     public VoiceSettingsPanel()
@@ -54,8 +58,29 @@ public partial class VoiceSettingsPanel : UserControl
         }
         DeepFilterOptionsPanel.Visibility = _voice.NoiseSuppressionBackend == NoiseSuppressionBackend.DeepFilterNet
             ? Visibility.Visible : Visibility.Collapsed;
+        WebRtcOptionsPanel.Visibility = _voice.NoiseSuppressionBackend == NoiseSuppressionBackend.WebRtcApm
+            ? Visibility.Visible : Visibility.Collapsed;
         AttenuationLimitSlider.Value = _voice.DeepFilterAttenuationLimit;
         UpdateAttenuationLimitDisplay();
+        PostFilterBetaSlider.Value = _voice.DeepFilterPostFilterBeta;
+        UpdatePostFilterBetaDisplay();
+        SuppressionMixSlider.Value = _voice.SuppressionMix * 100;
+        UpdateSuppressionMixDisplay();
+        switch (_voice.WebRtcNoiseSuppressionLevel)
+        {
+            case NoiseSuppressionLevel.Low:
+                WebRtcLowRadio.IsChecked = true;
+                break;
+            case NoiseSuppressionLevel.Moderate:
+                WebRtcModerateRadio.IsChecked = true;
+                break;
+            case NoiseSuppressionLevel.VeryHigh:
+                WebRtcVeryHighRadio.IsChecked = true;
+                break;
+            default:
+                WebRtcHighRadio.IsChecked = true;
+                break;
+        }
 
         HotkeyRecordButton.Content = FormatTriggerName();
 
@@ -133,6 +158,20 @@ public partial class VoiceSettingsPanel : UserControl
         };
         DeepFilterOptionsPanel.Visibility = _voice.NoiseSuppressionBackend == NoiseSuppressionBackend.DeepFilterNet
             ? Visibility.Visible : Visibility.Collapsed;
+        WebRtcOptionsPanel.Visibility = _voice.NoiseSuppressionBackend == NoiseSuppressionBackend.WebRtcApm
+            ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void WebRtcLevelRadio_Changed(object sender, RoutedEventArgs e)
+    {
+        if (!_loaded) return;
+        _voice!.WebRtcNoiseSuppressionLevel = sender switch
+        {
+            _ when sender == WebRtcLowRadio => NoiseSuppressionLevel.Low,
+            _ when sender == WebRtcModerateRadio => NoiseSuppressionLevel.Moderate,
+            _ when sender == WebRtcVeryHighRadio => NoiseSuppressionLevel.VeryHigh,
+            _ => NoiseSuppressionLevel.High
+        };
     }
 
     private void AttenuationLimitSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -140,6 +179,154 @@ public partial class VoiceSettingsPanel : UserControl
         UpdateAttenuationLimitDisplay();
         if (!_loaded) return;
         _voice!.DeepFilterAttenuationLimit = (float)e.NewValue;
+    }
+
+    private void PostFilterBetaSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        UpdatePostFilterBetaDisplay();
+        if (!_loaded) return;
+        _voice!.DeepFilterPostFilterBeta = (float)e.NewValue;
+    }
+
+    private void UpdatePostFilterBetaDisplay() =>
+        PostFilterBetaDisplay.Text = $"{PostFilterBetaSlider.Value:0.00}";
+
+    // Stored/displayed as 0-100% in the UI, same convention as
+    // AttenuationLimit's dB slider - VoiceService.SuppressionMix itself is
+    // 0-1 (a plain multiplier used directly in the blend math).
+    private void SuppressionMixSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        UpdateSuppressionMixDisplay();
+        if (!_loaded) return;
+        _voice!.SuppressionMix = (float)(e.NewValue / 100.0);
+    }
+
+    private void UpdateSuppressionMixDisplay() =>
+        SuppressionMixDisplay.Text = $"{SuppressionMixSlider.Value:0}%";
+
+    // Records ~3s from the selected input device, runs it through a
+    // throwaway NoiseSuppressionProcessor configured with the panel's
+    // current settings (not the live capture pipeline - Settings can be
+    // open without an active voice channel), and plays the result back
+    // through the selected output device. Lets someone hear the effect of a
+    // slider change immediately instead of needing a live call with someone
+    // else listening.
+    private async void TestMicButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_testingMic || _voice is null) return;
+
+        var inputIndex = (InputDeviceCombo.SelectedItem as AudioDevice)?.Index ?? -1;
+        var outputIndex = (OutputDeviceCombo.SelectedItem as AudioDevice)?.Index ?? -1;
+        if (inputIndex < 0 || outputIndex < 0)
+        {
+            TestMicResultText.Text = "Select an input and output device first.";
+            return;
+        }
+
+        _testingMic = true;
+        TestMicButton.IsEnabled = false;
+        TestMicResultText.Text = "";
+
+        try
+        {
+            TestMicButton.Content = "Recording... (3s)";
+            var pcm = await RecordAsync(inputIndex, TimeSpan.FromSeconds(3));
+
+            TestMicButton.Content = "Processing...";
+            using var processor = new NoiseSuppressionProcessor
+            {
+                Enabled = _voice.NoiseSuppressionEnabled,
+                Backend = _voice.NoiseSuppressionBackend,
+                SuppressionMix = _voice.SuppressionMix,
+                DeepFilterAttenuationLimit = _voice.DeepFilterAttenuationLimit,
+                DeepFilterPostFilterBeta = _voice.DeepFilterPostFilterBeta,
+                WebRtcNoiseSuppressionLevel = _voice.WebRtcNoiseSuppressionLevel
+            };
+
+            // Same 20ms/960-sample frame size MicCaptureSource's live
+            // capture loop uses - keeps Test Mic's processing identical to
+            // what actually gets published in a real call. A trailing
+            // partial frame (recording length isn't guaranteed to be an
+            // exact multiple) is just left unprocessed/raw - a few
+            // milliseconds of untouched tail is inaudible.
+            const int frameSize = 960;
+            for (int offset = 0; offset + frameSize <= pcm.Length; offset += frameSize)
+            {
+                var frame = new short[frameSize];
+                Array.Copy(pcm, offset, frame, 0, frameSize);
+                processor.ProcessFrame(frame);
+                Array.Copy(frame, 0, pcm, offset, frameSize);
+            }
+
+            TestMicResultText.Text = processor.Backend switch
+            {
+                NoiseSuppressionBackend.RNNoise => $"RNNoise: ~{processor.LastRNNoiseMs:0.0}ms/frame (20ms budget)",
+                NoiseSuppressionBackend.DeepFilterNet => $"DeepFilterNet: ~{processor.LastDeepFilterMs:0.0}ms/frame (20ms budget)",
+                _ => $"WebRTC APM: ~{processor.LastWebRtcApmMs:0.0}ms/frame (20ms budget)"
+            };
+
+            TestMicButton.Content = "Playing back...";
+            await PlaybackAsync(outputIndex, pcm);
+        }
+        catch (Exception ex)
+        {
+            TestMicResultText.Text = $"Test failed: {ex.Message}";
+        }
+        finally
+        {
+            _testingMic = false;
+            TestMicButton.IsEnabled = true;
+            TestMicButton.Content = "Test Mic";
+        }
+    }
+
+    private static Task<short[]> RecordAsync(int deviceIndex, TimeSpan duration)
+    {
+        var tcs = new TaskCompletionSource<short[]>();
+        var samples = new List<short>();
+        var waveIn = new WaveInEvent
+        {
+            DeviceNumber = deviceIndex,
+            WaveFormat = new WaveFormat(48000, 16, 1),
+            BufferMilliseconds = 50
+        };
+
+        waveIn.DataAvailable += (_, args) =>
+        {
+            var chunk = new short[args.BytesRecorded / 2];
+            Buffer.BlockCopy(args.Buffer, 0, chunk, 0, args.BytesRecorded);
+            lock (samples) samples.AddRange(chunk);
+        };
+        waveIn.RecordingStopped += (_, _) =>
+        {
+            waveIn.Dispose();
+            tcs.TrySetResult(samples.ToArray());
+        };
+
+        waveIn.StartRecording();
+        _ = Task.Delay(duration).ContinueWith(_ => waveIn.StopRecording());
+
+        return tcs.Task;
+    }
+
+    private static Task PlaybackAsync(int deviceIndex, short[] pcm)
+    {
+        var tcs = new TaskCompletionSource();
+        var bytes = new byte[pcm.Length * 2];
+        Buffer.BlockCopy(pcm, 0, bytes, 0, bytes.Length);
+
+        var stream = new RawSourceWaveStream(new MemoryStream(bytes), new WaveFormat(48000, 16, 1));
+        var waveOut = new WaveOutEvent { DeviceNumber = deviceIndex };
+        waveOut.Init(stream);
+        waveOut.PlaybackStopped += (_, _) =>
+        {
+            waveOut.Dispose();
+            stream.Dispose();
+            tcs.TrySetResult();
+        };
+        waveOut.Play();
+
+        return tcs.Task;
     }
 
     private void UpdateAttenuationLimitDisplay() =>

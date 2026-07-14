@@ -15,7 +15,7 @@
         <CheckBox x:Name="NoiseSuppressionCheck" Content="Noise suppression"
                   Foreground="{StaticResource TextNormal}" FontWeight="Bold" Margin="0,0,0,4"
                   Checked="NoiseSuppressionCheck_Changed" Unchecked="NoiseSuppressionCheck_Changed"/>
-        <TextBlock Text="Gates out quiet background noise (breathing, keyboard, room hum) picked up by the mic boost. May clip the very start of soft speech."
+        <TextBlock Text="Runs your mic through a real-time noise suppression model (not a simple volume gate) to remove background noise like fans, keyboards, and room hum. If it's removing too much of your voice along with the noise, try lowering Suppression Mix below instead of turning this off entirely."
                    FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}" Margin="0,0,0,12"/>
 
         <StackPanel x:Name="NoiseSuppressionBackendPanel" Visibility="Collapsed" Margin="16,0,0,16">
@@ -31,6 +31,23 @@
             <TextBlock Text="RNNoise is a lightweight neural denoiser - lighter on CPU, sometimes more aggressive on background noise. DeepFilterNet is a heavier deep-learning model that handles complex/changing noise (rain, keyboard clicks, background chatter) more cleanly, at the cost of a bit more CPU and latency. Try them and pick whichever sounds better on your mic."
                        FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}" Margin="0,0,0,12"/>
 
+            <StackPanel x:Name="WebRtcOptionsPanel" Visibility="Collapsed">
+                <TextBlock Text="Suppression Level" FontWeight="Bold"
+                           Foreground="{StaticResource TextNormal}" Margin="0,0,0,4"/>
+                <RadioButton x:Name="WebRtcLowRadio" Content="Low" GroupName="WebRtcLevel"
+                             Foreground="{StaticResource TextNormal}" Margin="0,0,0,2"
+                             Checked="WebRtcLevelRadio_Changed"/>
+                <RadioButton x:Name="WebRtcModerateRadio" Content="Moderate" GroupName="WebRtcLevel"
+                             Foreground="{StaticResource TextNormal}" Margin="0,0,0,2"
+                             Checked="WebRtcLevelRadio_Changed"/>
+                <RadioButton x:Name="WebRtcHighRadio" Content="High (default)" GroupName="WebRtcLevel"
+                             Foreground="{StaticResource TextNormal}" Margin="0,0,0,2"
+                             Checked="WebRtcLevelRadio_Changed"/>
+                <RadioButton x:Name="WebRtcVeryHighRadio" Content="Very High" GroupName="WebRtcLevel"
+                             Foreground="{StaticResource TextNormal}" Margin="0,0,0,12"
+                             Checked="WebRtcLevelRadio_Changed"/>
+            </StackPanel>
+
             <StackPanel x:Name="DeepFilterOptionsPanel" Visibility="Collapsed">
                 <TextBlock Text="Attenuation Limit" FontWeight="Bold"
                            Foreground="{StaticResource TextNormal}" Margin="0,0,0,4"/>
@@ -41,8 +58,38 @@
                                VerticalAlignment="Center" Foreground="{StaticResource TextMuted}"/>
                 </StackPanel>
                 <TextBlock Text="How aggressively DeepFilterNet suppresses detected noise, in dB. Higher removes more noise but can start to affect your voice; lower is gentler."
+                           FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}" Margin="0,0,0,12"/>
+
+                <TextBlock Text="Post Filter Beta" FontWeight="Bold"
+                           Foreground="{StaticResource TextNormal}" Margin="0,0,0,4"/>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                    <Slider x:Name="PostFilterBetaSlider" Width="200" Minimum="0" Maximum="1"
+                            ValueChanged="PostFilterBetaSlider_ValueChanged"/>
+                    <TextBlock x:Name="PostFilterBetaDisplay" Width="46" Margin="6,0,0,0"
+                               VerticalAlignment="Center" Foreground="{StaticResource TextMuted}"/>
+                </StackPanel>
+                <TextBlock Text="Smooths artifacts ('robotic'/musical noise sound) left behind by the main filter. Raise this if suppressed audio sounds warbly."
                            FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}"/>
             </StackPanel>
+
+            <TextBlock Text="Suppression Mix" FontWeight="Bold"
+                       Foreground="{StaticResource TextNormal}" Margin="0,12,0,4"/>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                <Slider x:Name="SuppressionMixSlider" Width="200" Minimum="0" Maximum="100"
+                        ValueChanged="SuppressionMixSlider_ValueChanged"/>
+                <TextBlock x:Name="SuppressionMixDisplay" Width="46" Margin="6,0,0,0"
+                           VerticalAlignment="Center" Foreground="{StaticResource TextMuted}"/>
+            </StackPanel>
+            <TextBlock Text="Blends the suppressed signal with your raw mic - applies no matter which engine is selected above. 100% is fully processed; lower this if the engine is eating quiet parts of your voice."
+                       FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}" Margin="0,0,0,12"/>
+
+            <Button x:Name="TestMicButton" Content="Test Mic" Height="36" Width="160" HorizontalAlignment="Left"
+                    Click="TestMicButton_Click"
+                    Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}" BorderThickness="0"/>
+            <TextBlock x:Name="TestMicResultText" FontSize="11" TextWrapping="Wrap"
+                       Foreground="{StaticResource TextMuted}" Margin="0,6,0,0"/>
+            <TextBlock Text="Records about 3 seconds from your selected input device, runs it through your current noise suppression settings above, and plays it back through your selected output device - so you can hear the effect immediately instead of needing a live call."
+                       FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}" Margin="0,4,0,0"/>
         </StackPanel>
 
         <TextBlock Text="Changes take effect the next time you join a voice channel."

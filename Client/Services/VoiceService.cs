@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Windows.Input;
 using LiveKit.Rtc;
+using SoundFlow.Extensions.WebRtc.Apm;
 using Voiceover.Client.Models;
 using Windows.Graphics.Capture;
 using TrackSource = LiveKit.Proto.TrackSource;
@@ -183,6 +184,55 @@ public class VoiceService : IAsyncDisposable
         }
     }
 
+    // Only meaningful for the DeepFilterNet backend - how much smoothing/
+    // artifact-reduction the plugin applies after its main filter pass
+    // (0-1). See LadspaHost.PostFilterBeta for the LADSPA control-port
+    // plumbing this ultimately drives.
+    private float _deepFilterPostFilterBeta = LadspaHost.PostFilterBetaMin;
+    public float DeepFilterPostFilterBeta
+    {
+        get => _deepFilterPostFilterBeta;
+        set
+        {
+            _deepFilterPostFilterBeta = value;
+            if (_micCapture is not null) _micCapture.DeepFilterPostFilterBeta = value;
+            SaveSettings();
+        }
+    }
+
+    // Only meaningful for the WebRtcApm backend - how aggressively its
+    // noise suppression runs (Low/Moderate/High/VeryHigh). Was hardcoded to
+    // High before this existed.
+    private NoiseSuppressionLevel _webRtcNoiseSuppressionLevel = NoiseSuppressionLevel.High;
+    public NoiseSuppressionLevel WebRtcNoiseSuppressionLevel
+    {
+        get => _webRtcNoiseSuppressionLevel;
+        set
+        {
+            _webRtcNoiseSuppressionLevel = value;
+            if (_micCapture is not null) _micCapture.WebRtcNoiseSuppressionLevel = value;
+            SaveSettings();
+        }
+    }
+
+    // Applies to whichever backend is selected - 0-1 wet/dry blend of the
+    // suppressed signal against the raw captured signal, so an
+    // over-suppressing backend (eating quiet speech, "musical noise"
+    // artifacts) can be backed off without switching backends entirely.
+    // 1 (fully processed) matches every backend's behavior before this
+    // setting existed.
+    private float _suppressionMix = 1f;
+    public float SuppressionMix
+    {
+        get => _suppressionMix;
+        set
+        {
+            _suppressionMix = value;
+            if (_micCapture is not null) _micCapture.SuppressionMix = value;
+            SaveSettings();
+        }
+    }
+
     // How long an outgoing private call rings before auto-cancelling (see
     // MainWindow.StartRingTimeout) - a local-machine preference like the
     // rest of this class's settings, not something worth a server round trip.
@@ -260,7 +310,8 @@ public class VoiceService : IAsyncDisposable
     // this existed they'd silently reset to defaults every login.
     private void SaveSettings() =>
         VoiceSettingsStorage.Save(new SavedVoiceSettings(
-            InputDeviceIndex, OutputDeviceIndex, NoiseSuppressionEnabled, _inputMode, PushToTalkKey, PushToTalkMouseButton, _noiseSuppressionBackend, _deepFilterAttenuationLimit, _ringTimeoutSeconds));
+            InputDeviceIndex, OutputDeviceIndex, NoiseSuppressionEnabled, _inputMode, PushToTalkKey, PushToTalkMouseButton, _noiseSuppressionBackend, _deepFilterAttenuationLimit, _ringTimeoutSeconds,
+            _webRtcNoiseSuppressionLevel, _deepFilterPostFilterBeta, _suppressionMix));
 
     private void LoadSettings()
     {
@@ -273,6 +324,9 @@ public class VoiceService : IAsyncDisposable
         _noiseSuppressionBackend = saved.NoiseSuppressionBackend;
         _deepFilterAttenuationLimit = saved.DeepFilterAttenuationLimit;
         _ringTimeoutSeconds = saved.RingTimeoutSeconds;
+        _webRtcNoiseSuppressionLevel = saved.WebRtcNoiseSuppressionLevel;
+        _deepFilterPostFilterBeta = saved.DeepFilterPostFilterBeta;
+        _suppressionMix = saved.SuppressionMix;
 
         // Mouse button takes priority if somehow both are set in the saved
         // file (shouldn't happen given the mutual-exclusivity setters, but
@@ -412,7 +466,10 @@ public class VoiceService : IAsyncDisposable
             MicMuted = IsMicMuted,
             NoiseSuppressionEnabled = NoiseSuppressionEnabled,
             NoiseSuppressionBackend = NoiseSuppressionBackend,
-            DeepFilterAttenuationLimit = DeepFilterAttenuationLimit
+            DeepFilterAttenuationLimit = DeepFilterAttenuationLimit,
+            DeepFilterPostFilterBeta = DeepFilterPostFilterBeta,
+            WebRtcNoiseSuppressionLevel = WebRtcNoiseSuppressionLevel,
+            SuppressionMix = SuppressionMix
         };
         // Local speaking-indicator detection, straight off the fully
         // processed PCM MicCaptureSource already produces (post noise-

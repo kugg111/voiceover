@@ -106,6 +106,29 @@ internal class LadspaHost : IDisposable
         }
     }
 
+    // Post Filter Beta (port 7) - how much smoothing/artifact-reduction the
+    // plugin applies after its main filter pass. The plugin's own declared
+    // range is 0-1 (DefaultValue::Minimum = 0); raising it is the standard
+    // fix for the "sounds robotic/musical noise artifacts" complaint that
+    // aggressive ML denoisers are prone to. Same get/set-with-Marshal.Copy
+    // shape as AttenuationLimit above - LADSPA control ports just point at a
+    // float the plugin re-reads every run() call.
+    public const float PostFilterBetaMin = 0f;
+    public const float PostFilterBetaMax = 1f;
+
+    private readonly IntPtr _postFilterBetaBuffer;
+    private float _postFilterBeta;
+
+    public float PostFilterBeta
+    {
+        get => _postFilterBeta;
+        set
+        {
+            _postFilterBeta = Math.Clamp(value, PostFilterBetaMin, PostFilterBetaMax);
+            Marshal.Copy(new[] { _postFilterBeta }, 0, _postFilterBetaBuffer, 1);
+        }
+    }
+
     public LadspaHost()
     {
         var descPtr = ladspa_descriptor(0); // index 0 = mono, see get_ladspa_descriptor
@@ -129,6 +152,8 @@ internal class LadspaHost : IDisposable
         _audioOutBuffer = Marshal.AllocHGlobal(FrameSamples * sizeof(float));
         _attenuationLimitBuffer = Marshal.AllocHGlobal(sizeof(float));
         _controlBuffers.Add(_attenuationLimitBuffer);
+        _postFilterBetaBuffer = Marshal.AllocHGlobal(sizeof(float));
+        _controlBuffers.Add(_postFilterBetaBuffer);
 
         // Port order and default values read straight from the plugin's
         // own source (ladspa/src/lib.rs): 0=Audio In, 1=Audio Out,
@@ -145,7 +170,8 @@ internal class LadspaHost : IDisposable
         ConnectFixedControl(4, 35f);   // Max ERB processing threshold (dB) - Maximum
         ConnectFixedControl(5, 35f);   // Max DF processing threshold (dB) - Maximum
         ConnectFixedControl(6, 0f);    // Min Processing Buffer (frames) - Minimum
-        ConnectFixedControl(7, 0f);    // Post Filter Beta - Minimum
+        _connectPort(_instance, 7, _postFilterBetaBuffer);
+        PostFilterBeta = PostFilterBetaMin; // plugin's own DefaultValue::Minimum
 
         _activate?.Invoke(_instance);
     }

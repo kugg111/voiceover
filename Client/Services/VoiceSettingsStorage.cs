@@ -2,6 +2,7 @@ using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Windows.Input;
+using SoundFlow.Extensions.WebRtc.Apm;
 
 namespace Voiceover.Client.Services;
 
@@ -14,7 +15,10 @@ public record SavedVoiceSettings(
     MouseButton? PushToTalkMouseButton = null,
     NoiseSuppressionBackend NoiseSuppressionBackend = NoiseSuppressionBackend.WebRtcApm,
     float DeepFilterAttenuationLimit = LadspaHost.AttenuationLimitMax,
-    int RingTimeoutSeconds = 40);
+    int RingTimeoutSeconds = 40,
+    NoiseSuppressionLevel WebRtcNoiseSuppressionLevel = NoiseSuppressionLevel.High,
+    float DeepFilterPostFilterBeta = LadspaHost.PostFilterBetaMin,
+    float SuppressionMix = 1f);
 
 // Persists voice preferences (devices, noise suppression, input mode, PTT/
 // push-to-mute hotkey) locally so they survive a log out/in - these are
