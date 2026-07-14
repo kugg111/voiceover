@@ -1,21 +1,22 @@
-using System.Windows;
+using System.Windows.Controls;
 using Voiceover.Client.Models;
 using Voiceover.Client.Services;
-using Wpf.Ui.Controls;
 
 namespace Voiceover.Client.Views;
 
 // One checkbox per ServerPermission bit - Owner-only (see MainWindow's
 // EditPermissionsVisibility gate), only ever opened for a Moderator target.
-public partial class EditPermissionsWindow : FluentWindow
+public partial class EditPermissionsPage : UserControl
 {
+    private readonly MainWindow _mainWindow;
     private readonly ApiService _api;
     private readonly int _serverId;
     private readonly int _userId;
 
-    public EditPermissionsWindow(ApiService api, int serverId, int userId, string username, ServerPermission current)
+    public EditPermissionsPage(MainWindow mainWindow, ApiService api, int serverId, int userId, string username, ServerPermission current)
     {
         InitializeComponent();
+        _mainWindow = mainWindow;
         _api = api;
         _serverId = serverId;
         _userId = userId;
@@ -27,7 +28,7 @@ public partial class EditPermissionsWindow : FluentWindow
         MuteMembersCheck.IsChecked = current.HasFlag(ServerPermission.MuteMembers);
     }
 
-    private async void SaveButton_Click(object sender, RoutedEventArgs e)
+    private async void SaveButton_Click(object sender, System.Windows.RoutedEventArgs e)
     {
         var permissions = ServerPermission.None;
         if (ManageChannelsCheck.IsChecked == true) permissions |= ServerPermission.ManageChannels;
@@ -38,13 +39,12 @@ public partial class EditPermissionsWindow : FluentWindow
         var success = await _api.SetPermissionsAsync(_serverId, _userId, permissions);
         if (!success)
         {
-            System.Windows.MessageBox.Show("Could not save permissions.", "Error",
-                System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+            await _mainWindow.AlertAsync("Error", "Could not save permissions.");
             return;
         }
 
-        Close();
+        _mainWindow.GoBack();
     }
 
-    private void CancelButton_Click(object sender, RoutedEventArgs e) => Close();
+    private void CancelButton_Click(object sender, System.Windows.RoutedEventArgs e) => _mainWindow.GoBack();
 }

@@ -1209,7 +1209,8 @@ public partial class MainWindow : FluentWindow
     private void MemberEditPermissionsButton_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not System.Windows.Controls.MenuItem { Tag: MemberListItem member } || _currentServerId is null) return;
-        new EditPermissionsWindow(_api, _currentServerId.Value, member.UserId, member.Username, (ServerPermission)member.Permissions) { Owner = this }.ShowDialog();
+        NavigateTo(new EditPermissionsPage(this, _api, _currentServerId.Value, member.UserId, member.Username, (ServerPermission)member.Permissions),
+            $"Permissions for {member.Username}");
     }
 
     private void ModerationLogButton_Click(object sender, RoutedEventArgs e)
