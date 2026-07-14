@@ -7,9 +7,6 @@ using Voiceover.Client.Models;
 using Voiceover.Client.Services;
 using Microsoft.Win32;
 using Wpf.Ui.Controls;
-using MessageBox = System.Windows.MessageBox;
-using MessageBoxButton = System.Windows.MessageBoxButton;
-using MessageBoxResult = System.Windows.MessageBoxResult;
 using Button = System.Windows.Controls.Button;
 using ScrollViewer = System.Windows.Controls.ScrollViewer;
 using UserControl = System.Windows.Controls.UserControl;
@@ -1157,7 +1154,7 @@ public partial class MainWindow : FluentWindow
         var success = await _api.ChangeRoleAsync(_currentServerId.Value, userId, item.NextRole);
         if (!success)
         {
-            new AlertDialog("Error", "Could not change this member's role.") { Owner = this }.ShowDialog();
+            await AlertAsync("Error", "Could not change this member's role.");
             return;
         }
 
@@ -1168,14 +1165,12 @@ public partial class MainWindow : FluentWindow
     {
         if (sender is not System.Windows.Controls.MenuItem { Tag: int userId } || _currentServerId is null) return;
 
-        var confirm = new ConfirmDialog("Confirm Kick", "Remove this member from the server?", "Kick", destructive: true) { Owner = this };
-        confirm.ShowDialog();
-        if (!confirm.Result) return;
+        if (!await ConfirmAsync("Confirm Kick", "Remove this member from the server?", "Kick", destructive: true)) return;
 
         var success = await _api.KickMemberAsync(_currentServerId.Value, userId);
         if (!success)
         {
-            new AlertDialog("Error", "Could not kick this member (you may lack permission, or they're the owner).") { Owner = this }.ShowDialog();
+            await AlertAsync("Error", "Could not kick this member (you may lack permission, or they're the owner).");
             return;
         }
 
@@ -1186,15 +1181,13 @@ public partial class MainWindow : FluentWindow
     {
         if (sender is not System.Windows.Controls.MenuItem { Tag: int userId } || _currentServerId is null) return;
 
-        var confirm = new ConfirmDialog("Confirm Ban",
-            "Ban this member? They won't be able to rejoin via any invite link until unbanned.", "Ban", destructive: true) { Owner = this };
-        confirm.ShowDialog();
-        if (!confirm.Result) return;
+        if (!await ConfirmAsync("Confirm Ban",
+            "Ban this member? They won't be able to rejoin via any invite link until unbanned.", "Ban", destructive: true)) return;
 
         var (success, error) = await _api.BanMemberAsync(_currentServerId.Value, userId, reason: null);
         if (!success)
         {
-            new AlertDialog("Error", error ?? "Could not ban this member.") { Owner = this }.ShowDialog();
+            await AlertAsync("Error", error ?? "Could not ban this member.");
             return;
         }
 
@@ -1205,14 +1198,12 @@ public partial class MainWindow : FluentWindow
     {
         if (sender is not System.Windows.Controls.MenuItem { Tag: int userId } || _currentChannelId is null) return;
 
-        var confirm = new ConfirmDialog("Confirm Purge",
-            "Delete every message this member sent in the current channel? This cannot be undone.", "Purge", destructive: true) { Owner = this };
-        confirm.ShowDialog();
-        if (!confirm.Result) return;
+        if (!await ConfirmAsync("Confirm Purge",
+            "Delete every message this member sent in the current channel? This cannot be undone.", "Purge", destructive: true)) return;
 
         var success = await _api.DeleteAllMessagesFromUserAsync(_currentChannelId.Value, userId);
         if (!success)
-            new AlertDialog("Error", "Could not purge this member's messages.") { Owner = this }.ShowDialog();
+            await AlertAsync("Error", "Could not purge this member's messages.");
     }
 
     private void MemberEditPermissionsButton_Click(object sender, RoutedEventArgs e)
@@ -1374,7 +1365,7 @@ public partial class MainWindow : FluentWindow
             if (item is not null && selfItem is not null) item.Members.Remove(selfItem);
             _currentVoiceChannelId = null;
             ConnectionStatusText.Text = "";
-            new AlertDialog("Error", "Could not join voice - check your connection and try again.") { Owner = this }.ShowDialog();
+            await AlertAsync("Error", "Could not join voice - check your connection and try again.");
             return;
         }
 
@@ -1491,7 +1482,7 @@ public partial class MainWindow : FluentWindow
         var callId = await _hub.InitiateCallAsync(calleeId);
         if (callId is null)
         {
-            new AlertDialog("Error", "Couldn't start the call - you may not be friends, they're already in a call, or you're calling too fast.") { Owner = this }.ShowDialog();
+            await AlertAsync("Error", "Couldn't start the call - you may not be friends, they're already in a call, or you're calling too fast.");
             return;
         }
 
@@ -1562,7 +1553,7 @@ public partial class MainWindow : FluentWindow
         }
         catch
         {
-            new AlertDialog("Error", "Could not join the call - check your connection and try again.") { Owner = this }.ShowDialog();
+            await AlertAsync("Error", "Could not join the call - check your connection and try again.");
             _ = _hub.EndCallAsync(callId);
             _callWindow?.CloseSilently();
             return;
@@ -1762,7 +1753,7 @@ public partial class MainWindow : FluentWindow
         }
         catch (Exception ex)
         {
-            new AlertDialog("Error", $"Could not open the screen/window picker:\n{ex.Message}") { Owner = this }.ShowDialog();
+            await AlertAsync("Error", $"Could not open the screen/window picker:\n{ex.Message}");
             return null;
         }
     }
@@ -1777,7 +1768,7 @@ public partial class MainWindow : FluentWindow
         }
         catch (Exception ex)
         {
-            new AlertDialog("Error", $"Could not start screen sharing:\n{ex.Message}") { Owner = this }.ShowDialog();
+            await AlertAsync("Error", $"Could not start screen sharing:\n{ex.Message}");
             return;
         }
 
@@ -1864,12 +1855,11 @@ public partial class MainWindow : FluentWindow
     {
         OnboardingNudgePopup.IsOpen = false;
 
-        var dialog = new CreateOrJoinDialog { Owner = this };
-        dialog.ShowDialog();
+        var createSelected = await CreateOrJoinAsync();
 
-        if (dialog.CreateSelected == true)
+        if (createSelected == true)
         {
-            var name = PromptForText("Create a Server", "Server name:");
+            var name = await PromptAsync("Create a Server", "Server name:");
             if (string.IsNullOrWhiteSpace(name)) return;
 
             var server = await _api.CreateServerAsync(name);
@@ -1884,15 +1874,15 @@ public partial class MainWindow : FluentWindow
                 await LoadServersAsync();
             }
         }
-        else if (dialog.CreateSelected == false)
+        else if (createSelected == false)
         {
-            var code = PromptForText("Join with a Code", "Invite code:");
+            var code = await PromptAsync("Join with a Code", "Invite code:");
             if (string.IsNullOrWhiteSpace(code)) return;
 
             var (success, error) = await _api.JoinByInviteAsync(code.Trim());
             if (!success)
             {
-                new AlertDialog("Join Failed", error ?? "Could not join with that invite code.") { Owner = this }.ShowDialog();
+                await AlertAsync("Join Failed", error ?? "Could not join with that invite code.");
                 return;
             }
             await LoadServersAsync();
@@ -1903,11 +1893,10 @@ public partial class MainWindow : FluentWindow
     {
         if (sender is not System.Windows.Controls.MenuItem { Tag: int serverId }) return;
 
-        var name = PromptForText("Add Channel", "Channel name:");
+        var name = await PromptAsync("Add Channel", "Channel name:");
         if (string.IsNullOrWhiteSpace(name)) return;
 
-        var isVoice = MessageBox.Show("Make this a voice channel?", "Channel Type",
-            MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
+        var isVoice = await ConfirmAsync("Channel Type", "Make this a voice channel?", "Voice Channel");
 
         var created = await _api.CreateChannelAsync(serverId, name, isVoice ? "Voice" : "Text");
 
@@ -1934,14 +1923,12 @@ public partial class MainWindow : FluentWindow
     {
         if (sender is not System.Windows.Controls.MenuItem { Tag: int serverId }) return;
 
-        var confirm = MessageBox.Show("Leave this server?", "Confirm Leave",
-            MessageBoxButton.YesNo, MessageBoxImage.Warning);
-        if (confirm != MessageBoxResult.Yes) return;
+        if (!await ConfirmAsync("Confirm Leave", "Leave this server?", "Leave", destructive: true)) return;
 
         var (success, error) = await _api.LeaveServerAsync(serverId);
         if (!success)
         {
-            new AlertDialog("Error", error ?? "Could not leave this server.") { Owner = this }.ShowDialog();
+            await AlertAsync("Error", error ?? "Could not leave this server.");
             return;
         }
 
@@ -1982,18 +1969,17 @@ public partial class MainWindow : FluentWindow
     {
         if (sender is not System.Windows.Controls.MenuItem { Tag: int channelId } || _currentServerId is null) return;
 
-        var dialog = new TextInputDialog("Set Slow Mode", "Seconds between messages for regular members (0 to disable):") { Owner = this };
-        dialog.ShowDialog();
-        if (dialog.Result is null) return;
-        if (!int.TryParse(dialog.Result, out var seconds) || seconds < 0)
+        var input = await PromptAsync("Set Slow Mode", "Seconds between messages for regular members (0 to disable):");
+        if (input is null) return;
+        if (!int.TryParse(input, out var seconds) || seconds < 0)
         {
-            new AlertDialog("Invalid Value", "Enter a whole number of seconds (0 or more).") { Owner = this }.ShowDialog();
+            await AlertAsync("Invalid Value", "Enter a whole number of seconds (0 or more).");
             return;
         }
 
         var success = await _api.SetSlowModeAsync(_currentServerId.Value, channelId, seconds);
         if (!success)
-            new AlertDialog("Error", "Could not set slow mode (you may lack permission).") { Owner = this }.ShowDialog();
+            await AlertAsync("Error", "Could not set slow mode (you may lack permission).");
     }
 
     // Same reasoning as ServerButton_ContextMenuOpening above - items[1] is
@@ -2015,14 +2001,12 @@ public partial class MainWindow : FluentWindow
     {
         if (sender is not FrameworkElement { Tag: int channelId } || _currentServerId is null) return;
 
-        var confirm = MessageBox.Show("Delete this channel? This cannot be undone.", "Confirm Delete",
-            MessageBoxButton.YesNo, MessageBoxImage.Warning);
-        if (confirm != MessageBoxResult.Yes) return;
+        if (!await ConfirmAsync("Confirm Delete", "Delete this channel? This cannot be undone.", "Delete", destructive: true)) return;
 
         var success = await _api.DeleteChannelAsync(_currentServerId.Value, channelId);
         if (!success)
         {
-            new AlertDialog("Error", "Could not delete this channel (you may lack permission).") { Owner = this }.ShowDialog();
+            await AlertAsync("Error", "Could not delete this channel (you may lack permission).");
             return;
         }
 
@@ -2090,10 +2074,10 @@ public partial class MainWindow : FluentWindow
     // The session is already dead server-side by the time this fires (see
     // ApiService.SessionExpired) - just get the user back to a login screen,
     // no server call to make here unlike the normal logout button.
-    private void OnSessionExpired()
+    private async void OnSessionExpired()
     {
         SessionStorage.Clear();
-        new AlertDialog("Signed Out", "Your session has expired. Please log in again.") { Owner = this }.ShowDialog();
+        await AlertAsync("Signed Out", "Your session has expired. Please log in again.");
         new LoginWindow().Show();
         Close();
     }
@@ -2345,7 +2329,7 @@ public partial class MainWindow : FluentWindow
         var (success, error) = await _api.SendFriendRequestAsync(userId);
         if (!success)
         {
-            new AlertDialog("Error", error ?? "Could not send friend request.") { Owner = this }.ShowDialog();
+            await AlertAsync("Error", error ?? "Could not send friend request.");
             return;
         }
 
@@ -2404,13 +2388,13 @@ public partial class MainWindow : FluentWindow
     {
         if (_dmActiveUserId.HasValue)
         {
-            new AlertDialog("Not Supported", "Attachments aren't supported in direct messages yet.") { Owner = this }.ShowDialog();
+            await AlertAsync("Not Supported", "Attachments aren't supported in direct messages yet.");
             return;
         }
 
         if (_currentChannelId is null)
         {
-            new AlertDialog("No Channel Selected", "Select a channel first.") { Owner = this }.ShowDialog();
+            await AlertAsync("No Channel Selected", "Select a channel first.");
             return;
         }
 
@@ -2441,13 +2425,13 @@ public partial class MainWindow : FluentWindow
 
         if (_dmActiveUserId.HasValue)
         {
-            new AlertDialog("Not Supported", "Attachments aren't supported in direct messages yet.") { Owner = this }.ShowDialog();
+            await AlertAsync("Not Supported", "Attachments aren't supported in direct messages yet.");
             return;
         }
 
         if (_currentChannelId is null)
         {
-            new AlertDialog("No Channel Selected", "Select a channel first.") { Owner = this }.ShowDialog();
+            await AlertAsync("No Channel Selected", "Select a channel first.");
             return;
         }
 
@@ -2465,7 +2449,7 @@ public partial class MainWindow : FluentWindow
         var (upload, error) = await _api.UploadFileAsync(filePath);
         if (upload is null)
         {
-            new AlertDialog("Error", error ?? "Upload failed.") { Owner = this }.ShowDialog();
+            await AlertAsync("Error", error ?? "Upload failed.");
             return;
         }
 
@@ -2475,7 +2459,7 @@ public partial class MainWindow : FluentWindow
         var encrypted = await _api.E2ee.EncryptForServerAsync(serverId, string.Empty);
         if (encrypted is null)
         {
-            new AlertDialog("Encryption unavailable", "Couldn't send - encryption isn't ready for this server yet.") { Owner = this }.ShowDialog();
+            await AlertAsync("Encryption unavailable", "Couldn't send - encryption isn't ready for this server yet.");
             return;
         }
 
@@ -2534,13 +2518,13 @@ public partial class MainWindow : FluentWindow
 
         if (_dmActiveUserId.HasValue)
         {
-            new AlertDialog("Not Supported", "Attachments aren't supported in direct messages yet.") { Owner = this }.ShowDialog();
+            await AlertAsync("Not Supported", "Attachments aren't supported in direct messages yet.");
             return;
         }
 
         if (_currentChannelId is null)
         {
-            new AlertDialog("No Channel Selected", "Select a channel first.") { Owner = this }.ShowDialog();
+            await AlertAsync("No Channel Selected", "Select a channel first.");
             return;
         }
 
@@ -2592,9 +2576,8 @@ public partial class MainWindow : FluentWindow
             var encrypted = await _api.E2ee.EncryptAsync(_dmActiveUserId.Value, MessageInput.Text.Trim());
             if (encrypted is null)
             {
-                new AlertDialog("Encryption unavailable",
-                    "Couldn't send an encrypted message right now - either your own encryption keys aren't unlocked yet, or this person hasn't logged in since secure messaging was added. Try logging out and back in.")
-                    { Owner = this }.ShowDialog();
+                await AlertAsync("Encryption unavailable",
+                    "Couldn't send an encrypted message right now - either your own encryption keys aren't unlocked yet, or this person hasn't logged in since secure messaging was added. Try logging out and back in.");
                 return;
             }
 
@@ -2608,9 +2591,8 @@ public partial class MainWindow : FluentWindow
         var encryptedChannelMessage = await _api.E2ee.EncryptForServerAsync(serverId, MessageInput.Text.Trim());
         if (encryptedChannelMessage is null)
         {
-            new AlertDialog("Encryption unavailable",
-                "Couldn't send an encrypted message right now - this device doesn't have this server's encryption key yet. It's waiting for another online member to grant access.")
-                { Owner = this }.ShowDialog();
+            await AlertAsync("Encryption unavailable",
+                "Couldn't send an encrypted message right now - this device doesn't have this server's encryption key yet. It's waiting for another online member to grant access.");
             await _hub.RequestServerKeyAsync(serverId);
             return;
         }
@@ -2638,9 +2620,7 @@ public partial class MainWindow : FluentWindow
     {
         if (sender is not FrameworkElement { Tag: int messageId }) return;
 
-        var confirm = new ConfirmDialog("Confirm Delete", "Delete this message?", "Delete", destructive: true) { Owner = this };
-        confirm.ShowDialog();
-        if (!confirm.Result) return;
+        if (!await ConfirmAsync("Confirm Delete", "Delete this message?", "Delete", destructive: true)) return;
 
         // Channel delete is shown for every message and left to the server
         // to authorize (author or moderator/owner) - a non-author,
@@ -2664,7 +2644,7 @@ public partial class MainWindow : FluentWindow
         }
         else
         {
-            new AlertDialog("Error", "Could not delete that message (you may lack permission).") { Owner = this }.ShowDialog();
+            await AlertAsync("Error", "Could not delete that message (you may lack permission).");
         }
     }
 
@@ -3580,10 +3560,4 @@ public partial class MainWindow : FluentWindow
         }
     }
 
-    private string? PromptForText(string title, string label)
-    {
-        var dialog = new TextInputDialog(title, label) { Owner = this };
-        dialog.ShowDialog();
-        return dialog.Result;
-    }
 }
