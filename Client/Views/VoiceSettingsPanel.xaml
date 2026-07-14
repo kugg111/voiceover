@@ -80,8 +80,8 @@
                 <TextBlock x:Name="SuppressionMixDisplay" Width="46" Margin="6,0,0,0"
                            VerticalAlignment="Center" Foreground="{StaticResource TextMuted}"/>
             </StackPanel>
-            <TextBlock Text="Blends the suppressed signal with your raw mic - applies no matter which engine is selected above. 100% is fully processed; lower this if the engine is eating quiet parts of your voice."
-                       FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}" Margin="0,0,0,12"/>
+            <TextBlock x:Name="SuppressionMixHelpText" FontSize="11" TextWrapping="Wrap"
+                       Foreground="{StaticResource TextMuted}" Margin="0,0,0,12"/>
 
             <Button x:Name="TestMicButton" Content="Test Mic" Height="36" Width="160" HorizontalAlignment="Left"
                     Click="TestMicButton_Click"

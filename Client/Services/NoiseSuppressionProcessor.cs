@@ -129,7 +129,18 @@ internal class NoiseSuppressionProcessor : IDisposable
     {
         if (Enabled)
         {
-            bool blending = SuppressionMix < 1f;
+            // DeepFilterNet's "deep filtering" stage computes filter
+            // coefficients from surrounding context and applies them with
+            // real algorithmic delay - unlike RNNoise/WebRTC APM, which are
+            // built for near-zero added latency in live calls. Blending its
+            // output sample-for-sample against the (undelayed) raw signal
+            // sums a signal with a delayed copy of itself - comb filtering,
+            // which is exactly what "echo"/"doubling" is. Without knowing
+            // the plugin's exact delay in samples to compensate for it,
+            // DeepFilterNet always runs at full strength when enabled - the
+            // UI (VoiceSettingsPanel) disables the Suppression Mix slider
+            // for this backend to match.
+            bool blending = SuppressionMix < 1f && Backend != NoiseSuppressionBackend.DeepFilterNet;
             if (blending)
             {
                 if (_mixOriginalScratch.Length < pcm.Length) _mixOriginalScratch = new short[pcm.Length];

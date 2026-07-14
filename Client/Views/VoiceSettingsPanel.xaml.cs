@@ -66,6 +66,7 @@ public partial class VoiceSettingsPanel : UserControl
         UpdatePostFilterBetaDisplay();
         SuppressionMixSlider.Value = _voice.SuppressionMix * 100;
         UpdateSuppressionMixDisplay();
+        UpdateSuppressionMixAvailability();
         switch (_voice.WebRtcNoiseSuppressionLevel)
         {
             case NoiseSuppressionLevel.Low:
@@ -160,6 +161,7 @@ public partial class VoiceSettingsPanel : UserControl
             ? Visibility.Visible : Visibility.Collapsed;
         WebRtcOptionsPanel.Visibility = _voice.NoiseSuppressionBackend == NoiseSuppressionBackend.WebRtcApm
             ? Visibility.Visible : Visibility.Collapsed;
+        UpdateSuppressionMixAvailability();
     }
 
     private void WebRtcLevelRadio_Changed(object sender, RoutedEventArgs e)
@@ -203,6 +205,24 @@ public partial class VoiceSettingsPanel : UserControl
 
     private void UpdateSuppressionMixDisplay() =>
         SuppressionMixDisplay.Text = $"{SuppressionMixSlider.Value:0}%";
+
+    // DeepFilterNet's filtering has real algorithmic delay (its "deep
+    // filtering" stage uses surrounding context to compute coefficients),
+    // unlike RNNoise/WebRTC APM which are built for near-zero added latency
+    // - blending its output against the undelayed raw signal sums a signal
+    // with a delayed copy of itself (comb filtering, heard as an echo/
+    // "doubling" artifact). NoiseSuppressionProcessor.ProcessFrame enforces
+    // this same rule server-side (always full strength for this backend);
+    // this just keeps the slider from looking like it does something it
+    // doesn't for DeepFilterNet.
+    private void UpdateSuppressionMixAvailability()
+    {
+        bool supported = _voice!.NoiseSuppressionBackend != NoiseSuppressionBackend.DeepFilterNet;
+        SuppressionMixSlider.IsEnabled = supported;
+        SuppressionMixHelpText.Text = supported
+            ? "Blends the suppressed signal with your raw mic - applies no matter which engine is selected above. 100% is fully processed; lower this if the engine is eating quiet parts of your voice."
+            : "Not available for DeepFilterNet - its filtering has real processing delay, so blending it with your undelayed raw mic causes an echo/doubling artifact. DeepFilterNet always runs at full strength when enabled; use Attenuation Limit and Post Filter Beta above to tune it instead.";
+    }
 
     // Records ~3s from the selected input device, runs it through a
     // throwaway NoiseSuppressionProcessor configured with the panel's
