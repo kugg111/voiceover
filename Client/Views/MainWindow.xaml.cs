@@ -12,6 +12,7 @@ using MessageBoxButton = System.Windows.MessageBoxButton;
 using MessageBoxResult = System.Windows.MessageBoxResult;
 using Button = System.Windows.Controls.Button;
 using ScrollViewer = System.Windows.Controls.ScrollViewer;
+using UserControl = System.Windows.Controls.UserControl;
 
 namespace Voiceover.Client.Views;
 
@@ -722,6 +723,165 @@ public partial class MainWindow : FluentWindow
         }
         catch { }
     }
+
+    // --- PageHost: in-window replacement for what used to be separate
+    // popup Windows (Settings, ban list, moderation log, invites, call
+    // history, pinned messages, search, edit permissions, transfer
+    // ownership). NavigateTo swaps in a page UserControl and reveals
+    // PageHost over the server/messages/friends content beneath it (which
+    // is left untouched, not torn down); GoBack hides it again. No back
+    // stack - nothing here currently navigates from one page into another. ---
+
+    public void NavigateTo(UserControl page, string title)
+    {
+        PageHostTitleText.Text = title;
+        PageHostContent.Content = page;
+        PageHost.Visibility = Visibility.Visible;
+    }
+
+    private void PageHostBackButton_Click(object sender, RoutedEventArgs e) => GoBack();
+
+    public void GoBack()
+    {
+        PageHost.Visibility = Visibility.Collapsed;
+        // Removing it from the visual tree fires the page's own Unloaded -
+        // that's where a converted page unsubscribes from SignalR events
+        // the same way the old Window-based versions did in Closed.
+        PageHostContent.Content = null;
+    }
+
+    // --- ModalOverlay: in-window replacement for ConfirmDialog/AlertDialog/
+    // TextInputDialog/CreateOrJoinDialog. One scrim+card shown/hidden via
+    // Visibility, driven by a TaskCompletionSource so callers can just
+    // `await` a result the same way they used to read a dialog's .Result
+    // property after ShowDialog() returned. ---
+
+    private TaskCompletionSource<object?>? _modalTcs;
+
+    private enum ModalButtonStyle { Plain, Primary, Destructive }
+
+    private Task<object?> ShowModal()
+    {
+        _modalTcs = new TaskCompletionSource<object?>();
+        ModalOverlay.Visibility = Visibility.Visible;
+        return _modalTcs.Task;
+    }
+
+    private void CompleteModal(object? result)
+    {
+        ModalOverlay.Visibility = Visibility.Collapsed;
+        _modalTcs?.TrySetResult(result);
+        _modalTcs = null;
+    }
+
+    private Button BuildModalButton(string text, ModalButtonStyle style, Action onClick)
+    {
+        (Brush background, Brush foreground) = style switch
+        {
+            ModalButtonStyle.Primary => ((Brush)FindResource("AccentBlurple"), (Brush)Brushes.White),
+            ModalButtonStyle.Destructive => ((Brush)new SolidColorBrush(Color.FromRgb(0xF2, 0x3F, 0x42)), (Brush)Brushes.White),
+            _ => ((Brush)Brushes.Transparent, (Brush)FindResource("TextNormal"))
+        };
+        var button = new Button
+        {
+            Content = text,
+            Height = 36,
+            MinWidth = 90,
+            Padding = new Thickness(16, 0, 16, 0),
+            Margin = new Thickness(8, 0, 0, 0),
+            Background = background,
+            Foreground = foreground,
+            FontWeight = style == ModalButtonStyle.Plain ? FontWeights.Normal : FontWeights.Bold,
+            BorderThickness = new Thickness(0),
+            Cursor = Cursors.Hand,
+            // Lets Enter/Escape drive Confirm/Cancel the same way the old
+            // Window-based dialogs did via IsDefault/IsCancel.
+            IsDefault = style != ModalButtonStyle.Plain,
+            IsCancel = style == ModalButtonStyle.Plain
+        };
+        button.Click += (_, _) => onClick();
+        return button;
+    }
+
+    // Themed in-window replacement for MessageBox.Show(..., YesNo, ...) /
+    // the old ConfirmDialog window.
+    public async Task<bool> ConfirmAsync(string title, string message, string confirmText = "Confirm", bool destructive = false)
+    {
+        ModalTitleText.Text = title;
+        ModalStandardPanel.Visibility = Visibility.Visible;
+        ModalCreateOrJoinPanel.Visibility = Visibility.Collapsed;
+        ModalMessageText.Text = message;
+        ModalMessageText.Visibility = Visibility.Visible;
+        ModalInputBox.Visibility = Visibility.Collapsed;
+        ModalButtonsPanel.Children.Clear();
+        ModalButtonsPanel.Children.Add(BuildModalButton("Cancel", ModalButtonStyle.Plain, () => CompleteModal(false)));
+        ModalButtonsPanel.Children.Add(BuildModalButton(confirmText,
+            destructive ? ModalButtonStyle.Destructive : ModalButtonStyle.Primary, () => CompleteModal(true)));
+
+        return await ShowModal() is true;
+    }
+
+    // Themed in-window replacement for MessageBox.Show(..., OK, ...) / the
+    // old AlertDialog window.
+    public async Task AlertAsync(string title, string message)
+    {
+        ModalTitleText.Text = title;
+        ModalStandardPanel.Visibility = Visibility.Visible;
+        ModalCreateOrJoinPanel.Visibility = Visibility.Collapsed;
+        ModalMessageText.Text = message;
+        ModalMessageText.Visibility = Visibility.Visible;
+        ModalInputBox.Visibility = Visibility.Collapsed;
+        ModalButtonsPanel.Children.Clear();
+        var okButton = BuildModalButton("OK", ModalButtonStyle.Primary, () => CompleteModal(null));
+        okButton.IsCancel = true; // single button - Escape dismisses same as OK
+        ModalButtonsPanel.Children.Add(okButton);
+
+        await ShowModal();
+    }
+
+    // Themed in-window replacement for the old TextInputDialog window. Null
+    // return means cancelled, matching TextInputDialog.Result's convention.
+    public async Task<string?> PromptAsync(string title, string label, string initialValue = "")
+    {
+        ModalTitleText.Text = title;
+        ModalStandardPanel.Visibility = Visibility.Visible;
+        ModalCreateOrJoinPanel.Visibility = Visibility.Collapsed;
+        ModalMessageText.Text = label;
+        ModalMessageText.Visibility = Visibility.Visible;
+        ModalInputBox.Text = initialValue;
+        ModalInputBox.Visibility = Visibility.Visible;
+        ModalButtonsPanel.Children.Clear();
+        ModalButtonsPanel.Children.Add(BuildModalButton("Cancel", ModalButtonStyle.Plain, () => CompleteModal(null)));
+        ModalButtonsPanel.Children.Add(BuildModalButton("OK", ModalButtonStyle.Primary, () => CompleteModal(ModalInputBox.Text)));
+
+        var task = ShowModal();
+        // Deferred rather than called inline - the TextBox is still
+        // Collapsed-turning-Visible in this same synchronous block, and
+        // WPF won't hand focus to an element until layout has caught up.
+        _ = Dispatcher.BeginInvoke(() => ModalInputBox.Focus());
+        return await task as string;
+    }
+
+    private void ModalInputBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter) CompleteModal(ModalInputBox.Text);
+    }
+
+    // true = Create selected, false = Join selected - matches
+    // CreateOrJoinDialog.CreateSelected's convention (minus the null/closed
+    // case, which isn't reachable here yet - Esc-dismissing this mode isn't
+    // wired until the ModalOverlay-wide Escape handling lands).
+    public async Task<bool?> CreateOrJoinAsync()
+    {
+        ModalTitleText.Text = "Add a Server";
+        ModalStandardPanel.Visibility = Visibility.Collapsed;
+        ModalCreateOrJoinPanel.Visibility = Visibility.Visible;
+
+        return await ShowModal() as bool?;
+    }
+
+    private void ModalCreateButton_Click(object sender, RoutedEventArgs e) => CompleteModal(true);
+    private void ModalJoinButton_Click(object sender, RoutedEventArgs e) => CompleteModal(false);
 
     private async void MainWindow_Closed(object? sender, EventArgs e)
     {

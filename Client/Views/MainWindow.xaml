@@ -732,6 +732,64 @@
                 </ScrollViewer>
             </DockPanel>
         </Border>
+
+        <!-- PAGE HOST - full replacement of the server rail through members
+             column, hosting what used to be separate popup Windows
+             (Settings, ban list, moderation log, invites, etc.) as inline
+             pages instead - see NavigateTo/GoBack in MainWindow.xaml.cs. -->
+        <Grid x:Name="PageHost" Grid.Column="0" Grid.ColumnSpan="4" Background="{StaticResource BgDark}" Visibility="Collapsed">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+            <Border Grid.Row="0" Background="{StaticResource BgDark}" BorderBrush="{StaticResource BgDarker}" BorderThickness="0,0,0,1">
+                <DockPanel Margin="16,12">
+                    <Button DockPanel.Dock="Left" Content="←" FontSize="16" Width="36" Height="36" Margin="0,0,12,0"
+                            Background="Transparent" Foreground="{StaticResource TextNormal}"
+                            BorderThickness="0" Cursor="Hand" Click="PageHostBackButton_Click" ToolTip="Back"/>
+                    <TextBlock x:Name="PageHostTitleText" VerticalAlignment="Center" FontSize="16" FontWeight="Bold"
+                               Foreground="{StaticResource TextNormal}"/>
+                </DockPanel>
+            </Border>
+            <ContentControl x:Name="PageHostContent" Grid.Row="1" Margin="16"/>
+        </Grid>
+
+        <!-- MODAL OVERLAY - in-window replacement for ConfirmDialog/
+             AlertDialog/TextInputDialog/CreateOrJoinDialog - see
+             ConfirmAsync/AlertAsync/PromptAsync/CreateOrJoinAsync in
+             MainWindow.xaml.cs. Scrim blocks input to everything beneath it. -->
+        <Grid x:Name="ModalOverlay" Grid.Column="0" Grid.ColumnSpan="4" Background="#B3000000" Visibility="Collapsed">
+            <Border Background="{StaticResource BgDark}" BorderBrush="{StaticResource BgDarker}" BorderThickness="1"
+                    CornerRadius="6" Width="360" Padding="20" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <StackPanel>
+                    <TextBlock x:Name="ModalTitleText" FontSize="16" FontWeight="Bold"
+                               Foreground="{StaticResource TextNormal}" Margin="0,0,0,16"/>
+
+                    <!-- Confirm/Alert/Prompt shape - message, optional input, dynamically-built buttons. -->
+                    <StackPanel x:Name="ModalStandardPanel">
+                        <TextBlock x:Name="ModalMessageText" TextWrapping="Wrap" FontSize="14"
+                                   Foreground="{StaticResource TextNormal}" Margin="0,0,0,16"/>
+                        <TextBox x:Name="ModalInputBox" Height="36" Padding="8" VerticalContentAlignment="Center"
+                                 Margin="0,0,0,16" Visibility="Collapsed"
+                                 Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
+                                 BorderThickness="0" KeyDown="ModalInputBox_KeyDown"/>
+                        <StackPanel x:Name="ModalButtonsPanel" Orientation="Horizontal" HorizontalAlignment="Right"/>
+                    </StackPanel>
+
+                    <!-- Create-or-join shape - two big fixed buttons, no message/input. -->
+                    <StackPanel x:Name="ModalCreateOrJoinPanel" Visibility="Collapsed">
+                        <Button x:Name="ModalCreateButton" Content="Create a Server" Height="48" Margin="0,0,0,12"
+                                HorizontalContentAlignment="Left" Padding="16,0" FontWeight="Bold"
+                                Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}" BorderThickness="0"
+                                Cursor="Hand" Click="ModalCreateButton_Click"/>
+                        <Button x:Name="ModalJoinButton" Content="Join with a Code" Height="48"
+                                HorizontalContentAlignment="Left" Padding="16,0" FontWeight="Bold"
+                                Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}" BorderThickness="0"
+                                Cursor="Hand" Click="ModalJoinButton_Click"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
         </Grid>
     </Grid>
 </ui:FluentWindow>
