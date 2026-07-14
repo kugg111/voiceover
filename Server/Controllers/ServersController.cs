@@ -50,7 +50,7 @@ public class ServersController : ControllerBase
             .Where(m => m.UserId == CurrentUserId)
             .OrderBy(m => m.Id)
             .Skip(skip ?? 0);
-        if (take.HasValue) query = query.Take(take.Value);
+        if (PaginationLimits.Clamp(take) is { } clampedTake) query = query.Take(clampedTake);
 
         var servers = await query
             .Select(m => m.GuildServer!)
@@ -118,7 +118,7 @@ public class ServersController : ControllerBase
             .Where(m => m.GuildServerId == serverId)
             .OrderBy(m => m.Id)
             .Skip(skip ?? 0);
-        if (take.HasValue) query = query.Take(take.Value);
+        if (PaginationLimits.Clamp(take) is { } clampedTake) query = query.Take(clampedTake);
 
         var members = await query
             .Select(m => new { m.UserId, m.User!.Username, Role = m.Role.ToString(), m.User!.AvatarUrl, m.User!.CustomStatus, m.Permissions })
@@ -165,6 +165,11 @@ public class ServersController : ControllerBase
         // they'd click into it and just get a 403 on whatever they try.
         // Same Clients.User(...) mechanism already used for YouWereBanned.
         await _hub.Clients.User(userId.ToString()).SendAsync("YouWereKicked", serverId);
+
+        // Separate from the targeted push above - this reaches everyone else
+        // who has this server's member list open, so their view doesn't go
+        // stale until they manually switch away and back.
+        await _hub.Clients.Group(HubGroups.ServerPresence(serverId)).SendAsync("MemberKicked", serverId, userId);
         return Ok();
     }
 
@@ -197,10 +202,26 @@ public class ServersController : ControllerBase
             BannedByUserId = CurrentUserId,
             Reason = req.Reason
         });
-        await _db.SaveChangesAsync();
+
+        try
+        {
+            await _db.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            // Backstop for the rare case two ban requests for the same user
+            // race past the AnyAsync check above simultaneously - the
+            // unique index on (GuildServerId, UserId) catches it at the DB
+            // level, which would otherwise surface as an unhandled 500.
+            return Conflict("Already banned.");
+        }
         await _modLog.LogAsync(serverId, CurrentUserId, CurrentUsername, "Ban", userId, targetUser.Username, req.Reason);
 
         await _hub.Clients.User(userId.ToString()).SendAsync("YouWereBanned", serverId);
+
+        // Separate from the targeted push above - lets a mod with the ban
+        // list or member panel open see this without switching away and back.
+        await _hub.Clients.Group(HubGroups.ServerPresence(serverId)).SendAsync("MemberBanned", serverId, userId);
         return Ok();
     }
 
@@ -218,6 +239,8 @@ public class ServersController : ControllerBase
         _db.BannedUsers.Remove(ban);
         await _db.SaveChangesAsync();
         await _modLog.LogAsync(serverId, CurrentUserId, CurrentUsername, "Unban", userId, targetUsername);
+
+        await _hub.Clients.Group(HubGroups.ServerPresence(serverId)).SendAsync("MemberUnbanned", serverId, userId);
         return Ok();
     }
 
@@ -309,6 +332,11 @@ public class ServersController : ControllerBase
 
         await _db.SaveChangesAsync();
         await _modLog.LogAsync(serverId, CurrentUserId, CurrentUsername, "RoleChange", userId, target.User?.Username, target.Role.ToString());
+
+        // No other live signal exists for a role change today - this both
+        // refreshes bystanders' member lists and lets the demoted/promoted
+        // member's own client re-fetch its capability buttons.
+        await _hub.Clients.Group(HubGroups.ServerPresence(serverId)).SendAsync("MemberRoleChanged", serverId, userId);
         return Ok();
     }
 
@@ -327,6 +355,11 @@ public class ServersController : ControllerBase
         target.Permissions = (ServerPermission)req.Permissions & ServerPermission.All;
         await _db.SaveChangesAsync();
         await _modLog.LogAsync(serverId, CurrentUserId, CurrentUsername, "PermissionsChanged", userId, target.User?.Username, target.Permissions.ToString());
+
+        // Reuses the same event as ChangeRole - both change what the
+        // affected member's client should refetch (its own capability
+        // buttons) and what bystanders' member panels show.
+        await _hub.Clients.Group(HubGroups.ServerPresence(serverId)).SendAsync("MemberRoleChanged", serverId, userId);
         return Ok();
     }
 
@@ -397,7 +430,17 @@ public class ServersController : ControllerBase
             WrappedByUserId = CurrentUserId,
             WrappedKey = req.WrappedKey
         });
-        await _db.SaveChangesAsync();
+
+        try
+        {
+            await _db.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            // Backstop for the rare case two SetServerKey calls for the same
+            // target race past the AnyAsync check above simultaneously.
+            return Conflict("A key is already set for this member.");
+        }
 
         // Lets the target's client (if it's the one that just asked via
         // RequestServerKey and is sitting on a locked/placeholder view)

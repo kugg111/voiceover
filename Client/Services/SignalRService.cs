@@ -22,6 +22,18 @@ public class SignalRService
     public event Action<int>? YouWereBanned; // serverId
     public event Action<int>? YouWereKicked; // serverId
     public event Action<int>? ForceMuted; // channelId
+    // Bystander-facing moderation/channel events - unlike YouWereBanned/
+    // YouWereKicked above (targeted at the affected user only), these go to
+    // everyone in the server's server-presence group so open member lists,
+    // ban lists, and the moderation log window can refresh live instead of
+    // going stale until manually reopened.
+    public event Action<int, int>? MemberKicked; // serverId, userId
+    public event Action<int, int>? MemberBanned; // serverId, userId
+    public event Action<int, int>? MemberUnbanned; // serverId, userId
+    public event Action<int, int>? MemberRoleChanged; // serverId, userId
+    public event Action<int>? ModerationLogChanged; // serverId
+    public event Action<int>? ChannelCreated; // serverId
+    public event Action<int>? ChannelDeleted; // serverId
     public event Action<string, int>? UserTyping;
     public event Action<int, string, int, string?>? VoiceUserJoined;
     public event Action<int, string, int>? VoiceUserLeft;
@@ -75,6 +87,13 @@ public class SignalRService
         _connection.On<int>("YouWereBanned", serverId => YouWereBanned?.Invoke(serverId));
         _connection.On<int>("YouWereKicked", serverId => YouWereKicked?.Invoke(serverId));
         _connection.On<int>("ForceMuted", channelId => ForceMuted?.Invoke(channelId));
+        _connection.On<int, int>("MemberKicked", (serverId, userId) => MemberKicked?.Invoke(serverId, userId));
+        _connection.On<int, int>("MemberBanned", (serverId, userId) => MemberBanned?.Invoke(serverId, userId));
+        _connection.On<int, int>("MemberUnbanned", (serverId, userId) => MemberUnbanned?.Invoke(serverId, userId));
+        _connection.On<int, int>("MemberRoleChanged", (serverId, userId) => MemberRoleChanged?.Invoke(serverId, userId));
+        _connection.On<int>("ModerationLogChanged", serverId => ModerationLogChanged?.Invoke(serverId));
+        _connection.On<int>("ChannelCreated", serverId => ChannelCreated?.Invoke(serverId));
+        _connection.On<int>("ChannelDeleted", serverId => ChannelDeleted?.Invoke(serverId));
         _connection.On<string, int>("UserTyping", (username, channelId) => UserTyping?.Invoke(username, channelId));
         _connection.On<int, string, int, string?>("VoiceUserJoined", (userId, username, channelId, avatarUrl) => VoiceUserJoined?.Invoke(userId, username, channelId, avatarUrl));
         _connection.On<int, string, int>("VoiceUserLeft", (userId, username, channelId) => VoiceUserLeft?.Invoke(userId, username, channelId));

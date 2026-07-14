@@ -17,16 +17,42 @@ public partial class BanListWindow : FluentWindow
 {
     private readonly ApiService _api;
     private readonly int _serverId;
+    private readonly SignalRService? _hub;
+    private readonly Action<int, int>? _onMemberBanChanged;
     private readonly ObservableCollection<BannedUserItem> _bans = new();
 
-    public BanListWindow(ApiService api, int serverId)
+    public BanListWindow(ApiService api, int serverId, SignalRService? hub = null)
     {
         InitializeComponent();
         _api = api;
         _serverId = serverId;
+        _hub = hub;
         BanList.ItemsSource = _bans;
 
+        // Bystander live-refresh - lets this stay open and up to date while
+        // another mod bans/unbans someone, instead of needing to be closed
+        // and reopened to see the change. hub is optional purely so this
+        // constructor still compiles for any future caller without one on
+        // hand; MainWindow's own call site always passes it.
+        if (_hub is not null)
+        {
+            _onMemberBanChanged = (serverId2, userId) => Dispatcher.Invoke(() => OnMemberBanChanged(serverId2, userId));
+            _hub.MemberBanned += _onMemberBanChanged;
+            _hub.MemberUnbanned += _onMemberBanChanged;
+            Closed += (_, _) =>
+            {
+                _hub.MemberBanned -= _onMemberBanChanged;
+                _hub.MemberUnbanned -= _onMemberBanChanged;
+            };
+        }
+
         Loaded += async (_, _) => await LoadAsync();
+    }
+
+    private async void OnMemberBanChanged(int serverId, int userId)
+    {
+        if (serverId != _serverId) return;
+        await LoadAsync();
     }
 
     private async Task LoadAsync()

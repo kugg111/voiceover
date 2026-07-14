@@ -648,6 +648,11 @@ public partial class MainWindow : FluentWindow
         _hub.YouWereBanned += serverId => Dispatcher.Invoke(() => OnYouWereBanned(serverId));
         _hub.YouWereKicked += serverId => Dispatcher.Invoke(() => OnYouWereKicked(serverId));
         _hub.ForceMuted += channelId => Dispatcher.Invoke(() => OnForceMuted(channelId));
+        _hub.MemberKicked += (serverId, userId) => Dispatcher.Invoke(() => OnMemberKicked(serverId, userId));
+        _hub.MemberBanned += (serverId, userId) => Dispatcher.Invoke(() => OnMemberBanned(serverId, userId));
+        _hub.MemberRoleChanged += (serverId, userId) => Dispatcher.Invoke(() => OnMemberRoleChanged(serverId, userId));
+        _hub.ChannelCreated += serverId => Dispatcher.Invoke(() => OnChannelCreated(serverId));
+        _hub.ChannelDeleted += serverId => Dispatcher.Invoke(() => OnChannelDeleted(serverId));
         _hub.ServerKeyRequested += OnServerKeyRequested;
         _hub.ServerKeyProvisioned += OnServerKeyProvisioned;
         _hub.UserTyping += OnUserTyping;
@@ -1018,13 +1023,13 @@ public partial class MainWindow : FluentWindow
     private void ModerationLogButton_Click(object sender, RoutedEventArgs e)
     {
         if (_currentServerId is null) return;
-        new ModerationLogWindow(_api, _currentServerId.Value) { Owner = this }.ShowDialog();
+        new ModerationLogWindow(_api, _currentServerId.Value, _hub) { Owner = this }.ShowDialog();
     }
 
     private void BanListButton_Click(object sender, RoutedEventArgs e)
     {
         if (_currentServerId is null) return;
-        new BanListWindow(_api, _currentServerId.Value) { Owner = this }.ShowDialog();
+        new BanListWindow(_api, _currentServerId.Value, _hub) { Owner = this }.ShowDialog();
     }
 
     // Populates each voice channel's member list from a server-wide snapshot,
@@ -2682,6 +2687,40 @@ public partial class MainWindow : FluentWindow
         await LoadServersAsync();
     }
 
+    // Bystander-facing counterparts to OnYouWereKicked/OnYouWereBanned above -
+    // these fire for every other member with this server open, not just the
+    // affected user, so a member/ban list that's currently visible doesn't
+    // go stale until someone manually switches away and back. Refetch
+    // rather than patch the in-memory list, same as the targeted handlers.
+    private async void OnMemberKicked(int serverId, int userId)
+    {
+        if (serverId == _currentServerId) await LoadMembersPanelAsync(serverId);
+    }
+
+    private async void OnMemberBanned(int serverId, int userId)
+    {
+        if (serverId == _currentServerId) await LoadMembersPanelAsync(serverId);
+    }
+
+    // Also covers permission changes (SetPermissions reuses this same
+    // event) - both change what the member panel should show, and letting
+    // a demoted/promoted member's own client refetch is how it picks up
+    // its own new capability buttons.
+    private async void OnMemberRoleChanged(int serverId, int userId)
+    {
+        if (serverId == _currentServerId) await LoadMembersPanelAsync(serverId);
+    }
+
+    private async void OnChannelCreated(int serverId)
+    {
+        if (serverId == _currentServerId) await RefreshChannelsAsync(serverId);
+    }
+
+    private async void OnChannelDeleted(int serverId)
+    {
+        if (serverId == _currentServerId) await RefreshChannelsAsync(serverId);
+    }
+
     // A moderator force-muted us (ChatHub.ForceMuteUser) - just flips our
     // own mic mute state; VoiceService.MicMutedChanged (already subscribed,
     // see OnLocalMutedChangedAsync) handles broadcasting it to everyone else
@@ -2895,6 +2934,20 @@ public partial class MainWindow : FluentWindow
 
         if (_currentVoiceChannelId.HasValue)
             await _hub.JoinVoiceChannelAsync(_currentVoiceChannelId.Value);
+
+        // Same "fresh connection, no group memberships" reasoning as the two
+        // rejoins above - without this, the bystander moderation/channel
+        // broadcasts (MemberKicked, ChannelCreated, etc.) silently stop
+        // reaching this client after any reconnect. The one-shot refresh
+        // afterward reconciles anything that happened server-side during
+        // the outage, since group membership alone doesn't replay missed
+        // events.
+        if (_currentServerId.HasValue)
+        {
+            await _hub.JoinServerPresenceAsync(_currentServerId.Value);
+            await RefreshChannelsAsync(_currentServerId.Value);
+            await LoadMembersPanelAsync(_currentServerId.Value);
+        }
 
         Dispatcher.Invoke(() => ConnectionStatusText.Text = "");
     }

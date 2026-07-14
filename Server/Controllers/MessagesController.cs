@@ -32,11 +32,6 @@ public class MessagesController : ControllerBase
         _hub = hub;
     }
 
-    // Must match ChatHub's private GroupName(channelId) - every text
-    // channel's members are already in this group via JoinChannel, same one
-    // SendMessage broadcasts new messages to.
-    private static string GroupName(int channelId) => $"channel-{channelId}";
-
     private int CurrentUserId => int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
     private string CurrentUsername => User.FindFirstValue(ClaimTypes.Name)!;
 
@@ -72,20 +67,26 @@ public class MessagesController : ControllerBase
         return Ok(response);
     }
 
-    // GET /api/channels/5/messages/pinned -> every pinned message in this
-    // channel, most recently pinned first (not paginated - pin lists are
-    // expected to stay small in practice, same assumption Discord itself makes).
+    // GET /api/channels/5/messages/pinned -> pinned messages in this
+    // channel, most recently pinned first. take/skip are optional and
+    // unbounded by default (existing callers get today's "return
+    // everything" behavior) - added as a cap against a pathologically large
+    // pin list rather than an assumption pin lists always stay small.
     [HttpGet("pinned")]
-    public async Task<ActionResult<List<MessageResponse>>> GetPinned(int channelId)
+    public async Task<ActionResult<List<MessageResponse>>> GetPinned(int channelId, int? take = null, int? skip = null)
     {
         var channel = await _db.Channels.FirstOrDefaultAsync(c => c.Id == channelId);
         if (channel is null) return NotFound();
         if (!await _permissions.IsMemberAsync(CurrentUserId, channel.GuildServerId))
             return Forbid();
 
-        var messages = await _db.Messages
+        var query = _db.Messages
             .Where(m => m.ChannelId == channelId && m.PinnedAt != null)
             .OrderByDescending(m => m.PinnedAt)
+            .Skip(skip ?? 0);
+        if (PaginationLimits.Clamp(take) is { } clampedTake) query = query.Take(clampedTake);
+
+        var messages = await query
             .Include(m => m.Author)
             .ToListAsync();
 
@@ -115,7 +116,7 @@ public class MessagesController : ControllerBase
 
         message.PinnedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
-        await _hub.Clients.Group(GroupName(channelId)).SendAsync("MessagePinned", channelId, messageId, message.PinnedAt);
+        await _hub.Clients.Group(HubGroups.Channel(channelId)).SendAsync("MessagePinned", channelId, messageId, message.PinnedAt);
         await _modLog.LogAsync(message.Channel.GuildServerId, CurrentUserId, CurrentUsername, "Pin", details: $"message #{messageId} in channel #{channelId}");
 
         return Ok();
@@ -134,7 +135,7 @@ public class MessagesController : ControllerBase
 
         message.PinnedAt = null;
         await _db.SaveChangesAsync();
-        await _hub.Clients.Group(GroupName(channelId)).SendAsync("MessageUnpinned", channelId, messageId);
+        await _hub.Clients.Group(HubGroups.Channel(channelId)).SendAsync("MessageUnpinned", channelId, messageId);
         await _modLog.LogAsync(message.Channel.GuildServerId, CurrentUserId, CurrentUsername, "Unpin", details: $"message #{messageId} in channel #{channelId}");
 
         return Ok();
@@ -183,7 +184,7 @@ public class MessagesController : ControllerBase
 
         var reactions = (await LoadReactionsAsync(new List<int> { messageId })).GetValueOrDefault(messageId);
         var response = new MessageResponse(message.Id, message.Content, channelId, message.AuthorId, message.Author!.Username, message.SentAt, message.AttachmentUrl, message.Author.AvatarUrl, message.EditedAt, reactions, message.PinnedAt);
-        await _hub.Clients.Group(GroupName(channelId)).SendAsync("MessageEdited", response);
+        await _hub.Clients.Group(HubGroups.Channel(channelId)).SendAsync("MessageEdited", response);
 
         return Ok(response);
     }
@@ -213,7 +214,7 @@ public class MessagesController : ControllerBase
 
         _db.Messages.Remove(message);
         await _db.SaveChangesAsync();
-        await _hub.Clients.Group(GroupName(channelId)).SendAsync("MessageDeleted", messageId, channelId);
+        await _hub.Clients.Group(HubGroups.Channel(channelId)).SendAsync("MessageDeleted", messageId, channelId);
 
         // Only log when it wasn't a routine self-delete - avoids logging
         // every user deleting their own typo.
@@ -245,7 +246,7 @@ public class MessagesController : ControllerBase
         _db.Messages.RemoveRange(messages);
         await _db.SaveChangesAsync();
 
-        await _hub.Clients.Group(GroupName(channelId)).SendAsync("MessagesBulkDeletedByUser", channelId, userId);
+        await _hub.Clients.Group(HubGroups.Channel(channelId)).SendAsync("MessagesBulkDeletedByUser", channelId, userId);
 
         var targetUsername = (await _db.Users.FindAsync(userId))?.Username;
         await _modLog.LogAsync(channel.GuildServerId, CurrentUserId, CurrentUsername, "BulkDelete", userId, targetUsername, $"{messages.Count} message(s) in channel #{channelId}");

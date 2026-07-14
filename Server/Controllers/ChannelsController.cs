@@ -1,10 +1,12 @@
 using System.Security.Claims;
 using Voiceover.Server.Data;
 using Voiceover.Server.Dtos;
+using Voiceover.Server.Hubs;
 using Voiceover.Server.Models;
 using Voiceover.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
 namespace Voiceover.Server.Controllers;
@@ -16,11 +18,13 @@ public class ChannelsController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly PermissionService _permissions;
+    private readonly IHubContext<ChatHub> _hub;
 
-    public ChannelsController(AppDbContext db, PermissionService permissions)
+    public ChannelsController(AppDbContext db, PermissionService permissions, IHubContext<ChatHub> hub)
     {
         _db = db;
         _permissions = permissions;
+        _hub = hub;
     }
 
     private int CurrentUserId => int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -37,7 +41,7 @@ public class ChannelsController : ControllerBase
             .Where(c => c.GuildServerId == serverId)
             .OrderBy(c => c.Position)
             .Skip(skip ?? 0);
-        if (take.HasValue) query = query.Take(take.Value);
+        if (PaginationLimits.Clamp(take) is { } clampedTake) query = query.Take(clampedTake);
 
         var channels = await query
             .Select(c => new ChannelResponse(c.Id, c.Name, c.Type.ToString(), c.GuildServerId, c.Position, c.SlowModeSeconds))
@@ -68,6 +72,7 @@ public class ChannelsController : ControllerBase
         _db.Channels.Add(channel);
         await _db.SaveChangesAsync();
 
+        await _hub.Clients.Group(HubGroups.ServerPresence(serverId)).SendAsync("ChannelCreated", serverId);
         return Ok(new ChannelResponse(channel.Id, channel.Name, channel.Type.ToString(), channel.GuildServerId, channel.Position, channel.SlowModeSeconds));
     }
 
@@ -82,6 +87,8 @@ public class ChannelsController : ControllerBase
 
         _db.Channels.Remove(channel);
         await _db.SaveChangesAsync();
+
+        await _hub.Clients.Group(HubGroups.ServerPresence(serverId)).SendAsync("ChannelDeleted", serverId);
         return Ok();
     }
 

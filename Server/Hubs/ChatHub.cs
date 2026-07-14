@@ -46,12 +46,12 @@ public class ChatHub : Hub
     // messages/typing events for that channel via SignalR groups.
     public async Task JoinChannel(int channelId)
     {
-        await Groups.AddToGroupAsync(Context.ConnectionId, GroupName(channelId));
+        await Groups.AddToGroupAsync(Context.ConnectionId, HubGroups.Channel(channelId));
     }
 
     public async Task LeaveChannel(int channelId)
     {
-        await Groups.RemoveFromGroupAsync(Context.ConnectionId, GroupName(channelId));
+        await Groups.RemoveFromGroupAsync(Context.ConnectionId, HubGroups.Channel(channelId));
     }
 
     // content is already E2EE ciphertext by the time it gets here - the
@@ -110,12 +110,12 @@ public class ChatHub : Hub
         }
 
         var response = new MessageResponse(message.Id, message.Content, channelId, CurrentUserId, CurrentUsername, message.SentAt, message.AttachmentUrl, authorAvatarUrl);
-        await Clients.Group(GroupName(channelId)).SendAsync("ReceiveMessage", response);
+        await Clients.Group(HubGroups.Channel(channelId)).SendAsync("ReceiveMessage", response);
     }
 
     public async Task NotifyTyping(int channelId)
     {
-        await Clients.OthersInGroup(GroupName(channelId)).SendAsync("UserTyping", CurrentUsername, channelId);
+        await Clients.OthersInGroup(HubGroups.Channel(channelId)).SendAsync("UserTyping", CurrentUsername, channelId);
     }
 
     // Emoji reactions - a small fixed picker client-side (see MainWindow's
@@ -150,7 +150,7 @@ public class ChatHub : Hub
 
         await _db.SaveChangesAsync();
 
-        await Clients.Group(GroupName(message.ChannelId))
+        await Clients.Group(HubGroups.Channel(message.ChannelId))
             .SendAsync("MessageReactionToggled", message.ChannelId, messageId, emoji, CurrentUserId, added);
     }
 
@@ -381,14 +381,14 @@ public class ChatHub : Hub
         }
 
         var existingMembers = _voicePresence.Join(Context.ConnectionId, channelId, channel.GuildServerId, CurrentUserId, CurrentUsername, avatarUrl);
-        await Groups.AddToGroupAsync(Context.ConnectionId, VoiceGroupName(channelId));
-        await Clients.OthersInGroup(VoiceGroupName(channelId)).SendAsync("VoiceUserJoined", CurrentUserId, CurrentUsername, channelId, avatarUrl);
+        await Groups.AddToGroupAsync(Context.ConnectionId, HubGroups.Voice(channelId));
+        await Clients.OthersInGroup(HubGroups.Voice(channelId)).SendAsync("VoiceUserJoined", CurrentUserId, CurrentUsername, channelId, avatarUrl);
 
         // Also notify anyone just viewing the server (not necessarily in this
         // voice channel) so their sidebar roster updates live too. Someone in
         // both groups gets this event twice - harmless, the client-side
         // handler is idempotent (checks the member isn't already listed).
-        await Clients.OthersInGroup(ServerPresenceGroupName(channel.GuildServerId)).SendAsync("VoiceUserJoined", CurrentUserId, CurrentUsername, channelId, avatarUrl);
+        await Clients.OthersInGroup(HubGroups.ServerPresence(channel.GuildServerId)).SendAsync("VoiceUserJoined", CurrentUserId, CurrentUsername, channelId, avatarUrl);
 
         return existingMembers;
     }
@@ -407,11 +407,11 @@ public class ChatHub : Hub
     public async Task LeaveVoiceChannel(int channelId)
     {
         var left = _voicePresence.Leave(Context.ConnectionId);
-        await Groups.RemoveFromGroupAsync(Context.ConnectionId, VoiceGroupName(channelId));
-        await Clients.Group(VoiceGroupName(channelId)).SendAsync("VoiceUserLeft", CurrentUserId, CurrentUsername, channelId);
+        await Groups.RemoveFromGroupAsync(Context.ConnectionId, HubGroups.Voice(channelId));
+        await Clients.Group(HubGroups.Voice(channelId)).SendAsync("VoiceUserLeft", CurrentUserId, CurrentUsername, channelId);
 
         if (left is not null)
-            await Clients.Group(ServerPresenceGroupName(left.Value.ServerId)).SendAsync("VoiceUserLeft", CurrentUserId, CurrentUsername, channelId);
+            await Clients.Group(HubGroups.ServerPresence(left.Value.ServerId)).SendAsync("VoiceUserLeft", CurrentUserId, CurrentUsername, channelId);
     }
 
     // Client-side voice-activity detection pushes state changes here (not raw
@@ -419,11 +419,11 @@ public class ChatHub : Hub
     // per-frame one.
     public async Task NotifySpeaking(int channelId, bool isSpeaking)
     {
-        await Clients.OthersInGroup(VoiceGroupName(channelId)).SendAsync("UserSpeaking", CurrentUserId, channelId, isSpeaking);
+        await Clients.OthersInGroup(HubGroups.Voice(channelId)).SendAsync("UserSpeaking", CurrentUserId, channelId, isSpeaking);
 
         var serverId = _voicePresence.GetServerId(Context.ConnectionId);
         if (serverId is not null)
-            await Clients.OthersInGroup(ServerPresenceGroupName(serverId.Value)).SendAsync("UserSpeaking", CurrentUserId, channelId, isSpeaking);
+            await Clients.OthersInGroup(HubGroups.ServerPresence(serverId.Value)).SendAsync("UserSpeaking", CurrentUserId, channelId, isSpeaking);
     }
 
     // Mirrors NotifySpeaking - same live-broadcast-only shape (not part of
@@ -433,20 +433,20 @@ public class ChatHub : Hub
     // tradeoff the speaking indicator already accepts.
     public async Task NotifyMuted(int channelId, bool isMuted)
     {
-        await Clients.OthersInGroup(VoiceGroupName(channelId)).SendAsync("UserMuted", CurrentUserId, channelId, isMuted);
+        await Clients.OthersInGroup(HubGroups.Voice(channelId)).SendAsync("UserMuted", CurrentUserId, channelId, isMuted);
 
         var serverId = _voicePresence.GetServerId(Context.ConnectionId);
         if (serverId is not null)
-            await Clients.OthersInGroup(ServerPresenceGroupName(serverId.Value)).SendAsync("UserMuted", CurrentUserId, channelId, isMuted);
+            await Clients.OthersInGroup(HubGroups.ServerPresence(serverId.Value)).SendAsync("UserMuted", CurrentUserId, channelId, isMuted);
     }
 
     public async Task NotifyDeafened(int channelId, bool isDeafened)
     {
-        await Clients.OthersInGroup(VoiceGroupName(channelId)).SendAsync("UserDeafened", CurrentUserId, channelId, isDeafened);
+        await Clients.OthersInGroup(HubGroups.Voice(channelId)).SendAsync("UserDeafened", CurrentUserId, channelId, isDeafened);
 
         var serverId = _voicePresence.GetServerId(Context.ConnectionId);
         if (serverId is not null)
-            await Clients.OthersInGroup(ServerPresenceGroupName(serverId.Value)).SendAsync("UserDeafened", CurrentUserId, channelId, isDeafened);
+            await Clients.OthersInGroup(HubGroups.ServerPresence(serverId.Value)).SendAsync("UserDeafened", CurrentUserId, channelId, isDeafened);
     }
 
     // Pushes a forced-mute instruction to a specific other user's client(s)
@@ -522,7 +522,7 @@ public class ChatHub : Hub
             await Clients.Users(friendIds.Select(id => id.ToString())).SendAsync("PresenceChanged", userId, state);
 
         foreach (var serverId in serverIds)
-            await Clients.Group(ServerPresenceGroupName(serverId)).SendAsync("PresenceChanged", userId, state);
+            await Clients.Group(HubGroups.ServerPresence(serverId)).SendAsync("PresenceChanged", userId, state);
     }
 
     public override async Task OnConnectedAsync()
@@ -538,12 +538,12 @@ public class ChatHub : Hub
 
     public async Task JoinServerPresence(int serverId)
     {
-        await Groups.AddToGroupAsync(Context.ConnectionId, ServerPresenceGroupName(serverId));
+        await Groups.AddToGroupAsync(Context.ConnectionId, HubGroups.ServerPresence(serverId));
     }
 
     public async Task LeaveServerPresence(int serverId)
     {
-        await Groups.RemoveFromGroupAsync(Context.ConnectionId, ServerPresenceGroupName(serverId));
+        await Groups.RemoveFromGroupAsync(Context.ConnectionId, HubGroups.ServerPresence(serverId));
     }
 
     // Lets a client that just opened a server (without joining any voice
@@ -580,8 +580,8 @@ public class ChatHub : Hub
         if (left is not null)
         {
             var (channelId, serverId, userId, username) = left.Value;
-            await Clients.Group(VoiceGroupName(channelId)).SendAsync("VoiceUserLeft", userId, username, channelId);
-            await Clients.Group(ServerPresenceGroupName(serverId)).SendAsync("VoiceUserLeft", userId, username, channelId);
+            await Clients.Group(HubGroups.Voice(channelId)).SendAsync("VoiceUserLeft", userId, username, channelId);
+            await Clients.Group(HubGroups.ServerPresence(serverId)).SendAsync("VoiceUserLeft", userId, username, channelId);
         }
 
         var disconnected = _presence.Disconnect(Context.ConnectionId);
@@ -590,8 +590,4 @@ public class ChatHub : Hub
 
         await base.OnDisconnectedAsync(exception);
     }
-
-    private static string GroupName(int channelId) => $"channel-{channelId}";
-    private static string VoiceGroupName(int channelId) => $"voice-{channelId}";
-    private static string ServerPresenceGroupName(int serverId) => $"server-presence-{serverId}";
 }

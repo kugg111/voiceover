@@ -19,16 +19,36 @@ public partial class ModerationLogWindow : FluentWindow
 {
     private readonly ApiService _api;
     private readonly int _serverId;
+    private readonly SignalRService? _hub;
+    private readonly Action<int>? _onModerationLogChanged;
     private readonly ObservableCollection<ModerationLogItem> _entries = new();
 
-    public ModerationLogWindow(ApiService api, int serverId)
+    public ModerationLogWindow(ApiService api, int serverId, SignalRService? hub = null)
     {
         InitializeComponent();
         _api = api;
         _serverId = serverId;
+        _hub = hub;
         LogList.ItemsSource = _entries;
 
+        // Bystander live-refresh - every moderation action funnels through
+        // ModerationLogService.LogAsync server-side, so this one event
+        // covers Kick/Ban/RoleChange/Pin/etc. without needing a separate
+        // subscription per action type.
+        if (_hub is not null)
+        {
+            _onModerationLogChanged = serverId2 => Dispatcher.Invoke(() => OnModerationLogChanged(serverId2));
+            _hub.ModerationLogChanged += _onModerationLogChanged;
+            Closed += (_, _) => _hub.ModerationLogChanged -= _onModerationLogChanged;
+        }
+
         Loaded += async (_, _) => await LoadAsync();
+    }
+
+    private async void OnModerationLogChanged(int serverId)
+    {
+        if (serverId != _serverId) return;
+        await LoadAsync();
     }
 
     private async Task LoadAsync()
