@@ -343,9 +343,26 @@ public class MessageListItem : INotifyPropertyChanged
     // Cancel can discard in-progress typing without touching the real value.
     public string EditingContent { get; set; } = string.Empty;
 
+    private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".png", ".jpg", ".jpeg", ".gif", ".webp"
+    };
+
+    private bool IsImageAttachment => AttachmentUrl is not null &&
+        ImageExtensions.Contains(System.IO.Path.GetExtension(AttachmentUrl));
+
+    // AttachmentUrl is the server-relative /uploads/... path returned by
+    // UploadController - needs the API base prepended before it's a real
+    // downloadable/renderable URL, same as AttachmentLink_MouseLeftButtonUp
+    // already does for the "open" click.
+    public string? AttachmentFullUrl => AttachmentUrl is null ? null : App.ApiBaseUrl.TrimEnd('/') + AttachmentUrl;
+
     public string AttachmentDisplay => AttachmentUrl is null ? "" : $"📎 {System.IO.Path.GetFileName(AttachmentUrl)}";
     public Visibility ContentVisibility => !IsEditing && !string.IsNullOrEmpty(Content) ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility AttachmentVisibility => AttachmentUrl is null ? Visibility.Collapsed : Visibility.Visible;
+    // Image attachments render inline instead of as a click-through link -
+    // the file-link row only shows for non-image attachments (pdf/txt/zip).
+    public Visibility FileAttachmentVisibility => AttachmentUrl is not null && !IsImageAttachment ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility ImageAttachmentVisibility => AttachmentUrl is not null && IsImageAttachment ? Visibility.Visible : Visibility.Collapsed;
     public Visibility EditedTagVisibility => IsEdited ? Visibility.Visible : Visibility.Collapsed;
     public Visibility EditBoxVisibility => IsEditing ? Visibility.Visible : Visibility.Collapsed;
 
@@ -2015,14 +2032,22 @@ public partial class MainWindow : FluentWindow
 
         if (dialog.ShowDialog() != true) return;
 
-        var (upload, error) = await _api.UploadFileAsync(dialog.FileName);
+        await SendAttachmentAsync(dialog.FileName);
+    }
+
+    // Shared by AttachButton_Click (file picker) and MessageInput_Pasting
+    // (Ctrl+V an image) - both end up with a local file path to upload and
+    // send as an attachment-only message.
+    private async Task SendAttachmentAsync(string filePath)
+    {
+        if (_currentChannelId is null || _currentServerId is not { } serverId) return;
+
+        var (upload, error) = await _api.UploadFileAsync(filePath);
         if (upload is null)
         {
             MessageBox.Show(error ?? "Upload failed.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
         }
-
-        if (_currentServerId is not { } serverId) return;
 
         // Content is always encrypted, even when empty (attachment-only) -
         // so the receive/history paths never need to guess whether a given
@@ -2040,10 +2065,79 @@ public partial class MainWindow : FluentWindow
     private void AttachmentLink_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
         if (sender is not FrameworkElement { Tag: string relativeUrl }) return;
+        OpenAttachmentUrl(relativeUrl);
+    }
 
+    private void OpenImageMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string relativeUrl }) return;
+        OpenAttachmentUrl(relativeUrl);
+    }
+
+    private static void OpenAttachmentUrl(string relativeUrl)
+    {
         // Attachments are served by the ASP.NET Core server as static files.
         var fullUrl = App.ApiBaseUrl.TrimEnd('/') + relativeUrl;
         System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(fullUrl) { UseShellExecute = true });
+    }
+
+    // Ctrl+V into the message box - if the clipboard holds an image (e.g.
+    // copied from a browser/screenshot tool) rather than text, intercept the
+    // paste and send it as an attachment instead of dumping raw image data
+    // into the text field. Falls through to normal text pasting otherwise.
+    private async void MessageInput_Pasting(object sender, DataObjectPastingEventArgs e)
+    {
+        // Read off the paste's own data object rather than re-querying the
+        // live OS clipboard (Clipboard.ContainsImage/GetImage) - besides
+        // being the documented approach for DataObject.Pasting, it also
+        // covers apps/browsers that only place a "PNG" clipboard format on
+        // the clipboard without the legacy CF_DIB/CF_BITMAP formats
+        // Clipboard.ContainsImage() looks for, which otherwise silently
+        // fails for images copied from some websites.
+        var data = e.SourceDataObject;
+        System.Windows.Media.Imaging.BitmapSource? bitmapSource = null;
+
+        if (data.GetDataPresent(DataFormats.Bitmap))
+        {
+            bitmapSource = data.GetData(DataFormats.Bitmap) as System.Windows.Media.Imaging.BitmapSource;
+        }
+        else if (data.GetDataPresent("PNG") && data.GetData("PNG") is System.IO.MemoryStream pngStream)
+        {
+            bitmapSource = new System.Windows.Media.Imaging.PngBitmapDecoder(
+                pngStream, System.Windows.Media.Imaging.BitmapCreateOptions.PreservePixelFormat,
+                System.Windows.Media.Imaging.BitmapCacheOption.OnLoad).Frames[0];
+        }
+
+        if (bitmapSource is null) return;
+
+        e.CancelCommand();
+
+        if (_dmActiveUserId.HasValue)
+        {
+            MessageBox.Show("Attachments aren't supported in direct messages yet.");
+            return;
+        }
+
+        if (_currentChannelId is null)
+        {
+            MessageBox.Show("Select a channel first.");
+            return;
+        }
+
+        var tempFile = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"voiceover-paste-{Guid.NewGuid():N}.png");
+        try
+        {
+            var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+            encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmapSource));
+            await using (var stream = System.IO.File.Create(tempFile))
+                encoder.Save(stream);
+
+            await SendAttachmentAsync(tempFile);
+        }
+        finally
+        {
+            try { System.IO.File.Delete(tempFile); } catch { /* best-effort cleanup */ }
+        }
     }
 
     private async void SendButton_Click(object sender, RoutedEventArgs e) => await SendCurrentMessage();

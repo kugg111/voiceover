@@ -9,14 +9,22 @@
             <ResourceDictionary.MergedDictionaries>
                 <!-- Restyles standard controls (Button, TextBox, ComboBox, etc.)
                      to the Fluent look automatically - existing XAML doesn't need
-                     to switch to ui: control tags to pick this up. No
-                     ui:ThemesDictionary here (used to be a hardcoded
-                     Theme="Dark") - App.xaml.cs.OnStartup applies the actual
-                     WPF-UI theme (and merges in DarkPalette.xaml/
-                     LightPalette.xaml, this app's own custom brushes) based on
-                     the saved preference, before any window is created. -->
+                     to switch to ui: control tags to pick this up. -->
+                <ui:ThemesDictionary Theme="Dark" />
                 <ui:ControlsDictionary />
             </ResourceDictionary.MergedDictionaries>
+
+            <!-- Discord-accurate palette - the app's only theme. -->
+            <SolidColorBrush x:Key="BgDark" Color="#2B2D31"/>
+            <SolidColorBrush x:Key="BgDarker" Color="#1E1F22"/>
+            <SolidColorBrush x:Key="BgSidebar" Color="#232428"/>
+            <SolidColorBrush x:Key="AccentBlurple" Color="#5865F2"/>
+            <SolidColorBrush x:Key="TextNormal" Color="#DBDEE1"/>
+            <SolidColorBrush x:Key="TextMuted" Color="#949BA4"/>
+            <!-- Used only for your own voice-member row while it's still connecting
+                 (see VoiceMemberItem.IsJoining) - light blue so it reads as "in
+                 progress" rather than the flat gray every other row uses. -->
+            <SolidColorBrush x:Key="TextJoining" Color="#8AB4F8"/>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

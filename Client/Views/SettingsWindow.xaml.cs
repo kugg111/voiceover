@@ -28,7 +28,6 @@ public partial class SettingsWindow : FluentWindow
         AccountUsernameText.Text = _api.CurrentUsername;
         CustomStatusBox.Text = _api.CurrentUserCustomStatus ?? "";
         UpdateCustomStatusCounter();
-        LightThemeCheckBox.IsChecked = ThemeStorage.LoadIsLightTheme();
 
         UpdateStatusText.Text = $"You're on version {UpdateChecker.CurrentVersion}" +
             (UpdateChecker.IsInstalled ? " (installed)." : " (portable).");
@@ -116,11 +115,6 @@ public partial class SettingsWindow : FluentWindow
     }
 
     private void CustomStatusBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e) => UpdateCustomStatusCounter();
-
-    // Only saved here - not applied live, see App.ApplyTheme for why a
-    // restart is required.
-    private void LightThemeCheckBox_Changed(object sender, RoutedEventArgs e) =>
-        ThemeStorage.SaveIsLightTheme(LightThemeCheckBox.IsChecked == true);
 
     private void UpdateCustomStatusCounter() =>
         CustomStatusCounterText.Text = $"{CustomStatusBox.Text.Length}/{CustomStatusBox.MaxLength}";

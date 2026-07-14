@@ -22,27 +22,6 @@ public partial class App : Application
     public static string? ResolveUploadUrl(string? relativeOrNull) =>
         string.IsNullOrEmpty(relativeOrNull) ? null : ApiBaseUrl.TrimEnd('/') + relativeOrNull;
 
-    // Applied once at startup, not live-switchable: every custom color in
-    // this app (BgDark/TextNormal/etc., see Themes/DarkPalette.xaml and
-    // LightPalette.xaml) is referenced via StaticResource throughout the
-    // XAML, which resolves once at load time and does not react to the
-    // resource dictionary changing afterwards - only WPF-UI's own restyled
-    // controls (via ApplicationThemeManager) support switching live.
-    // Rewriting every StaticResource reference across the app to
-    // DynamicResource just to support a live toggle wasn't worth the risk
-    // for this feature; SettingsWindow's theme toggle instead tells the user
-    // to restart, same as it would for a genuinely native theme switch.
-    public static void ApplyTheme(bool isLightTheme)
-    {
-        Wpf.Ui.Appearance.ApplicationThemeManager.Apply(
-            isLightTheme ? Wpf.Ui.Appearance.ApplicationTheme.Light : Wpf.Ui.Appearance.ApplicationTheme.Dark);
-
-        var paletteUri = isLightTheme
-            ? new Uri("Themes/LightPalette.xaml", UriKind.Relative)
-            : new Uri("Themes/DarkPalette.xaml", UriKind.Relative);
-        Current.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = paletteUri });
-    }
-
     public App()
     {
         // Most event handlers in this app are `async void` (WPF's Click/etc. signatures
@@ -56,7 +35,6 @@ public partial class App : Application
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
-        ApplyTheme(ThemeStorage.LoadIsLightTheme());
 
         var session = SessionStorage.Load();
         if (session is not null)
