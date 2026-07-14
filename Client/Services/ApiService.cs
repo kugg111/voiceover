@@ -41,8 +41,8 @@ public class ApiService
 
     public ApiService(string baseUrl)
     {
-        _authHttp = new HttpClient { BaseAddress = new Uri(baseUrl) };
-        _http = new HttpClient(new AuthRefreshHandler(GetFreshAccessTokenAsync) { InnerHandler = new HttpClientHandler() })
+        _authHttp = new HttpClient(new RetryHandler { InnerHandler = new HttpClientHandler() }) { BaseAddress = new Uri(baseUrl) };
+        _http = new HttpClient(new AuthRefreshHandler(GetFreshAccessTokenAsync) { InnerHandler = new RetryHandler { InnerHandler = new HttpClientHandler() } })
         {
             BaseAddress = new Uri(baseUrl)
         };
@@ -182,6 +182,17 @@ public class ApiService
     public async Task<List<GuildServerResponse>> GetMyServersAsync()
         => await _http.GetFromJsonAsync<List<GuildServerResponse>>("api/servers") ?? new();
 
+    // --- Account (Settings > Danger Zone) ---
+    public async Task<UserDataExportResponse?> ExportMyDataAsync()
+        => await _http.GetFromJsonAsync<UserDataExportResponse>("api/users/me/export");
+
+    public async Task<(bool Success, string? Error)> DeleteMyAccountAsync()
+    {
+        var response = await _http.DeleteAsync("api/users/me");
+        if (response.IsSuccessStatusCode) return (true, null);
+        return (false, await response.Content.ReadAsStringAsync());
+    }
+
     public async Task<(bool Success, string? Error)> LeaveServerAsync(int serverId)
     {
         var response = await _http.DeleteAsync($"api/servers/{serverId}/leave");
@@ -218,6 +229,9 @@ public class ApiService
             : null;
     }
 
+    public async Task<bool> SetSlowModeAsync(int serverId, int channelId, int seconds)
+        => (await _http.PutAsJsonAsync($"api/servers/{serverId}/channels/{channelId}/slowmode", new SetSlowModeRequest(seconds))).IsSuccessStatusCode;
+
     public async Task<List<MessageResponse>> GetMessageHistoryAsync(int channelId, int? beforeId = null)
         => await _http.GetFromJsonAsync<List<MessageResponse>>(
             $"api/channels/{channelId}/messages?take=50{(beforeId.HasValue ? $"&beforeId={beforeId}" : "")}") ?? new();
@@ -239,6 +253,10 @@ public class ApiService
 
     public async Task<bool> UnpinMessageAsync(int channelId, int messageId)
         => (await _http.DeleteAsync($"api/channels/{channelId}/messages/{messageId}/pin")).IsSuccessStatusCode;
+
+    // "Purge" - deletes every message by userId in this channel.
+    public async Task<bool> DeleteAllMessagesFromUserAsync(int channelId, int userId)
+        => (await _http.DeleteAsync($"api/channels/{channelId}/messages/from/{userId}")).IsSuccessStatusCode;
 
     // --- Invites ---
     public async Task<InviteResponse?> CreateInviteAsync(int serverId, int? expiresInHours = null, int? maxUses = null)
@@ -270,6 +288,26 @@ public class ApiService
         var response = await _http.PutAsJsonAsync($"api/servers/{serverId}/members/{userId}/role", new { Role = role });
         return response.IsSuccessStatusCode;
     }
+
+    public async Task<bool> SetPermissionsAsync(int serverId, int userId, ServerPermission permissions)
+        => (await _http.PutAsJsonAsync($"api/servers/{serverId}/members/{userId}/permissions", new SetPermissionsRequest((int)permissions))).IsSuccessStatusCode;
+
+    // --- Bans + moderation log ---
+    public async Task<(bool Success, string? Error)> BanMemberAsync(int serverId, int userId, string? reason)
+    {
+        var response = await _http.PostAsJsonAsync($"api/servers/{serverId}/bans/{userId}", new BanRequest(reason));
+        if (response.IsSuccessStatusCode) return (true, null);
+        return (false, await response.Content.ReadAsStringAsync());
+    }
+
+    public async Task<bool> UnbanMemberAsync(int serverId, int userId)
+        => (await _http.DeleteAsync($"api/servers/{serverId}/bans/{userId}")).IsSuccessStatusCode;
+
+    public async Task<List<BannedUserResponse>> GetBansAsync(int serverId)
+        => await _http.GetFromJsonAsync<List<BannedUserResponse>>($"api/servers/{serverId}/bans") ?? new();
+
+    public async Task<List<ModerationLogEntryResponse>> GetModerationLogAsync(int serverId)
+        => await _http.GetFromJsonAsync<List<ModerationLogEntryResponse>>($"api/servers/{serverId}/moderation-log") ?? new();
 
     public async Task<bool> DeleteChannelAsync(int serverId, int channelId)
         => (await _http.DeleteAsync($"api/servers/{serverId}/channels/{channelId}")).IsSuccessStatusCode;

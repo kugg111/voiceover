@@ -19,4 +19,9 @@ public class UserAvatarCache
     public void Set(int userId, string? avatarUrl) => _avatarUrls[userId] = avatarUrl;
 
     public bool TryGet(int userId, out string? avatarUrl) => _avatarUrls.TryGetValue(userId, out avatarUrl);
+
+    // Called by UsersController.DeleteMyAccount - a deleted user's id could
+    // theoretically be reused by nobody (auto-increment never reuses ids),
+    // but there's no reason to keep a stale entry around indefinitely either.
+    public void Remove(int userId) => _avatarUrls.TryRemove(userId, out _);
 }

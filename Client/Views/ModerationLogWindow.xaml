@@ -1,0 +1,50 @@
+<ui:FluentWindow x:Class="Voiceover.Client.Views.ModerationLogWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+        Title="Moderation Log" Height="480" Width="440"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource BgDark}"
+        Icon="/Assets/AppIcon.png"
+        ExtendsContentIntoTitleBar="True"
+        WindowBackdropType="Mica"
+        WindowCornerPreference="Round">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <ui:TitleBar Title="Moderation Log" Grid.Row="0" ShowMaximize="False"/>
+
+        <DockPanel Grid.Row="1" Margin="20">
+            <TextBlock DockPanel.Dock="Top" x:Name="EmptyStateText" Text="No moderation actions logged yet."
+                       FontSize="12" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}"
+                       Visibility="Collapsed" Margin="0,0,0,8"/>
+
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <ItemsControl x:Name="LogList">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Background="{StaticResource BgSidebar}" CornerRadius="4" Padding="10,8" Margin="0,0,0,8">
+                                <StackPanel>
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="{Binding ActorUsername}" FontWeight="Bold" FontSize="13"
+                                                   Foreground="{StaticResource AccentBlurple}" Margin="0,0,6,0"/>
+                                        <TextBlock Text="{Binding Action}" FontSize="13" Foreground="{StaticResource TextNormal}" Margin="0,0,6,0"/>
+                                        <TextBlock Text="{Binding TargetUsername}" FontSize="13" Foreground="{StaticResource TextNormal}"/>
+                                    </StackPanel>
+                                    <TextBlock Text="{Binding Details}" FontSize="11" TextWrapping="Wrap"
+                                               Foreground="{StaticResource TextMuted}" Margin="0,2,0,0"
+                                               Visibility="{Binding DetailsVisibility}"/>
+                                    <TextBlock Text="{Binding TimeDisplay}" FontSize="11"
+                                               Foreground="{StaticResource TextMuted}" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </DockPanel>
+    </Grid>
+</ui:FluentWindow>

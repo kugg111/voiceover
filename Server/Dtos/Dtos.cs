@@ -6,12 +6,20 @@ public record AuthResponse(string Token, DateTime ExpiresAtUtc, string RefreshTo
 public record RefreshRequest(string RefreshToken);
 public record LogoutRequest(string RefreshToken);
 
+// Account profile + membership/friend metadata only - never message
+// content, since the server only ever holds E2EE ciphertext for messages
+// (same limitation already disclosed for in-app search, which had to be
+// client-side for the same reason).
+public record ExportedMembership(string ServerName, string Role);
+public record UserDataExportResponse(string Username, DateTime CreatedAt, string? CustomStatus, List<ExportedMembership> Servers, List<string> Friends);
+
 public record CreateServerRequest(string Name);
 public record GuildServerResponse(int Id, string Name, string? IconUrl, int OwnerId);
 public record SetIconRequest(string Url);
 
 public record CreateChannelRequest(string Name, string Type); // "Text" or "Voice"
-public record ChannelResponse(int Id, string Name, string Type, int GuildServerId, int Position);
+public record ChannelResponse(int Id, string Name, string Type, int GuildServerId, int Position, int SlowModeSeconds = 0);
+public record SetSlowModeRequest(int Seconds);
 
 // Aggregated per (message, emoji) - ReactedByMe lets the client render the
 // "you reacted" highlight without shipping every individual reactor's id.

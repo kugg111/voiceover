@@ -40,7 +40,7 @@ public class ChannelsController : ControllerBase
         if (take.HasValue) query = query.Take(take.Value);
 
         var channels = await query
-            .Select(c => new ChannelResponse(c.Id, c.Name, c.Type.ToString(), c.GuildServerId, c.Position))
+            .Select(c => new ChannelResponse(c.Id, c.Name, c.Type.ToString(), c.GuildServerId, c.Position, c.SlowModeSeconds))
             .ToListAsync();
 
         return Ok(channels);
@@ -49,8 +49,8 @@ public class ChannelsController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<ChannelResponse>> Create(int serverId, CreateChannelRequest req)
     {
-        // Only owners/moderators can create channels.
-        if (!await _permissions.CanManageServerAsync(CurrentUserId, serverId))
+        // Only owners/moderators with ManageChannels can create channels.
+        if (!await _permissions.HasPermissionAsync(CurrentUserId, serverId, ServerPermission.ManageChannels))
             return Forbid();
 
         var type = string.Equals(req.Type, "Voice", StringComparison.OrdinalIgnoreCase) ? ChannelType.Voice : ChannelType.Text;
@@ -68,19 +68,34 @@ public class ChannelsController : ControllerBase
         _db.Channels.Add(channel);
         await _db.SaveChangesAsync();
 
-        return Ok(new ChannelResponse(channel.Id, channel.Name, channel.Type.ToString(), channel.GuildServerId, channel.Position));
+        return Ok(new ChannelResponse(channel.Id, channel.Name, channel.Type.ToString(), channel.GuildServerId, channel.Position, channel.SlowModeSeconds));
     }
 
     [HttpDelete("{channelId}")]
     public async Task<ActionResult> Delete(int serverId, int channelId)
     {
-        if (!await _permissions.CanManageServerAsync(CurrentUserId, serverId))
+        if (!await _permissions.HasPermissionAsync(CurrentUserId, serverId, ServerPermission.ManageChannels))
             return Forbid();
 
         var channel = await _db.Channels.FirstOrDefaultAsync(c => c.Id == channelId && c.GuildServerId == serverId);
         if (channel is null) return NotFound();
 
         _db.Channels.Remove(channel);
+        await _db.SaveChangesAsync();
+        return Ok();
+    }
+
+    // 0 = off. ManageChannels-gated, same as Create/Delete above.
+    [HttpPut("{channelId}/slowmode")]
+    public async Task<ActionResult> SetSlowMode(int serverId, int channelId, SetSlowModeRequest req)
+    {
+        if (!await _permissions.HasPermissionAsync(CurrentUserId, serverId, ServerPermission.ManageChannels))
+            return Forbid();
+
+        var channel = await _db.Channels.FirstOrDefaultAsync(c => c.Id == channelId && c.GuildServerId == serverId);
+        if (channel is null) return NotFound();
+
+        channel.SlowModeSeconds = Math.Max(0, req.Seconds);
         await _db.SaveChangesAsync();
         return Ok();
     }

@@ -116,6 +116,54 @@ public partial class SettingsWindow : FluentWindow
 
     private void CustomStatusBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e) => UpdateCustomStatusCounter();
 
+    private async void ExportDataButton_Click(object sender, RoutedEventArgs e)
+    {
+        ExportDataButton.IsEnabled = false;
+        var data = await _api.ExportMyDataAsync();
+        ExportDataButton.IsEnabled = true;
+
+        if (data is null)
+        {
+            MessageBox.Show("Could not export your data.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        var dialog = new SaveFileDialog { FileName = "voiceover-data-export.json", Filter = "JSON files (*.json)|*.json" };
+        if (dialog.ShowDialog() != true) return;
+
+        var json = System.Text.Json.JsonSerializer.Serialize(data, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        await System.IO.File.WriteAllTextAsync(dialog.FileName, json);
+        AccountStatusText.Text = "Data exported.";
+    }
+
+    private async void DeleteAccountButton_Click(object sender, RoutedEventArgs e)
+    {
+        var confirm = new ConfirmDialog("Delete Account",
+            "This permanently deletes your account and everything tied to it. This cannot be undone. Are you sure?",
+            "Delete", destructive: true) { Owner = this };
+        confirm.ShowDialog();
+        if (!confirm.Result) return;
+
+        DeleteAccountButton.IsEnabled = false;
+        var (success, error) = await _api.DeleteMyAccountAsync();
+        if (!success)
+        {
+            DeleteAccountButton.IsEnabled = true;
+            MessageBox.Show(error ?? "Could not delete your account.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        // Same effect as MainWindow.LogOutButton_Click, just triggered from
+        // here since deleting your own account ends the session the same
+        // way logging out does - clear the saved session, open a fresh
+        // LoginWindow, then close both this dialog and its owning
+        // MainWindow.
+        SessionStorage.Clear();
+        new LoginWindow().Show();
+        Owner?.Close();
+        Close();
+    }
+
     private void UpdateCustomStatusCounter() =>
         CustomStatusCounterText.Text = $"{CustomStatusBox.Text.Length}/{CustomStatusBox.MaxLength}";
 

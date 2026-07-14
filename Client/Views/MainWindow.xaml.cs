@@ -486,10 +486,22 @@ public class MemberListItem : INotifyPropertyChanged
     public bool CanChangeRole { get; set; }
     public bool CanKick { get; set; }
 
+    // Ban/Purge use the same eligibility as Kick (KickMembers/ManageMessages
+    // respectively - see PermissionService.HasPermissionAsync); Edit
+    // Permissions is Owner-only and only meaningful for a Moderator target,
+    // same restriction as CanChangeRole.
+    public bool CanBan { get; set; }
+    public bool CanPurge { get; set; }
+    public bool CanEditPermissions { get; set; }
+    public int Permissions { get; set; }
+
     public string RoleButtonLabel => Role == "Moderator" ? "Demote" : "Promote";
     public string NextRole => Role == "Moderator" ? "Member" : "Moderator";
     public Visibility RoleButtonVisibility => CanChangeRole ? Visibility.Visible : Visibility.Collapsed;
     public Visibility KickButtonVisibility => CanKick ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility BanButtonVisibility => CanBan ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility PurgeButtonVisibility => CanPurge ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility EditPermissionsVisibility => CanEditPermissions && Role == "Moderator" ? Visibility.Visible : Visibility.Collapsed;
 
     private string _presenceState = "Offline";
     public string PresenceState
@@ -632,6 +644,9 @@ public partial class MainWindow : FluentWindow
         _hub.DirectMessageReactionToggled += (messageId, emoji, userId, added) => Dispatcher.Invoke(() => OnReactionToggled(messageId, emoji, userId, added));
         _hub.MessagePinned += (channelId, messageId, pinnedAt) => Dispatcher.Invoke(() => OnMessagePinned(messageId, true));
         _hub.MessageUnpinned += (channelId, messageId) => Dispatcher.Invoke(() => OnMessagePinned(messageId, false));
+        _hub.MessagesBulkDeletedByUser += (channelId, userId) => Dispatcher.Invoke(() => OnMessagesBulkDeletedByUser(channelId, userId));
+        _hub.YouWereBanned += serverId => Dispatcher.Invoke(() => OnYouWereBanned(serverId));
+        _hub.ForceMuted += channelId => Dispatcher.Invoke(() => OnForceMuted(channelId));
         _hub.ServerKeyRequested += OnServerKeyRequested;
         _hub.ServerKeyProvisioned += OnServerKeyProvisioned;
         _hub.UserTyping += OnUserTyping;
@@ -790,6 +805,7 @@ public partial class MainWindow : FluentWindow
     {
         var servers = await _api.GetMyServersAsync();
         _servers.ReplaceAll(servers.Select(s => new ServerListItem { Id = s.Id, Name = s.Name, IconUrl = App.ResolveUploadUrl(s.IconUrl), OwnerId = s.OwnerId }));
+        OnboardingNudgePopup.IsOpen = _servers.Count == 0;
 
         // Join every text channel's SignalR group across every server the
         // user belongs to - not just whichever one happens to be open right
@@ -883,6 +899,15 @@ public partial class MainWindow : FluentWindow
         var canManageServer = isOwner || self?.Role == "Moderator";
         _canManageCurrentServer = canManageServer;
 
+        // Granular checks (Ban/Purge) mirror PermissionService.HasPermissionAsync
+        // exactly: Owner always true, Moderator only if the specific bit is
+        // set. Kick/promote-demote stay on the coarser existing rule
+        // (any Moderator) - only the two newer moderation actions got
+        // split out as individually toggleable in this batch.
+        var selfPermissions = (ServerPermission)(self?.Permissions ?? 0);
+        var hasKick = isOwner || (self?.Role == "Moderator" && selfPermissions.HasFlag(ServerPermission.KickMembers));
+        var hasManageMessages = isOwner || (self?.Role == "Moderator" && selfPermissions.HasFlag(ServerPermission.ManageMessages));
+
         _members.ReplaceAll(members.Select(m =>
         {
             var isSelf = m.UserId == _api.CurrentUserId;
@@ -895,6 +920,10 @@ public partial class MainWindow : FluentWindow
                 IsSelf = isSelf,
                 CanChangeRole = isOwner && m.Role != "Owner" && !isSelf,
                 CanKick = canManageServer && m.Role != "Owner" && !isSelf,
+                CanBan = hasKick && m.Role != "Owner" && !isSelf,
+                CanPurge = hasManageMessages && !isSelf,
+                CanEditPermissions = isOwner && m.Role == "Moderator" && !isSelf,
+                Permissions = m.Permissions,
                 PresenceState = m.PresenceState,
                 CustomStatus = m.CustomStatus
             };
@@ -946,6 +975,55 @@ public partial class MainWindow : FluentWindow
         await LoadMembersPanelAsync(_currentServerId.Value);
     }
 
+    private async void MemberBanButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.MenuItem { Tag: int userId } || _currentServerId is null) return;
+
+        var confirm = MessageBox.Show("Ban this member? They won't be able to rejoin via any invite link until unbanned.",
+            "Confirm Ban", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (confirm != MessageBoxResult.Yes) return;
+
+        var (success, error) = await _api.BanMemberAsync(_currentServerId.Value, userId, reason: null);
+        if (!success)
+        {
+            MessageBox.Show(error ?? "Could not ban this member.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        await LoadMembersPanelAsync(_currentServerId.Value);
+    }
+
+    private async void MemberPurgeButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.MenuItem { Tag: int userId } || _currentChannelId is null) return;
+
+        var confirm = MessageBox.Show("Delete every message this member sent in the current channel? This cannot be undone.",
+            "Confirm Purge", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (confirm != MessageBoxResult.Yes) return;
+
+        var success = await _api.DeleteAllMessagesFromUserAsync(_currentChannelId.Value, userId);
+        if (!success)
+            MessageBox.Show("Could not purge this member's messages.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+    }
+
+    private void MemberEditPermissionsButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.MenuItem { Tag: MemberListItem member } || _currentServerId is null) return;
+        new EditPermissionsWindow(_api, _currentServerId.Value, member.UserId, member.Username, (ServerPermission)member.Permissions) { Owner = this }.ShowDialog();
+    }
+
+    private void ModerationLogButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentServerId is null) return;
+        new ModerationLogWindow(_api, _currentServerId.Value) { Owner = this }.ShowDialog();
+    }
+
+    private void BanListButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentServerId is null) return;
+        new BanListWindow(_api, _currentServerId.Value) { Owner = this }.ShowDialog();
+    }
+
     // Populates each voice channel's member list from a server-wide snapshot,
     // so anyone who opens a server sees who's currently in voice without
     // having joined anything themselves. Uses the same idempotent-add pattern
@@ -986,6 +1064,8 @@ public partial class MainWindow : FluentWindow
         DmCallButton.Visibility = Visibility.Collapsed;
         PinnedMessagesButton.Visibility = Visibility.Visible;
         SearchMessagesButton.Visibility = Visibility.Visible;
+        ModerationLogButton.Visibility = _canManageCurrentServer ? Visibility.Visible : Visibility.Collapsed;
+        BanListButton.Visibility = _canManageCurrentServer ? Visibility.Visible : Visibility.Collapsed;
 
         await LoadChannelHistoryAsync(channelId);
     }
@@ -1541,6 +1621,8 @@ public partial class MainWindow : FluentWindow
 
     private async void AddServerButton_Click(object sender, RoutedEventArgs e)
     {
+        OnboardingNudgePopup.IsOpen = false;
+
         var dialog = new CreateOrJoinDialog { Owner = this };
         dialog.ShowDialog();
 
@@ -1635,6 +1717,24 @@ public partial class MainWindow : FluentWindow
         }
 
         await LoadServersAsync();
+    }
+
+    private async void SetSlowModeMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.MenuItem { Tag: int channelId } || _currentServerId is null) return;
+
+        var dialog = new TextInputDialog("Set Slow Mode", "Seconds between messages for regular members (0 to disable):") { Owner = this };
+        dialog.ShowDialog();
+        if (dialog.Result is null) return;
+        if (!int.TryParse(dialog.Result, out var seconds) || seconds < 0)
+        {
+            MessageBox.Show("Enter a whole number of seconds (0 or more).", "Invalid Value", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var success = await _api.SetSlowModeAsync(_currentServerId.Value, channelId, seconds);
+        if (!success)
+            MessageBox.Show("Could not set slow mode (you may lack permission).", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
     }
 
     private async void DeleteChannelButton_Click(object sender, RoutedEventArgs e)
@@ -1760,6 +1860,8 @@ public partial class MainWindow : FluentWindow
         DmCallButton.Visibility = Visibility.Collapsed;
         PinnedMessagesButton.Visibility = Visibility.Collapsed;
         SearchMessagesButton.Visibility = Visibility.Collapsed;
+        ModerationLogButton.Visibility = Visibility.Collapsed;
+        BanListButton.Visibility = Visibility.Collapsed;
         DmSearchBox.Clear();
         _dmSearchResults.Clear();
 
@@ -1795,6 +1897,8 @@ public partial class MainWindow : FluentWindow
         DmCallButton.Visibility = Visibility.Collapsed;
         PinnedMessagesButton.Visibility = Visibility.Collapsed;
         SearchMessagesButton.Visibility = Visibility.Collapsed;
+        ModerationLogButton.Visibility = Visibility.Collapsed;
+        BanListButton.Visibility = Visibility.Collapsed;
         FriendSearchBox.Clear();
         _friendSearchResults.Clear();
 
@@ -1886,6 +1990,8 @@ public partial class MainWindow : FluentWindow
         DmCallButton.Visibility = Visibility.Visible;
         PinnedMessagesButton.Visibility = Visibility.Collapsed;
         SearchMessagesButton.Visibility = Visibility.Visible;
+        ModerationLogButton.Visibility = Visibility.Collapsed;
+        BanListButton.Visibility = Visibility.Collapsed;
 
         var convo = _dmConversations.FirstOrDefault(c => c.OtherUserId == userId);
         if (convo is not null) convo.UnreadCount = 0;
@@ -2522,6 +2628,48 @@ public partial class MainWindow : FluentWindow
         {
             // Best-effort - see OnMessageReceived.
         }
+    }
+
+    // From MessagesController.DeleteAllFromUser (member context menu's
+    // "Purge Messages") - removes every matching row from the currently
+    // open channel in one pass, same as OnMessageDeleted just for many ids
+    // at once instead of a single broadcast per message.
+    private void OnMessagesBulkDeletedByUser(int channelId, int userId)
+    {
+        if (channelId != _currentChannelId) return;
+        foreach (var item in _messages.Where(m => m.AuthorId == userId).ToList())
+            _messages.Remove(item);
+    }
+
+    // ChatHub pushes this via Clients.User(...) the moment ServersController.Ban
+    // runs - if we're currently looking at that server, back out of it the
+    // same way LeaveServerMenuItem_Click does, then refresh the server list
+    // so it disappears from the rail entirely.
+    private async void OnYouWereBanned(int serverId)
+    {
+        if (serverId == _currentServerId)
+        {
+            _currentServerId = null;
+            _textChannels.Clear();
+            _voiceChannels.Clear();
+            ServerNameText.Text = "Select a server";
+            ChannelNameText.Text = "# select-a-channel";
+            _messages.Clear();
+        }
+
+        await LoadServersAsync();
+    }
+
+    // A moderator force-muted us (ChatHub.ForceMuteUser) - just flips our
+    // own mic mute state; VoiceService.MicMutedChanged (already subscribed,
+    // see OnLocalMutedChangedAsync) handles broadcasting it to everyone else
+    // the same way a self-initiated mute does, so there's no separate
+    // broadcast call needed here.
+    private void OnForceMuted(int channelId)
+    {
+        if (_voice is null || channelId != _currentVoiceChannelId) return;
+        _voice.IsMicMuted = true;
+        UpdateMuteButtonVisual();
     }
 
     private void OnMessageDeleted(int messageId, int channelId)

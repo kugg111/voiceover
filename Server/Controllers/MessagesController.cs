@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Voiceover.Server.Data;
 using Voiceover.Server.Dtos;
 using Voiceover.Server.Hubs;
+using Voiceover.Server.Models;
 using Voiceover.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -20,12 +21,14 @@ public class MessagesController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly PermissionService _permissions;
+    private readonly ModerationLogService _modLog;
     private readonly IHubContext<ChatHub> _hub;
 
-    public MessagesController(AppDbContext db, PermissionService permissions, IHubContext<ChatHub> hub)
+    public MessagesController(AppDbContext db, PermissionService permissions, ModerationLogService modLog, IHubContext<ChatHub> hub)
     {
         _db = db;
         _permissions = permissions;
+        _modLog = modLog;
         _hub = hub;
     }
 
@@ -35,6 +38,7 @@ public class MessagesController : ControllerBase
     private static string GroupName(int channelId) => $"channel-{channelId}";
 
     private int CurrentUserId => int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+    private string CurrentUsername => User.FindFirstValue(ClaimTypes.Name)!;
 
     // GET /api/channels/5/messages?take=50           -> most recent 50 messages, oldest first
     // GET /api/channels/5/messages?take=50&beforeId=X -> the 50 messages immediately before
@@ -106,12 +110,13 @@ public class MessagesController : ControllerBase
             .FirstOrDefaultAsync(m => m.Id == messageId && m.ChannelId == channelId);
         if (message is null) return NotFound();
 
-        if (!await _permissions.CanManageServerAsync(CurrentUserId, message.Channel!.GuildServerId))
+        if (!await _permissions.HasPermissionAsync(CurrentUserId, message.Channel!.GuildServerId, ServerPermission.ManageMessages))
             return Forbid();
 
         message.PinnedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
         await _hub.Clients.Group(GroupName(channelId)).SendAsync("MessagePinned", channelId, messageId, message.PinnedAt);
+        await _modLog.LogAsync(message.Channel.GuildServerId, CurrentUserId, CurrentUsername, "Pin", details: $"message #{messageId} in channel #{channelId}");
 
         return Ok();
     }
@@ -124,12 +129,13 @@ public class MessagesController : ControllerBase
             .FirstOrDefaultAsync(m => m.Id == messageId && m.ChannelId == channelId);
         if (message is null) return NotFound();
 
-        if (!await _permissions.CanManageServerAsync(CurrentUserId, message.Channel!.GuildServerId))
+        if (!await _permissions.HasPermissionAsync(CurrentUserId, message.Channel!.GuildServerId, ServerPermission.ManageMessages))
             return Forbid();
 
         message.PinnedAt = null;
         await _db.SaveChangesAsync();
         await _hub.Clients.Group(GroupName(channelId)).SendAsync("MessageUnpinned", channelId, messageId);
+        await _modLog.LogAsync(message.Channel.GuildServerId, CurrentUserId, CurrentUsername, "Unpin", details: $"message #{messageId} in channel #{channelId}");
 
         return Ok();
     }
@@ -182,18 +188,20 @@ public class MessagesController : ControllerBase
         return Ok(response);
     }
 
-    // Only the author, or an owner/moderator, may delete a message.
+    // Only the author, or an owner/moderator with ManageMessages, may delete
+    // a message.
     [HttpDelete("{messageId}")]
     public async Task<ActionResult> Delete(int channelId, int messageId)
     {
         var message = await _db.Messages
             .Include(m => m.Channel)
+            .Include(m => m.Author)
             .FirstOrDefaultAsync(m => m.Id == messageId && m.ChannelId == channelId);
 
         if (message is null) return NotFound();
 
         var isAuthor = message.AuthorId == CurrentUserId;
-        var canManage = await _permissions.CanManageServerAsync(CurrentUserId, message.Channel!.GuildServerId);
+        var canManage = await _permissions.HasPermissionAsync(CurrentUserId, message.Channel!.GuildServerId, ServerPermission.ManageMessages);
 
         if (!isAuthor && !canManage) return Forbid();
 
@@ -206,6 +214,41 @@ public class MessagesController : ControllerBase
         _db.Messages.Remove(message);
         await _db.SaveChangesAsync();
         await _hub.Clients.Group(GroupName(channelId)).SendAsync("MessageDeleted", messageId, channelId);
+
+        // Only log when it wasn't a routine self-delete - avoids logging
+        // every user deleting their own typo.
+        if (!isAuthor)
+            await _modLog.LogAsync(message.Channel.GuildServerId, CurrentUserId, CurrentUsername, "MessageDelete", message.AuthorId, message.Author?.Username, $"message #{messageId} in channel #{channelId}");
+
+        return Ok();
+    }
+
+    // "Purge" - deletes every message by a specific user in this channel, a
+    // single practical moderation action for a spammer/troll rather than a
+    // multi-select UI. ManageMessages-gated, same as single-message delete's
+    // moderator path.
+    [HttpDelete("from/{userId}")]
+    public async Task<ActionResult> DeleteAllFromUser(int channelId, int userId)
+    {
+        var channel = await _db.Channels.FirstOrDefaultAsync(c => c.Id == channelId);
+        if (channel is null) return NotFound();
+
+        if (!await _permissions.HasPermissionAsync(CurrentUserId, channel.GuildServerId, ServerPermission.ManageMessages))
+            return Forbid();
+
+        var messages = await _db.Messages.Where(m => m.ChannelId == channelId && m.AuthorId == userId).ToListAsync();
+        if (messages.Count == 0) return Ok();
+
+        var messageIds = messages.Select(m => m.Id).ToList();
+        var reactions = await _db.MessageReactions.Where(r => messageIds.Contains(r.MessageId)).ToListAsync();
+        _db.MessageReactions.RemoveRange(reactions);
+        _db.Messages.RemoveRange(messages);
+        await _db.SaveChangesAsync();
+
+        await _hub.Clients.Group(GroupName(channelId)).SendAsync("MessagesBulkDeletedByUser", channelId, userId);
+
+        var targetUsername = (await _db.Users.FindAsync(userId))?.Username;
+        await _modLog.LogAsync(channel.GuildServerId, CurrentUserId, CurrentUsername, "BulkDelete", userId, targetUsername, $"{messages.Count} message(s) in channel #{channelId}");
 
         return Ok();
     }

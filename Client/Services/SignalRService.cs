@@ -18,6 +18,9 @@ public class SignalRService
     public event Action<int, string, int, bool>? DirectMessageReactionToggled; // messageId, emoji, userId, added
     public event Action<int, int, DateTime>? MessagePinned; // channelId, messageId, pinnedAt
     public event Action<int, int>? MessageUnpinned; // channelId, messageId
+    public event Action<int, int>? MessagesBulkDeletedByUser; // channelId, userId
+    public event Action<int>? YouWereBanned; // serverId
+    public event Action<int>? ForceMuted; // channelId
     public event Action<string, int>? UserTyping;
     public event Action<int, string, int, string?>? VoiceUserJoined;
     public event Action<int, string, int>? VoiceUserLeft;
@@ -67,6 +70,9 @@ public class SignalRService
         _connection.On<int, string, int, bool>("DirectMessageReactionToggled", (messageId, emoji, userId, added) => DirectMessageReactionToggled?.Invoke(messageId, emoji, userId, added));
         _connection.On<int, int, DateTime>("MessagePinned", (channelId, messageId, pinnedAt) => MessagePinned?.Invoke(channelId, messageId, pinnedAt));
         _connection.On<int, int>("MessageUnpinned", (channelId, messageId) => MessageUnpinned?.Invoke(channelId, messageId));
+        _connection.On<int, int>("MessagesBulkDeletedByUser", (channelId, userId) => MessagesBulkDeletedByUser?.Invoke(channelId, userId));
+        _connection.On<int>("YouWereBanned", serverId => YouWereBanned?.Invoke(serverId));
+        _connection.On<int>("ForceMuted", channelId => ForceMuted?.Invoke(channelId));
         _connection.On<string, int>("UserTyping", (username, channelId) => UserTyping?.Invoke(username, channelId));
         _connection.On<int, string, int, string?>("VoiceUserJoined", (userId, username, channelId, avatarUrl) => VoiceUserJoined?.Invoke(userId, username, channelId, avatarUrl));
         _connection.On<int, string, int>("VoiceUserLeft", (userId, username, channelId) => VoiceUserLeft?.Invoke(userId, username, channelId));
@@ -106,6 +112,7 @@ public class SignalRService
     public Task SendSpeakingAsync(int channelId, bool isSpeaking) => _connection!.InvokeAsync("NotifySpeaking", channelId, isSpeaking);
     public Task SendMutedAsync(int channelId, bool isMuted) => _connection!.InvokeAsync("NotifyMuted", channelId, isMuted);
     public Task SendDeafenedAsync(int channelId, bool isDeafened) => _connection!.InvokeAsync("NotifyDeafened", channelId, isDeafened);
+    public Task ForceMuteUserAsync(int channelId, int targetUserId) => _connection!.InvokeAsync("ForceMuteUser", channelId, targetUserId);
     public Task JoinServerPresenceAsync(int serverId) => _connection!.InvokeAsync("JoinServerPresence", serverId);
     public Task LeaveServerPresenceAsync(int serverId) => _connection!.InvokeAsync("LeaveServerPresence", serverId);
     public Task<List<ChannelVoiceRoster>> GetVoiceRostersForServerAsync(int serverId) => _connection!.InvokeAsync<List<ChannelVoiceRoster>>("GetVoiceRostersForServer", serverId);

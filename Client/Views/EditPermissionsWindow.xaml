@@ -1,0 +1,40 @@
+<ui:FluentWindow x:Class="Voiceover.Client.Views.EditPermissionsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+        Title="Edit Permissions" Width="360" SizeToContent="Height" MinHeight="0"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource BgDark}"
+        ResizeMode="NoResize"
+        Icon="/Assets/AppIcon.png"
+        ExtendsContentIntoTitleBar="True"
+        WindowBackdropType="Mica"
+        WindowCornerPreference="Round">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <ui:TitleBar x:Name="DialogTitleBar" Title="Edit Permissions" Grid.Row="0" ShowMaximize="False"/>
+
+        <StackPanel Grid.Row="1" Margin="20">
+            <TextBlock x:Name="MemberNameText" FontWeight="Bold" FontSize="14"
+                       Foreground="{StaticResource TextNormal}" Margin="0,0,0,12"/>
+
+            <CheckBox x:Name="ManageChannelsCheck" Content="Manage Channels" Foreground="{StaticResource TextNormal}" Margin="0,0,0,8"/>
+            <CheckBox x:Name="KickMembersCheck" Content="Kick / Ban Members" Foreground="{StaticResource TextNormal}" Margin="0,0,0,8"/>
+            <CheckBox x:Name="ManageMessagesCheck" Content="Manage Messages (pin, delete, purge)" Foreground="{StaticResource TextNormal}" Margin="0,0,0,8"/>
+            <CheckBox x:Name="MuteMembersCheck" Content="Mute Members" Foreground="{StaticResource TextNormal}" Margin="0,0,0,16"/>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="CancelButton" Content="Cancel" Height="36" Width="90" Margin="0,0,8,0"
+                        Background="Transparent" Foreground="{StaticResource TextNormal}"
+                        BorderThickness="0" Cursor="Hand" Click="CancelButton_Click"/>
+                <Button x:Name="SaveButton" Content="Save" Height="36" Width="90"
+                        Background="{StaticResource AccentBlurple}" Foreground="White" FontWeight="Bold"
+                        BorderThickness="0" Cursor="Hand" Click="SaveButton_Click"/>
+            </StackPanel>
+        </StackPanel>
+    </Grid>
+</ui:FluentWindow>

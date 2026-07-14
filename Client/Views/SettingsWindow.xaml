@@ -42,31 +42,49 @@
 
             <!-- TAB CONTENT -->
             <Grid Grid.Column="1" Margin="20">
-                <StackPanel x:Name="AccountTabContent" Visibility="Collapsed">
-                    <TextBlock Text="MY ACCOUNT" FontSize="11" FontWeight="Bold"
-                               Foreground="{StaticResource TextMuted}" Margin="0,0,0,12"/>
-                    <local:AvatarView x:Name="AccountAvatarView" Size="80" HorizontalAlignment="Left" Margin="0,0,0,12"/>
-                    <TextBlock x:Name="AccountUsernameText" FontSize="14" FontWeight="Bold"
-                               Foreground="{StaticResource TextNormal}" Margin="0,0,0,16"/>
-                    <Button x:Name="ChangeAvatarButton" Content="Change Avatar" Height="40" Width="160"
-                            HorizontalAlignment="Left" Click="ChangeAvatarButton_Click"
-                            Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}" BorderThickness="0"/>
+                <ScrollViewer x:Name="AccountTabContent" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+                    <StackPanel>
+                        <TextBlock Text="MY ACCOUNT" FontSize="11" FontWeight="Bold"
+                                   Foreground="{StaticResource TextMuted}" Margin="0,0,0,12"/>
+                        <local:AvatarView x:Name="AccountAvatarView" Size="80" HorizontalAlignment="Left" Margin="0,0,0,12"/>
+                        <TextBlock x:Name="AccountUsernameText" FontSize="14" FontWeight="Bold"
+                                   Foreground="{StaticResource TextNormal}" Margin="0,0,0,16"/>
+                        <Button x:Name="ChangeAvatarButton" Content="Change Avatar" Height="40" Width="160"
+                                HorizontalAlignment="Left" Click="ChangeAvatarButton_Click"
+                                Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}" BorderThickness="0"/>
 
-                    <TextBlock Text="Custom Status" FontWeight="Bold" Foreground="{StaticResource TextNormal}" Margin="0,20,0,6"/>
-                    <StackPanel Orientation="Horizontal">
-                        <TextBox x:Name="CustomStatusBox" Width="220" Height="34" Padding="8,6" MaxLength="128"
-                                 TextChanged="CustomStatusBox_TextChanged"
-                                 Background="{StaticResource BgDarker}" Foreground="{StaticResource TextNormal}" BorderThickness="0"/>
-                        <Button x:Name="SaveCustomStatusButton" Content="Save" Width="70" Height="34" Margin="8,0,0,0"
-                                Click="SaveCustomStatusButton_Click"
-                                Background="{StaticResource AccentBlurple}" Foreground="White" BorderThickness="0"/>
+                        <TextBlock Text="Custom Status" FontWeight="Bold" Foreground="{StaticResource TextNormal}" Margin="0,20,0,6"/>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBox x:Name="CustomStatusBox" Width="220" Height="34" Padding="8,6" MaxLength="128"
+                                     TextChanged="CustomStatusBox_TextChanged"
+                                     Background="{StaticResource BgDarker}" Foreground="{StaticResource TextNormal}" BorderThickness="0"/>
+                            <Button x:Name="SaveCustomStatusButton" Content="Save" Width="70" Height="34" Margin="8,0,0,0"
+                                    Click="SaveCustomStatusButton_Click"
+                                    Background="{StaticResource AccentBlurple}" Foreground="White" BorderThickness="0"/>
+                        </StackPanel>
+                        <TextBlock x:Name="CustomStatusCounterText" FontSize="11"
+                                   Foreground="{StaticResource TextMuted}" Margin="0,4,0,0"/>
+
+                        <TextBlock x:Name="AccountStatusText" FontSize="11" TextWrapping="Wrap"
+                                   Foreground="{StaticResource TextMuted}" Margin="0,8,0,0"/>
+
+                        <Border Height="1" Background="{StaticResource BgSidebar}" Margin="0,24,0,20"/>
+
+                        <TextBlock Text="DANGER ZONE" FontSize="11" FontWeight="Bold"
+                                   Foreground="{StaticResource TextMuted}" Margin="0,0,0,12"/>
+                        <Button x:Name="ExportDataButton" Content="Export My Data" Height="40" Width="180"
+                                HorizontalAlignment="Left" Margin="0,0,0,8" Click="ExportDataButton_Click"
+                                Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}" BorderThickness="0"/>
+                        <TextBlock Text="Downloads your account profile, servers, and friends list as a JSON file. Message content isn't included - this app encrypts messages end-to-end, so the server itself never has readable copies to export."
+                                   FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}" Margin="0,0,0,16"/>
+
+                        <Button x:Name="DeleteAccountButton" Content="Delete My Account" Height="40" Width="180"
+                                HorizontalAlignment="Left" Click="DeleteAccountButton_Click"
+                                Background="#F23F42" Foreground="White" BorderThickness="0"/>
+                        <TextBlock Text="Permanently deletes your account and everything tied to it. You'll be blocked from doing this while you still own a server - transfer ownership or delete it first."
+                                   FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}" Margin="0,4,0,0"/>
                     </StackPanel>
-                    <TextBlock x:Name="CustomStatusCounterText" FontSize="11"
-                               Foreground="{StaticResource TextMuted}" Margin="0,4,0,0"/>
-
-                    <TextBlock x:Name="AccountStatusText" FontSize="11" TextWrapping="Wrap"
-                               Foreground="{StaticResource TextMuted}" Margin="0,8,0,0"/>
-                </StackPanel>
+                </ScrollViewer>
 
                 <ScrollViewer x:Name="VoiceTabContent" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
                     <local:VoiceSettingsPanel x:Name="VoicePanel"/>

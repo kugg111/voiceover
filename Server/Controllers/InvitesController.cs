@@ -105,6 +105,9 @@ public class InviteJoinController : ControllerBase
         if (invite is null || invite.GuildServer is null) return NotFound("Invite not found.");
         if (!invite.IsValid()) return BadRequest("This invite has expired or reached its use limit.");
 
+        if (await _db.BannedUsers.AnyAsync(b => b.GuildServerId == invite.GuildServerId && b.UserId == CurrentUserId))
+            return Forbid();
+
         var alreadyMember = await _db.Memberships.AnyAsync(m => m.UserId == CurrentUserId && m.GuildServerId == invite.GuildServerId);
         if (!alreadyMember)
         {

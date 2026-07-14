@@ -20,6 +20,8 @@ public class AppDbContext : DbContext
     public DbSet<CallRecord> CallRecords => Set<CallRecord>();
     public DbSet<MessageReaction> MessageReactions => Set<MessageReaction>();
     public DbSet<DirectMessageReaction> DirectMessageReactions => Set<DirectMessageReaction>();
+    public DbSet<BannedUser> BannedUsers => Set<BannedUser>();
+    public DbSet<ModerationLogEntry> ModerationLogEntries => Set<ModerationLogEntry>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -164,5 +166,17 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<DirectMessageReaction>()
             .HasIndex(r => new { r.DirectMessageId, r.UserId, r.Emoji })
             .IsUnique();
+
+        // No FK/cascade configured - same deliberate pattern as
+        // MessageReaction/DirectMessage above (see BannedUser/
+        // ModerationLogEntry's own class comments for why).
+        modelBuilder.Entity<BannedUser>()
+            .HasIndex(b => new { b.GuildServerId, b.UserId })
+            .IsUnique();
+
+        // ServersController.GetModerationLog always orders newest-first for
+        // one server at a time.
+        modelBuilder.Entity<ModerationLogEntry>()
+            .HasIndex(m => new { m.GuildServerId, m.CreatedAt });
     }
 }

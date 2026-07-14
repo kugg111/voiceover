@@ -143,4 +143,72 @@ public class UsersController : ControllerBase
         await _db.SaveChangesAsync();
         return Ok();
     }
+
+    // Account profile + membership/friend metadata only - explicitly no
+    // message content (server only ever holds E2EE ciphertext). A full
+    // client-side history export (walking decrypted history to a file) is
+    // out of scope for this batch - a disclosed scope cut, same kind
+    // MessageSearchWindow's own doc comment already makes for the same
+    // E2EE reason.
+    [HttpGet("me/export")]
+    public async Task<ActionResult<UserDataExportResponse>> ExportMyData()
+    {
+        var user = await _db.Users.FindAsync(CurrentUserId);
+        if (user is null) return NotFound();
+
+        var servers = await _db.Memberships
+            .Where(m => m.UserId == CurrentUserId)
+            .Select(m => new ExportedMembership(m.GuildServer!.Name, m.Role.ToString()))
+            .ToListAsync();
+
+        // Friendship has no FK navigation on User (see AppDbContext) - look
+        // friend ids up first, then usernames in a second query.
+        var friendIds = await _db.Friendships
+            .Where(f => f.Status == FriendshipStatus.Accepted && (f.RequesterId == CurrentUserId || f.AddresseeId == CurrentUserId))
+            .Select(f => f.RequesterId == CurrentUserId ? f.AddresseeId : f.RequesterId)
+            .ToListAsync();
+        var friends = await _db.Users.Where(u => friendIds.Contains(u.Id)).Select(u => u.Username).ToListAsync();
+
+        return Ok(new UserDataExportResponse(user.Username, user.CreatedAt, user.CustomStatus, servers, friends));
+    }
+
+    // Guards against the biggest landmine here: User has no explicit
+    // OnDelete configured anywhere (see AppDbContext), so EF Core's default
+    // cascade behavior means deleting a User who owns a GuildServer would
+    // cascade-delete that entire server - channels, everyone's messages in
+    // it, everything - as an unintended side effect. Rejecting outright is
+    // simpler and safer than trying to special-case an ownership transfer
+    // here.
+    [HttpDelete("me")]
+    public async Task<ActionResult> DeleteMyAccount()
+    {
+        var user = await _db.Users.FindAsync(CurrentUserId);
+        if (user is null) return NotFound();
+
+        if (await _db.GuildServers.AnyAsync(g => g.OwnerId == CurrentUserId))
+            return BadRequest("Transfer or delete servers you own first.");
+
+        // Every one of these columns has no FK/cascade configured (see
+        // AppDbContext's own comments on DirectMessage/Friendship/
+        // MessageReaction) - clean them up explicitly, same pattern
+        // MessagesController.Delete already uses for MessageReactions, so
+        // deleting this account doesn't leave dangling rows pointing at a
+        // user id that no longer exists.
+        _db.Invites.RemoveRange(_db.Invites.Where(i => i.CreatedByUserId == CurrentUserId));
+        _db.DirectMessages.RemoveRange(_db.DirectMessages.Where(dm => dm.SenderId == CurrentUserId || dm.RecipientId == CurrentUserId));
+        _db.Friendships.RemoveRange(_db.Friendships.Where(f => f.RequesterId == CurrentUserId || f.AddresseeId == CurrentUserId));
+        _db.CallRecords.RemoveRange(_db.CallRecords.Where(c => c.CallerId == CurrentUserId || c.CalleeId == CurrentUserId));
+        _db.MessageReactions.RemoveRange(_db.MessageReactions.Where(r => r.UserId == CurrentUserId));
+        _db.DirectMessageReactions.RemoveRange(_db.DirectMessageReactions.Where(r => r.UserId == CurrentUserId));
+        _db.ServerMemberKeys.RemoveRange(_db.ServerMemberKeys.Where(k => k.UserId == CurrentUserId || k.WrappedByUserId == CurrentUserId));
+
+        // Cascades Memberships, authored channel Messages, and RefreshTokens
+        // automatically - all three are real, required FKs (confirmed via
+        // AppDbContext's fluent config), unlike everything cleaned up above.
+        _db.Users.Remove(user);
+        await _db.SaveChangesAsync();
+
+        _avatarCache.Remove(CurrentUserId);
+        return Ok();
+    }
 }

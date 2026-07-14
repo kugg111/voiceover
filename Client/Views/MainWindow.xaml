@@ -41,9 +41,18 @@
                         MouseLeftButtonUp="MyAvatarBorder_MouseLeftButtonUp" ToolTip="Settings">
                     <local:AvatarView x:Name="MyAvatarView" Size="44" IsHitTestVisible="False"/>
                 </Border>
-                <Button DockPanel.Dock="Bottom" Content="+" FontSize="20" Height="48" Width="48"
+                <Button x:Name="AddServerButton" DockPanel.Dock="Bottom" Content="+" FontSize="20" Height="48" Width="48"
                         Margin="12,4,12,4" Background="{StaticResource BgSidebar}" Foreground="LightGreen"
                         BorderThickness="0" Click="AddServerButton_Click"/>
+                <!-- First-run nudge for a brand-new user with zero servers -
+                     shown/dismissed in code (UpdateOnboardingNudge), see
+                     LoadServersAsync. -->
+                <Popup x:Name="OnboardingNudgePopup" PlacementTarget="{Binding ElementName=AddServerButton}"
+                       Placement="Right" HorizontalOffset="8" IsOpen="False" StaysOpen="True" AllowsTransparency="True">
+                    <Border Background="{StaticResource AccentBlurple}" CornerRadius="6" Padding="10,8" MaxWidth="180">
+                        <TextBlock Text="Create your first server here!" Foreground="White" FontSize="12" TextWrapping="Wrap"/>
+                    </Border>
+                </Popup>
                 <Grid DockPanel.Dock="Top" Margin="12,12,12,4">
                     <Button x:Name="MessagesButton" Content="💬" FontSize="18" Height="48" Width="48"
                             Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
@@ -135,7 +144,13 @@
                                     <Button Content="{Binding DisplayName}" Tag="{Binding Id}"
                                             Click="ChannelButton_Click" HorizontalContentAlignment="Left"
                                             Background="Transparent" Foreground="{StaticResource TextMuted}"
-                                            BorderThickness="0" Padding="14,6" Height="32"/>
+                                            BorderThickness="0" Padding="14,6" Height="32">
+                                        <Button.ContextMenu>
+                                            <ContextMenu>
+                                                <MenuItem Header="Set Slow Mode..." Tag="{Binding Id}" Click="SetSlowModeMenuItem_Click"/>
+                                            </ContextMenu>
+                                        </Button.ContextMenu>
+                                    </Button>
                                     <Border Grid.Column="1" MinWidth="16" Height="16" CornerRadius="8" Margin="0,0,8,0"
                                             Background="{StaticResource AccentBlurple}" Padding="4,0"
                                             VerticalAlignment="Center" Visibility="{Binding UnreadBadgeVisibility}">
@@ -428,6 +443,14 @@
                             Background="Transparent" Foreground="{StaticResource TextMuted}"
                             BorderThickness="0" Cursor="Hand" Visibility="Collapsed"
                             Click="SearchMessagesButton_Click"/>
+                    <Button x:Name="ModerationLogButton" DockPanel.Dock="Right" Content="📋" ToolTip="Moderation Log" Margin="0,0,12,0"
+                            Background="Transparent" Foreground="{StaticResource TextMuted}"
+                            BorderThickness="0" Cursor="Hand" Visibility="Collapsed"
+                            Click="ModerationLogButton_Click"/>
+                    <Button x:Name="BanListButton" DockPanel.Dock="Right" Content="🔨" ToolTip="Banned Users" Margin="0,0,12,0"
+                            Background="Transparent" Foreground="{StaticResource TextMuted}"
+                            BorderThickness="0" Cursor="Hand" Visibility="Collapsed"
+                            Click="BanListButton_Click"/>
                     <TextBlock x:Name="ChannelNameText" Text="# select-a-channel"
                                Foreground="{StaticResource TextNormal}" FontWeight="Bold"
                                VerticalAlignment="Center" Margin="16,0,0,0"/>
@@ -658,8 +681,14 @@
                                         <ContextMenu>
                                             <MenuItem Header="{Binding RoleButtonLabel}" Tag="{Binding UserId}"
                                                       Click="MemberRoleButton_Click" Visibility="{Binding RoleButtonVisibility}"/>
+                                            <MenuItem Header="Edit Permissions..." Tag="{Binding}" Click="MemberEditPermissionsButton_Click"
+                                                      Visibility="{Binding EditPermissionsVisibility}"/>
                                             <MenuItem Header="Kick" Tag="{Binding UserId}" Click="MemberKickButton_Click"
                                                       Visibility="{Binding KickButtonVisibility}"/>
+                                            <MenuItem Header="Ban..." Tag="{Binding UserId}" Click="MemberBanButton_Click"
+                                                      Visibility="{Binding BanButtonVisibility}"/>
+                                            <MenuItem Header="Purge Messages..." Tag="{Binding UserId}" Click="MemberPurgeButton_Click"
+                                                      Visibility="{Binding PurgeButtonVisibility}"/>
                                         </ContextMenu>
                                     </StackPanel.ContextMenu>
                                     <local:AvatarView Size="28" DisplayName="{Binding Username}"

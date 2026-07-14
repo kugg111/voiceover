@@ -276,7 +276,7 @@ public class E2eeService
     // method body in C# 12 (the compiler can't prove they never live across
     // an await), so this stays synchronous and DecryptAsync just awaits the
     // key first, then calls straight into this.
-    private static string DecryptPacked(string packedBase64, byte[] key)
+    internal static string DecryptPacked(string packedBase64, byte[] key)
     {
         var packed = Convert.FromBase64String(packedBase64);
         if (packed.Length < NonceSizeBytes + TagSizeBytes) throw new ArgumentException("Ciphertext too short.");
@@ -368,7 +368,11 @@ public class E2eeService
     private static byte[] DeriveWrappingKey(string password, byte[] salt) =>
         Rfc2898DeriveBytes.Pbkdf2(Encoding.UTF8.GetBytes(password), salt, Pbkdf2Iterations, HashAlgorithmName.SHA256, 32);
 
-    private static byte[] WrapBytes(byte[] plaintext, byte[] wrappingKey)
+    // internal (not private) so Client.Tests can exercise the actual AES-GCM
+    // packing/unpacking logic directly with a known key, without needing to
+    // mock the full ECDH handshake (ApiService network calls) that normally
+    // derives it - see [assembly: InternalsVisibleTo] in AssemblyInfo.cs.
+    internal static byte[] WrapBytes(byte[] plaintext, byte[] wrappingKey)
     {
         var nonce = RandomNumberGenerator.GetBytes(NonceSizeBytes);
         var ciphertext = new byte[plaintext.Length];

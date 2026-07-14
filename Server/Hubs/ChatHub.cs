@@ -21,8 +21,10 @@ public class ChatHub : Hub
     private readonly CallSignalingService _callSignaling;
     private readonly CallRateLimiter _callRateLimiter;
     private readonly PresenceAudienceCache _presenceAudience;
+    private readonly SlowModeLimiter _slowMode;
+    private readonly PermissionService _permissions;
 
-    public ChatHub(AppDbContext db, VoicePresenceService voicePresence, LiveKitTokenService liveKitTokens, PresenceService presence, MessageRateLimiter messageRateLimiter, UserAvatarCache avatarCache, CallSignalingService callSignaling, CallRateLimiter callRateLimiter, PresenceAudienceCache presenceAudience)
+    public ChatHub(AppDbContext db, VoicePresenceService voicePresence, LiveKitTokenService liveKitTokens, PresenceService presence, MessageRateLimiter messageRateLimiter, UserAvatarCache avatarCache, CallSignalingService callSignaling, CallRateLimiter callRateLimiter, PresenceAudienceCache presenceAudience, SlowModeLimiter slowMode, PermissionService permissions)
     {
         _db = db;
         _voicePresence = voicePresence;
@@ -33,6 +35,8 @@ public class ChatHub : Hub
         _callSignaling = callSignaling;
         _callRateLimiter = callRateLimiter;
         _presenceAudience = presenceAudience;
+        _slowMode = slowMode;
+        _permissions = permissions;
     }
 
     private int CurrentUserId => int.Parse(Context.User!.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -66,6 +70,19 @@ public class ChatHub : Hub
         // to show useful feedback for (see SetPresenceState's history with
         // exactly that failure mode).
         if (!_messageRateLimiter.TryAcquire(CurrentUserId)) return;
+
+        // Slow-mode only applies to plain Members - Moderators/Owners are
+        // exempt (standard convention). Skips the extra queries entirely
+        // for the common case of a channel with slow-mode off.
+        var channel = await _db.Channels.AsNoTracking().FirstOrDefaultAsync(c => c.Id == channelId);
+        if (channel is null) return;
+
+        if (channel.SlowModeSeconds > 0)
+        {
+            var membership = await _permissions.GetMembershipAsync(CurrentUserId, channel.GuildServerId);
+            var isExempt = membership is not null && membership.Role is MemberRole.Owner or MemberRole.Moderator;
+            if (!isExempt && !_slowMode.TryAcquire(channelId, CurrentUserId, channel.SlowModeSeconds)) return;
+        }
 
         var message = new Message
         {
@@ -430,6 +447,30 @@ public class ChatHub : Hub
         var serverId = _voicePresence.GetServerId(Context.ConnectionId);
         if (serverId is not null)
             await Clients.OthersInGroup(ServerPresenceGroupName(serverId.Value)).SendAsync("UserDeafened", CurrentUserId, channelId, isDeafened);
+    }
+
+    // Pushes a forced-mute instruction to a specific other user's client(s)
+    // via Clients.User(...) (reaches every connection that user has open,
+    // regardless of SignalR group membership - same mechanism already used
+    // for ServerKeyProvisioned/YouWereBanned) - VoicePresenceService has no
+    // userId-to-connectionId index to add a specific member's connection to
+    // a group directly. The client sets its own IsMicMuted and re-broadcasts
+    // via its own NotifyMuted call, so other participants see the mute icon
+    // update through the already-working broadcast path. One-time push, not
+    // a persisted "can't self-unmute" state - see the plan's disclosed scope
+    // cut for why.
+    public async Task ForceMuteUser(int channelId, int targetUserId)
+    {
+        var channel = await _db.Channels.AsNoTracking().FirstOrDefaultAsync(c => c.Id == channelId);
+        if (channel is null) return;
+
+        if (!await _permissions.HasPermissionAsync(CurrentUserId, channel.GuildServerId, ServerPermission.MuteMembers))
+            return;
+
+        if (!_voicePresence.GetRoster(channelId).Any(p => p.UserId == targetUserId))
+            return;
+
+        await Clients.User(targetUserId.ToString()).SendAsync("ForceMuted", channelId);
     }
 
     // --- Online/away/offline presence. Online is set on connect (see

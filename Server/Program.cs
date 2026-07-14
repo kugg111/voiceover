@@ -105,10 +105,13 @@ builder.Services.AddSingleton<CallSignalingService>();
 builder.Services.AddSingleton<PresenceAudienceCache>();
 builder.Services.AddSingleton<LiveKitTokenService>();
 builder.Services.AddScoped<PermissionService>();
+builder.Services.AddScoped<ModerationLogService>();
 // SendMessage/SendDirectMessage anti-spam - see MessageRateLimiter for why
 // this can't just be the HTTP rate limiter below (SignalR hub calls don't
 // go through the HTTP middleware pipeline at all).
 builder.Services.AddSingleton(new MessageRateLimiter(limit: 10, window: TimeSpan.FromSeconds(10)));
+// Per-channel slow-mode - same reasoning as MessageRateLimiter above.
+builder.Services.AddSingleton<SlowModeLimiter>();
 // InitiateCall anti-spam - a much tighter budget than messages since a ring
 // is far more disruptive than a chat message (sound + popup on the callee's
 // screen, not just an unread badge).
