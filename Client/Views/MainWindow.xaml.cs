@@ -667,9 +667,9 @@ public partial class MainWindow : FluentWindow
         _hub.CallAccepted += OnCallAccepted;
         _hub.CallDeclined += OnCallEndedRemotely;
         _hub.CallEnded += OnCallEndedRemotely;
-        _hub.Reconnecting += () => Dispatcher.Invoke(() => ConnectionStatusText.Text = "Reconnecting...");
+        _hub.Reconnecting += () => Dispatcher.Invoke(() => SetConnectionStatusText("Reconnecting...", isAlert: true));
         _hub.Reconnected += OnReconnected;
-        _hub.ConnectionClosed += () => Dispatcher.Invoke(() => ConnectionStatusText.Text = "Disconnected");
+        _hub.ConnectionClosed += () => Dispatcher.Invoke(() => SetConnectionStatusText("Disconnected", isAlert: true, isError: true));
 
         // Fires if the refresh token turns out to be dead (expired past its
         // 30-day life, or revoked - e.g. a "log out everywhere" from another
@@ -679,6 +679,40 @@ public partial class MainWindow : FluentWindow
 
         Loaded += MainWindow_Loaded;
         Closed += MainWindow_Closed;
+    }
+
+    // ConnectionStatusText doubles as both the SignalR reconnect indicator
+    // (this method) and a plain "Voice connected" note set directly
+    // elsewhere - isAlert bolds it and isError reddens it so "Reconnecting.../
+    // Disconnected" actually stand out from that easy-to-miss default amber,
+    // instead of every state looking the same. Non-alert callers (including
+    // the "" clear in OnReconnected, restoring the default look for whatever
+    // gets shown next) fall back to the original always-amber styling.
+    private void SetConnectionStatusText(string text, bool isAlert, bool isError = false)
+    {
+        ConnectionStatusText.Text = text;
+        ConnectionStatusText.Foreground = isError
+            ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xF2, 0x3F, 0x42))
+            : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xF0, 0xB2, 0x32));
+        ConnectionStatusText.FontWeight = isAlert ? FontWeights.Bold : FontWeights.Normal;
+    }
+
+    // Same crash-log file App.xaml.cs's DispatcherUnhandledException handler
+    // writes to, for exceptions thrown inside a fire-and-forget (`_ = ...`)
+    // Task - those never reach that handler (it only sees exceptions on the
+    // dispatcher thread's own call stack), so without this they'd vanish
+    // with zero trace instead of at least being logged. No MessageBox here
+    // deliberately - the call sites that use this are background actions
+    // where popping an error dialog would be more disruptive than useful.
+    private static void LogBackgroundException(Exception ex)
+    {
+        try
+        {
+            System.IO.File.AppendAllText(
+                System.IO.Path.Combine(System.IO.Path.GetTempPath(), "voiceover_client_crash.log"),
+                $"{DateTime.Now:O}\n{ex}\n\n");
+        }
+        catch { }
     }
 
     private async void MainWindow_Closed(object? sender, EventArgs e)
@@ -955,7 +989,7 @@ public partial class MainWindow : FluentWindow
         var success = await _api.ChangeRoleAsync(_currentServerId.Value, userId, item.NextRole);
         if (!success)
         {
-            MessageBox.Show("Could not change this member's role.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            new AlertDialog("Error", "Could not change this member's role.") { Owner = this }.ShowDialog();
             return;
         }
 
@@ -973,8 +1007,7 @@ public partial class MainWindow : FluentWindow
         var success = await _api.KickMemberAsync(_currentServerId.Value, userId);
         if (!success)
         {
-            MessageBox.Show("Could not kick this member (you may lack permission, or they're the owner).",
-                "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            new AlertDialog("Error", "Could not kick this member (you may lack permission, or they're the owner).") { Owner = this }.ShowDialog();
             return;
         }
 
@@ -993,7 +1026,7 @@ public partial class MainWindow : FluentWindow
         var (success, error) = await _api.BanMemberAsync(_currentServerId.Value, userId, reason: null);
         if (!success)
         {
-            MessageBox.Show(error ?? "Could not ban this member.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            new AlertDialog("Error", error ?? "Could not ban this member.") { Owner = this }.ShowDialog();
             return;
         }
 
@@ -1011,7 +1044,7 @@ public partial class MainWindow : FluentWindow
 
         var success = await _api.DeleteAllMessagesFromUserAsync(_currentChannelId.Value, userId);
         if (!success)
-            MessageBox.Show("Could not purge this member's messages.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            new AlertDialog("Error", "Could not purge this member's messages.") { Owner = this }.ShowDialog();
     }
 
     private void MemberEditPermissionsButton_Click(object sender, RoutedEventArgs e)
@@ -1173,8 +1206,7 @@ public partial class MainWindow : FluentWindow
             if (item is not null && selfItem is not null) item.Members.Remove(selfItem);
             _currentVoiceChannelId = null;
             ConnectionStatusText.Text = "";
-            MessageBox.Show("Could not join voice - check your connection and try again.", "Error",
-                MessageBoxButton.OK, MessageBoxImage.Error);
+            new AlertDialog("Error", "Could not join voice - check your connection and try again.") { Owner = this }.ShowDialog();
             return;
         }
 
@@ -1291,8 +1323,7 @@ public partial class MainWindow : FluentWindow
         var callId = await _hub.InitiateCallAsync(calleeId);
         if (callId is null)
         {
-            MessageBox.Show("Couldn't start the call - you may not be friends, they're already in a call, or you're calling too fast.",
-                "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            new AlertDialog("Error", "Couldn't start the call - you may not be friends, they're already in a call, or you're calling too fast.") { Owner = this }.ShowDialog();
             return;
         }
 
@@ -1363,8 +1394,7 @@ public partial class MainWindow : FluentWindow
         }
         catch
         {
-            MessageBox.Show("Could not join the call - check your connection and try again.", "Error",
-                MessageBoxButton.OK, MessageBoxImage.Error);
+            new AlertDialog("Error", "Could not join the call - check your connection and try again.") { Owner = this }.ShowDialog();
             _ = _hub.EndCallAsync(callId);
             _callWindow?.CloseSilently();
             return;
@@ -1386,8 +1416,23 @@ public partial class MainWindow : FluentWindow
             _ = SendCallEventMessageAsync(_callWindow.OtherPartyUserId, outcome);
         }
 
-        if (wasDecline) await _hub.DeclineCallAsync(callId);
-        else await _hub.EndCallAsync(callId);
+        try
+        {
+            if (wasDecline) await _hub.DeclineCallAsync(callId);
+            else await _hub.EndCallAsync(callId);
+        }
+        catch (Exception ex)
+        {
+            // Invoked fire-and-forget (`_ = EndOrDeclineCallAsync(...)`) from
+            // multiple call sites, so an exception here has nowhere else to
+            // go - without this it vanishes silently instead of reaching
+            // DispatcherUnhandledException (that only catches exceptions on
+            // the dispatcher thread's own call stack, not ones thrown inside
+            // a discarded Task). The other party's client still recovers on
+            // its own (see ChatHub.OnDisconnectedAsync's implicit end-call
+            // handling), so this is log-and-move-on, not a user-facing error.
+            LogBackgroundException(ex);
+        }
     }
 
     // Best-effort, fire-and-forget - see CallEventMessage for why this reuses
@@ -1530,10 +1575,22 @@ public partial class MainWindow : FluentWindow
 
     private async Task StartScreenShareWithPresetAsync(uint fps, uint bitrate, int? maxWidth, int? maxHeight)
     {
-        var item = ScreenCaptureSource.LastPickedItem ?? await PickScreenShareSourceAsync();
-        if (item is null) return;
+        try
+        {
+            var item = ScreenCaptureSource.LastPickedItem ?? await PickScreenShareSourceAsync();
+            if (item is null) return;
 
-        await StartScreenShareWithItemAsync(item, fps, bitrate, maxWidth, maxHeight);
+            await StartScreenShareWithItemAsync(item, fps, bitrate, maxWidth, maxHeight);
+        }
+        catch (Exception ex)
+        {
+            // Invoked fire-and-forget (`_ = StartScreenShareWithPresetAsync(...)`)
+            // from the preset menu click handlers - PickScreenShareSourceAsync
+            // and StartScreenShareWithItemAsync each already show a themed
+            // error for their own common failure modes, so this is just a
+            // backstop for anything that escapes both of those.
+            LogBackgroundException(ex);
+        }
     }
 
     private async Task<Windows.Graphics.Capture.GraphicsCaptureItem?> PickScreenShareSourceAsync()
@@ -1545,8 +1602,7 @@ public partial class MainWindow : FluentWindow
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Could not open the screen/window picker:\n{ex.Message}", "Error",
-                MessageBoxButton.OK, MessageBoxImage.Error);
+            new AlertDialog("Error", $"Could not open the screen/window picker:\n{ex.Message}") { Owner = this }.ShowDialog();
             return null;
         }
     }
@@ -1561,8 +1617,7 @@ public partial class MainWindow : FluentWindow
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Could not start screen sharing:\n{ex.Message}", "Error",
-                MessageBoxButton.OK, MessageBoxImage.Error);
+            new AlertDialog("Error", $"Could not start screen sharing:\n{ex.Message}") { Owner = this }.ShowDialog();
             return;
         }
 
@@ -1659,8 +1714,7 @@ public partial class MainWindow : FluentWindow
             var (success, error) = await _api.JoinByInviteAsync(code.Trim());
             if (!success)
             {
-                MessageBox.Show(error ?? "Could not join with that invite code.", "Join Failed",
-                    MessageBoxButton.OK, MessageBoxImage.Error);
+                new AlertDialog("Join Failed", error ?? "Could not join with that invite code.") { Owner = this }.ShowDialog();
                 return;
             }
             await LoadServersAsync();
@@ -1709,8 +1763,7 @@ public partial class MainWindow : FluentWindow
         var (success, error) = await _api.LeaveServerAsync(serverId);
         if (!success)
         {
-            MessageBox.Show(error ?? "Could not leave this server.", "Error",
-                MessageBoxButton.OK, MessageBoxImage.Error);
+            new AlertDialog("Error", error ?? "Could not leave this server.") { Owner = this }.ShowDialog();
             return;
         }
 
@@ -1736,13 +1789,13 @@ public partial class MainWindow : FluentWindow
         if (dialog.Result is null) return;
         if (!int.TryParse(dialog.Result, out var seconds) || seconds < 0)
         {
-            MessageBox.Show("Enter a whole number of seconds (0 or more).", "Invalid Value", MessageBoxButton.OK, MessageBoxImage.Warning);
+            new AlertDialog("Invalid Value", "Enter a whole number of seconds (0 or more).") { Owner = this }.ShowDialog();
             return;
         }
 
         var success = await _api.SetSlowModeAsync(_currentServerId.Value, channelId, seconds);
         if (!success)
-            MessageBox.Show("Could not set slow mode (you may lack permission).", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            new AlertDialog("Error", "Could not set slow mode (you may lack permission).") { Owner = this }.ShowDialog();
     }
 
     private async void DeleteChannelButton_Click(object sender, RoutedEventArgs e)
@@ -1756,8 +1809,7 @@ public partial class MainWindow : FluentWindow
         var success = await _api.DeleteChannelAsync(_currentServerId.Value, channelId);
         if (!success)
         {
-            MessageBox.Show("Could not delete this channel (you may lack permission).", "Error",
-                MessageBoxButton.OK, MessageBoxImage.Error);
+            new AlertDialog("Error", "Could not delete this channel (you may lack permission).") { Owner = this }.ShowDialog();
             return;
         }
 
@@ -1828,8 +1880,7 @@ public partial class MainWindow : FluentWindow
     private void OnSessionExpired()
     {
         SessionStorage.Clear();
-        MessageBox.Show("Your session has expired. Please log in again.", "Signed Out",
-            MessageBoxButton.OK, MessageBoxImage.Information);
+        new AlertDialog("Signed Out", "Your session has expired. Please log in again.") { Owner = this }.ShowDialog();
         new LoginWindow().Show();
         Close();
     }
@@ -2081,7 +2132,7 @@ public partial class MainWindow : FluentWindow
         var (success, error) = await _api.SendFriendRequestAsync(userId);
         if (!success)
         {
-            MessageBox.Show(error ?? "Could not send friend request.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            new AlertDialog("Error", error ?? "Could not send friend request.") { Owner = this }.ShowDialog();
             return;
         }
 
@@ -2140,13 +2191,13 @@ public partial class MainWindow : FluentWindow
     {
         if (_dmActiveUserId.HasValue)
         {
-            MessageBox.Show("Attachments aren't supported in direct messages yet.");
+            new AlertDialog("Not Supported", "Attachments aren't supported in direct messages yet.") { Owner = this }.ShowDialog();
             return;
         }
 
         if (_currentChannelId is null)
         {
-            MessageBox.Show("Select a channel first.");
+            new AlertDialog("No Channel Selected", "Select a channel first.") { Owner = this }.ShowDialog();
             return;
         }
 
@@ -2170,7 +2221,7 @@ public partial class MainWindow : FluentWindow
         var (upload, error) = await _api.UploadFileAsync(filePath);
         if (upload is null)
         {
-            MessageBox.Show(error ?? "Upload failed.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            new AlertDialog("Error", error ?? "Upload failed.") { Owner = this }.ShowDialog();
             return;
         }
 
@@ -2180,7 +2231,7 @@ public partial class MainWindow : FluentWindow
         var encrypted = await _api.E2ee.EncryptForServerAsync(serverId, string.Empty);
         if (encrypted is null)
         {
-            MessageBox.Show("Couldn't send - encryption isn't ready for this server yet.", "Encryption unavailable", MessageBoxButton.OK, MessageBoxImage.Warning);
+            new AlertDialog("Encryption unavailable", "Couldn't send - encryption isn't ready for this server yet.") { Owner = this }.ShowDialog();
             return;
         }
 
@@ -2239,13 +2290,13 @@ public partial class MainWindow : FluentWindow
 
         if (_dmActiveUserId.HasValue)
         {
-            MessageBox.Show("Attachments aren't supported in direct messages yet.");
+            new AlertDialog("Not Supported", "Attachments aren't supported in direct messages yet.") { Owner = this }.ShowDialog();
             return;
         }
 
         if (_currentChannelId is null)
         {
-            MessageBox.Show("Select a channel first.");
+            new AlertDialog("No Channel Selected", "Select a channel first.") { Owner = this }.ShowDialog();
             return;
         }
 
@@ -2297,9 +2348,9 @@ public partial class MainWindow : FluentWindow
             var encrypted = await _api.E2ee.EncryptAsync(_dmActiveUserId.Value, MessageInput.Text.Trim());
             if (encrypted is null)
             {
-                MessageBox.Show(
-                    "Couldn't send an encrypted message right now - either your own encryption keys aren't unlocked yet, or this person hasn't logged in since secure messaging was added. Try logging out and back in.",
-                    "Encryption unavailable", MessageBoxButton.OK, MessageBoxImage.Warning);
+                new AlertDialog("Encryption unavailable",
+                    "Couldn't send an encrypted message right now - either your own encryption keys aren't unlocked yet, or this person hasn't logged in since secure messaging was added. Try logging out and back in.")
+                    { Owner = this }.ShowDialog();
                 return;
             }
 
@@ -2313,9 +2364,9 @@ public partial class MainWindow : FluentWindow
         var encryptedChannelMessage = await _api.E2ee.EncryptForServerAsync(serverId, MessageInput.Text.Trim());
         if (encryptedChannelMessage is null)
         {
-            MessageBox.Show(
-                "Couldn't send an encrypted message right now - this device doesn't have this server's encryption key yet. It's waiting for another online member to grant access.",
-                "Encryption unavailable", MessageBoxButton.OK, MessageBoxImage.Warning);
+            new AlertDialog("Encryption unavailable",
+                "Couldn't send an encrypted message right now - this device doesn't have this server's encryption key yet. It's waiting for another online member to grant access.")
+                { Owner = this }.ShowDialog();
             await _hub.RequestServerKeyAsync(serverId);
             return;
         }
@@ -2369,8 +2420,7 @@ public partial class MainWindow : FluentWindow
         }
         else
         {
-            MessageBox.Show("Could not delete that message (you may lack permission).", "Error",
-                MessageBoxButton.OK, MessageBoxImage.Error);
+            new AlertDialog("Error", "Could not delete that message (you may lack permission).") { Owner = this }.ShowDialog();
         }
     }
 
@@ -2949,7 +2999,7 @@ public partial class MainWindow : FluentWindow
             await LoadMembersPanelAsync(_currentServerId.Value);
         }
 
-        Dispatcher.Invoke(() => ConnectionStatusText.Text = "");
+        Dispatcher.Invoke(() => SetConnectionStatusText("", isAlert: false));
     }
 
     private void OnVoiceUserJoined(int userId, string username, int channelId, string? avatarUrl)

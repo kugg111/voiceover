@@ -76,6 +76,13 @@ public partial class App : Application
         }
         catch { }
 
+        // Deliberately a native MessageBox, not the themed AlertDialog used
+        // everywhere else - this is the last-resort handler for an
+        // exception that made it all the way up here, which could mean the
+        // app's own themed window stack (styles, resources, FluentWindow
+        // backdrop) is exactly what's broken. A plain OS dialog has no
+        // dependency on any of that, so it's the one thing guaranteed to
+        // still render.
         MessageBox.Show($"Something went wrong: {e.Exception.Message}", "Unexpected Error",
             MessageBoxButton.OK, MessageBoxImage.Error);
         e.Handled = true;
