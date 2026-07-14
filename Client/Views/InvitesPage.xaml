@@ -1,0 +1,42 @@
+<UserControl x:Class="Voiceover.Client.Views.InvitesPage"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <DockPanel MaxWidth="380" HorizontalAlignment="Left">
+        <Button DockPanel.Dock="Top" x:Name="GenerateButton" Content="Generate New Invite" Height="40" Margin="0,0,0,16"
+                Click="GenerateButton_Click"
+                Background="{StaticResource AccentBlurple}" Foreground="White" BorderThickness="0" FontWeight="Bold" Cursor="Hand"/>
+
+        <TextBlock DockPanel.Dock="Top" Text="ACTIVE INVITES" FontSize="11" FontWeight="Bold"
+                   Foreground="{StaticResource TextMuted}" Margin="0,0,0,8"/>
+
+        <TextBlock DockPanel.Dock="Top" x:Name="EmptyStateText" Text="No active invites yet - generate one above."
+                   FontSize="12" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}"
+                   Visibility="Collapsed" Margin="0,0,0,8"/>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="400">
+            <ItemsControl x:Name="InviteList">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Background="{StaticResource BgSidebar}" CornerRadius="4" Padding="10,8" Margin="0,0,0,8">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding Code}" FontWeight="Bold" FontSize="14"
+                                               Foreground="{StaticResource TextNormal}"/>
+                                    <TextBlock Text="{Binding Details}" FontSize="11" Foreground="{StaticResource TextMuted}"/>
+                                </StackPanel>
+                                <Button Grid.Column="1" Content="{Binding CopyIcon}" Width="32" Height="32"
+                                        Click="CopyButton_Click" ToolTip="Copy to clipboard"
+                                        Background="Transparent" Foreground="{StaticResource TextNormal}"
+                                        BorderThickness="0" FontSize="14" Cursor="Hand" VerticalAlignment="Center"/>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

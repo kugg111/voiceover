@@ -1917,7 +1917,7 @@ public partial class MainWindow : FluentWindow
     {
         if (sender is not System.Windows.Controls.MenuItem { Tag: int serverId }) return;
 
-        new InvitesWindow(_api, serverId) { Owner = this }.ShowDialog();
+        NavigateTo(new InvitesPage(this, _api, serverId), "Invites");
     }
 
     private async void LeaveServerMenuItem_Click(object sender, RoutedEventArgs e)
@@ -2150,7 +2150,7 @@ public partial class MainWindow : FluentWindow
 
     private void RecentCallsButton_Click(object sender, RoutedEventArgs e)
     {
-        new CallHistoryWindow(_api) { Owner = this }.ShowDialog();
+        NavigateTo(new CallHistoryPage(_api), "Recent Calls");
     }
 
     private async void FriendsButton_Click(object sender, RoutedEventArgs e)
@@ -3105,8 +3105,7 @@ public partial class MainWindow : FluentWindow
     }
 
     // Opens immediately on a plain left-click instead of requiring a
-    // right-click, same trick InvitesWindow-style popups don't need but a
-    // plain Button.ContextMenu does by default.
+    // right-click - a plain Button.ContextMenu requires that by default.
     private void ReactButton_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not FrameworkElement { ContextMenu: { } menu } element) return;

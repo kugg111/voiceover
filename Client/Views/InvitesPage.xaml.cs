@@ -1,12 +1,9 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Threading;
 using Voiceover.Client.Services;
-using Wpf.Ui.Controls;
-using MessageBox = System.Windows.MessageBox;
-using MessageBoxButton = System.Windows.MessageBoxButton;
-using MessageBoxImage = System.Windows.MessageBoxImage;
 
 namespace Voiceover.Client.Views;
 
@@ -29,21 +26,23 @@ public class InviteListItem : INotifyPropertyChanged
     }
 
     // Briefly swaps to a checkmark after copying so the click has visible
-    // feedback, then reverts on its own (see InvitesWindow.CopyButton_Click).
+    // feedback, then reverts on its own (see InvitesPage.CopyButton_Click).
     public string CopyIcon => JustCopied ? "✅" : "📋";
 
     public event PropertyChangedEventHandler? PropertyChanged;
 }
 
-public partial class InvitesWindow : FluentWindow
+public partial class InvitesPage : UserControl
 {
+    private readonly MainWindow _mainWindow;
     private readonly ApiService _api;
     private readonly int _serverId;
     private readonly ObservableCollection<InviteListItem> _invites = new();
 
-    public InvitesWindow(ApiService api, int serverId)
+    public InvitesPage(MainWindow mainWindow, ApiService api, int serverId)
     {
         InitializeComponent();
+        _mainWindow = mainWindow;
         _api = api;
         _serverId = serverId;
         InviteList.ItemsSource = _invites;
@@ -74,7 +73,7 @@ public partial class InvitesWindow : FluentWindow
 
         if (invite is null)
         {
-            MessageBox.Show("Could not generate an invite.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            await _mainWindow.AlertAsync("Error", "Could not generate an invite.");
             return;
         }
 

@@ -1,8 +1,8 @@
 using System.Collections.ObjectModel;
 using System.Windows;
+using System.Windows.Controls;
 using Voiceover.Client.Models;
 using Voiceover.Client.Services;
-using Wpf.Ui.Controls;
 
 namespace Voiceover.Client.Views;
 
@@ -13,7 +13,7 @@ public class CallHistoryItem
     public string? OtherUserAvatarUrl { get; set; }
     public string Summary { get; set; } = string.Empty;
 
-    // A hex string, not a Brush - CallHistoryWindow.xaml binds this directly
+    // A hex string, not a Brush - CallHistoryPage.xaml binds this directly
     // to a TextBlock.Foreground (a Brush property). That works because WPF's
     // binding engine falls back to the target property's own TypeConverter
     // (BrushConverter, which parses "#RRGGBB") when the source value is a
@@ -24,7 +24,7 @@ public class CallHistoryItem
     public string TimeDisplay { get; set; } = string.Empty;
 }
 
-public partial class CallHistoryWindow : FluentWindow
+public partial class CallHistoryPage : UserControl
 {
     private const int PageSize = 50;
 
@@ -33,7 +33,7 @@ public partial class CallHistoryWindow : FluentWindow
     private bool _hasMore;
     private bool _isLoadingMore;
 
-    public CallHistoryWindow(ApiService api)
+    public CallHistoryPage(ApiService api)
     {
         InitializeComponent();
         _api = api;
