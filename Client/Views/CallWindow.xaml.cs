@@ -14,9 +14,9 @@ namespace Voiceover.Client.Views;
 public enum CallWindowState { OutgoingRinging, IncomingRinging, Active }
 
 // Non-modal (Show(), not ShowDialog()) so the rest of the app stays usable
-// while a call rings or is active - unlike ConfirmDialog, which this
-// borrows its FluentWindow/Mica shell from, this window updates in place as
-// a call moves from ringing to active instead of being closed and replaced.
+// while a call rings or is active - unlike a themed confirm/alert dialog,
+// this window updates in place as a call moves from ringing to active
+// instead of being closed and replaced.
 // One instance covers both the incoming-ring and active-call surfaces from
 // the plan, since most of the shell (avatar, name, roster) is shared and
 // juggling two window lifetimes for one call added more risk than it saved.

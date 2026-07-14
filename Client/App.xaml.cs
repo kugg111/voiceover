@@ -76,7 +76,7 @@ public partial class App : Application
         }
         catch { }
 
-        // Deliberately a native MessageBox, not the themed AlertDialog used
+        // Deliberately a native MessageBox, not the themed AlertAsync used
         // everywhere else - this is the last-resort handler for an
         // exception that made it all the way up here, which could mean the
         // app's own themed window stack (styles, resources, FluentWindow
