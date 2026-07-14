@@ -1,8 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Windows;
-using Voiceover.Client.Models;
+using System.Windows.Controls;
 using Voiceover.Client.Services;
-using Wpf.Ui.Controls;
 
 namespace Voiceover.Client.Views;
 
@@ -16,7 +15,7 @@ public class PinnedMessageItem
     public Visibility CanUnpinVisibility { get; set; }
 }
 
-public partial class PinnedMessagesWindow : FluentWindow
+public partial class PinnedMessagesPage : UserControl
 {
     private readonly ApiService _api;
     private readonly int _serverId;
@@ -24,7 +23,7 @@ public partial class PinnedMessagesWindow : FluentWindow
     private readonly bool _canManage;
     private readonly ObservableCollection<PinnedMessageItem> _pinned = new();
 
-    public PinnedMessagesWindow(ApiService api, int serverId, int channelId, bool canManage)
+    public PinnedMessagesPage(ApiService api, int serverId, int channelId, bool canManage)
     {
         InitializeComponent();
         _api = api;

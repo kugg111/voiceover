@@ -1,9 +1,8 @@
 using System.Collections.ObjectModel;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
-using Voiceover.Client.Models;
 using Voiceover.Client.Services;
-using Wpf.Ui.Controls;
 
 namespace Voiceover.Client.Views;
 
@@ -20,10 +19,10 @@ public class SearchResultItem
 // this fetches the whole conversation's history (walking the same
 // beforeId-cursor pagination "Load Older Messages" already uses, capped at
 // a few thousand messages so an extremely long-lived channel doesn't hang
-// the window indefinitely), decrypts every page client-side, and filters in
+// the page indefinitely), decrypts every page client-side, and filters in
 // memory. No "jump to the message in the main view" - a deliberate scope
 // cut, see the search UI's own README/plan notes for why.
-public partial class MessageSearchWindow : FluentWindow
+public partial class MessageSearchPage : UserControl
 {
     private const int FetchCap = 2000;
 
@@ -37,7 +36,7 @@ public partial class MessageSearchWindow : FluentWindow
 
     // Channel search: pass serverId + channelId, otherUserId/otherUsername null.
     // DM search: pass otherUserId + otherUsername, serverId/channelId null.
-    public MessageSearchWindow(ApiService api, int? serverId, int? channelId, int? otherUserId, string otherUsername)
+    public MessageSearchPage(ApiService api, int? serverId, int? channelId, int? otherUserId, string otherUsername)
     {
         InitializeComponent();
         _api = api;

@@ -2675,7 +2675,7 @@ public partial class MainWindow : FluentWindow
 
     // Broadcast from MessagesController.Pin/Unpin - only found/updated if
     // this message happens to already be loaded in _messages (the currently
-    // open channel); PinnedMessagesWindow always fetches fresh from the
+    // open channel); PinnedMessagesPage always fetches fresh from the
     // server when opened, so it doesn't need a live-update path of its own.
     private void OnMessagePinned(int messageId, bool isPinned)
     {
@@ -2686,15 +2686,15 @@ public partial class MainWindow : FluentWindow
     private void PinnedMessagesButton_Click(object sender, RoutedEventArgs e)
     {
         if (!_currentChannelId.HasValue || !_currentServerId.HasValue) return;
-        new PinnedMessagesWindow(_api, _currentServerId.Value, _currentChannelId.Value, _canManageCurrentServer) { Owner = this }.ShowDialog();
+        NavigateTo(new PinnedMessagesPage(_api, _currentServerId.Value, _currentChannelId.Value, _canManageCurrentServer), "Pinned Messages");
     }
 
     private void SearchMessagesButton_Click(object sender, RoutedEventArgs e)
     {
         if (_currentChannelId.HasValue && _currentServerId.HasValue)
-            new MessageSearchWindow(_api, _currentServerId.Value, _currentChannelId.Value, null, "") { Owner = this }.ShowDialog();
+            NavigateTo(new MessageSearchPage(_api, _currentServerId.Value, _currentChannelId.Value, null, ""), "Search Messages");
         else if (_dmActiveUserId.HasValue)
-            new MessageSearchWindow(_api, null, null, _dmActiveUserId.Value, _dmActiveUsername ?? "them") { Owner = this }.ShowDialog();
+            NavigateTo(new MessageSearchPage(_api, null, null, _dmActiveUserId.Value, _dmActiveUsername ?? "them"), "Search Messages");
     }
 
     private async void SaveMessageEditButton_Click(object sender, RoutedEventArgs e)

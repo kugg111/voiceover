@@ -148,7 +148,7 @@ public class UsersController : ControllerBase
     // message content (server only ever holds E2EE ciphertext). A full
     // client-side history export (walking decrypted history to a file) is
     // out of scope for this batch - a disclosed scope cut, same kind
-    // MessageSearchWindow's own doc comment already makes for the same
+    // MessageSearchPage's own doc comment already makes for the same
     // E2EE reason.
     [HttpGet("me/export")]
     public async Task<ActionResult<UserDataExportResponse>> ExportMyData()
