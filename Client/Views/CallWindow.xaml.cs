@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Voiceover.Client.Services;
@@ -46,6 +47,7 @@ public partial class CallWindow : FluentWindow
     private readonly VoiceMemberItem _otherRosterItem;
     private bool _suppressEndedEvent;
     private ScreenShareViewerWindow? _remoteViewer;
+    private RemoteVideoPlayback? _otherPartyPlayback;
     private DispatcherTimer? _durationTimer;
     private DateTime _activeStartUtc;
 
@@ -155,12 +157,6 @@ public partial class CallWindow : FluentWindow
             return;
         }
 
-        if (ScreenCaptureSource.LastPreset is { } preset)
-        {
-            _ = StartScreenShareWithPresetAsync(preset.Fps, preset.Bitrate, preset.MaxWidth, preset.MaxHeight);
-            return;
-        }
-
         ScreenSharePresetMenu.PlacementTarget = ScreenShareButton;
         ScreenSharePresetMenu.IsOpen = true;
     }
@@ -172,9 +168,8 @@ public partial class CallWindow : FluentWindow
     private async void ScreenShare720p60Fps_Click(object sender, RoutedEventArgs e) => await StartScreenShareWithPresetAsync(60, 6_000_000, 1280, 720);
     private async void ScreenShareNative120Fps_Click(object sender, RoutedEventArgs e) => await StartScreenShareWithPresetAsync(120, 35_000_000, null, null);
 
-    // Bypasses ScreenCaptureSource.LastPickedItem to force the OS picker
-    // even if a source is already remembered - see MainWindow's identical
-    // handler for why.
+    // Quick-share shortcut with a fixed 720p60 preset - see MainWindow's
+    // identical handler for why (always prompts for a source either way).
     private async void ScreenShareChooseSource_Click(object sender, RoutedEventArgs e)
     {
         var item = await PickScreenShareSourceAsync();
@@ -185,7 +180,7 @@ public partial class CallWindow : FluentWindow
 
     private async Task StartScreenShareWithPresetAsync(uint fps, uint bitrate, int? maxWidth, int? maxHeight)
     {
-        var item = ScreenCaptureSource.LastPickedItem ?? await PickScreenShareSourceAsync();
+        var item = await PickScreenShareSourceAsync();
         if (item is null) return;
 
         await StartScreenShareWithItemAsync(item, fps, bitrate, maxWidth, maxHeight);
@@ -218,8 +213,6 @@ public partial class CallWindow : FluentWindow
                 MessageBoxButton.OK, MessageBoxImage.Error);
             return;
         }
-
-        ScreenCaptureSource.LastPreset = (fps, bitrate, maxWidth, maxHeight);
     }
 
     private void OnLocalScreenSharingChanged(bool isSharing) => Dispatcher.Invoke(() =>
@@ -234,17 +227,37 @@ public partial class CallWindow : FluentWindow
     private void OnRemoteScreenShareStarted(int userId, RemoteVideoPlayback playback) => Dispatcher.Invoke(() =>
     {
         _otherRosterItem.IsScreenSharing = true;
-        _remoteViewer?.Close();
-        _remoteViewer = new ScreenShareViewerWindow(_otherRosterItem.Username, playback);
-        _remoteViewer.Show();
+        // No auto-opened viewer - just remember the live playback so a
+        // later click on the TV icon (RemoteScreenShareIcon_MouseLeftButtonUp)
+        // has something to open.
+        _otherPartyPlayback = playback;
     });
 
     private void OnRemoteScreenShareStopped(int userId) => Dispatcher.Invoke(() =>
     {
         _otherRosterItem.IsScreenSharing = false;
+        _otherPartyPlayback = null;
         _remoteViewer?.Close();
         _remoteViewer = null;
     });
+
+    // Click target for the blue TV icon next to the other party's name -
+    // the only way the viewer window opens now. Clicking it again while
+    // already open just activates the existing window.
+    private void RemoteScreenShareIcon_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (_otherPartyPlayback is null) return;
+
+        if (_remoteViewer is not null)
+        {
+            _remoteViewer.Activate();
+            return;
+        }
+
+        _remoteViewer = new ScreenShareViewerWindow(_otherRosterItem.Username, _otherPartyPlayback);
+        _remoteViewer.Closed += (_, _) => _remoteViewer = null;
+        _remoteViewer.Show();
+    }
 
     private void UpdateScreenShareButtonVisual(bool isSharing)
     {

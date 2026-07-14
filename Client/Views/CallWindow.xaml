@@ -45,8 +45,18 @@
                         <DataTemplate>
                             <StackPanel Orientation="Horizontal" Margin="0,4,0,4" HorizontalAlignment="Center">
                                 <local:AvatarView Size="28" DisplayName="{Binding Username}" ImageUrl="{Binding AvatarUrl}" Margin="0,0,8,0"/>
-                                <TextBlock Text="🖥️" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0"
-                                           Visibility="{Binding ScreenSharingIconVisibility}" ToolTip="Sharing screen"/>
+                                <Border Cursor="Hand" Margin="0,0,4,0" VerticalAlignment="Center"
+                                        Visibility="{Binding ScreenSharingIconVisibility}"
+                                        ToolTip="Sharing screen - click to view"
+                                        MouseLeftButtonUp="RemoteScreenShareIcon_MouseLeftButtonUp">
+                                    <Viewbox Width="12" Height="12">
+                                        <Canvas Width="24" Height="24">
+                                            <Rectangle Canvas.Left="2" Canvas.Top="3" Width="20" Height="14" RadiusX="2" RadiusY="2" Fill="{StaticResource AccentBlurple}"/>
+                                            <Rectangle Canvas.Left="9" Canvas.Top="18" Width="6" Height="3" Fill="{StaticResource AccentBlurple}"/>
+                                            <Rectangle Canvas.Left="6" Canvas.Top="20" Width="12" Height="2" RadiusX="1" RadiusY="1" Fill="{StaticResource AccentBlurple}"/>
+                                        </Canvas>
+                                    </Viewbox>
+                                </Border>
                                 <TextBlock Text="{Binding Username}" FontSize="13" VerticalAlignment="Center"
                                            Foreground="{StaticResource TextNormal}"/>
                                 <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"

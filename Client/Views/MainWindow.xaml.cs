@@ -573,6 +573,14 @@ public partial class MainWindow : FluentWindow
     // One viewer window per remote participant currently screen-sharing.
     private readonly Dictionary<int, ScreenShareViewerWindow> _screenShareViewers = new();
 
+    // Tracks who's currently sharing in the open voice channel and their
+    // live RemoteVideoPlayback, without opening a viewer window for any of
+    // them automatically - see OnRemoteScreenShareStarted/
+    // ScreenShareIcon_MouseLeftButtonUp. The icon itself (bound to
+    // IsScreenSharing/ScreenSharingIconVisibility on VoiceMemberItem) is
+    // what tells you who's sharing; a viewer only opens if you click it.
+    private readonly Dictionary<int, RemoteVideoPlayback> _activeScreenShares = new();
+
     // BulkObservableCollection where a Clear()+per-item-Add() reload pattern
     // is common (see ReplaceAll callers below) - one Reset notification
     // instead of N+1 individual ones. Plain ObservableCollection for the
@@ -1535,16 +1543,9 @@ public partial class MainWindow : FluentWindow
             return;
         }
 
-        // Once a preset's been used this session, a plain click reuses it
-        // directly instead of reprompting - right-click (the ContextMenu's
-        // normal WPF trigger, still wired below) is always available to
-        // pick a different one.
-        if (ScreenCaptureSource.LastPreset is { } preset)
-        {
-            _ = StartScreenShareWithPresetAsync(preset.Fps, preset.Bitrate, preset.MaxWidth, preset.MaxHeight);
-            return;
-        }
-
+        // Always prompts for a quality preset - no remembered choice from a
+        // previous share gets silently reused, so the user picks what to
+        // share (and at what quality) fresh every time.
         ScreenSharePresetMenu.PlacementTarget = ScreenShareButton;
         ScreenSharePresetMenu.IsOpen = true;
     }
@@ -1559,10 +1560,9 @@ public partial class MainWindow : FluentWindow
     private async void ScreenShare720p60Fps_Click(object sender, RoutedEventArgs e) => await StartScreenShareWithPresetAsync(60, 6_000_000, 1280, 720);
     private async void ScreenShareNative120Fps_Click(object sender, RoutedEventArgs e) => await StartScreenShareWithPresetAsync(120, 35_000_000, null, null);
 
-    // Bypasses ScreenCaptureSource.LastPickedItem to force the OS picker
-    // even if a source is already remembered - the only way to switch
-    // windows/monitors once one's been picked, since the preset items above
-    // reuse the remembered source instead of re-prompting every time.
+    // Quick-share shortcut with a fixed 720p60 preset, skipping the preset
+    // menu entirely (but still always prompting for a source, same as every
+    // other share path - see StartScreenShareWithPresetAsync).
     private async void ScreenShareChooseSource_Click(object sender, RoutedEventArgs e)
     {
         if (_voice is null) return;
@@ -1577,7 +1577,7 @@ public partial class MainWindow : FluentWindow
     {
         try
         {
-            var item = ScreenCaptureSource.LastPickedItem ?? await PickScreenShareSourceAsync();
+            var item = await PickScreenShareSourceAsync();
             if (item is null) return;
 
             await StartScreenShareWithItemAsync(item, fps, bitrate, maxWidth, maxHeight);
@@ -1621,8 +1621,6 @@ public partial class MainWindow : FluentWindow
             return;
         }
 
-        ScreenCaptureSource.LastPreset = (fps, bitrate, maxWidth, maxHeight);
-
         UpdateScreenShareButtonVisual();
     }
 
@@ -1656,19 +1654,16 @@ public partial class MainWindow : FluentWindow
         // _voice is shared between channel voice and private calls -
         // CallWindow subscribes to this same event for call-scoped shares
         // (see CallWindow.OnRemoteScreenShareStarted), so this handler must
-        // stay out of the way when the active voice context is a call, or
-        // both would open a viewer window for the same share.
+        // stay out of the way when the active voice context is a call.
         if (!_currentVoiceChannelId.HasValue) return;
 
         var member = FindVoiceChannelItem(_currentVoiceChannelId.Value)?.Members.FirstOrDefault(m => m.UserId == userId);
         if (member is not null) member.IsScreenSharing = true;
 
-        if (_screenShareViewers.ContainsKey(userId)) return;
-
-        var viewer = new ScreenShareViewerWindow(member?.Username ?? "Someone", playback);
-        _screenShareViewers[userId] = viewer;
-        viewer.Closed += (_, _) => _screenShareViewers.Remove(userId);
-        viewer.Show();
+        // No auto-opened viewer - just remember the live playback so a
+        // later click on this member's TV icon (ScreenShareIcon_MouseLeftButtonUp)
+        // has something to open.
+        _activeScreenShares[userId] = playback;
     }
 
     private void OnRemoteScreenShareStopped(int userId)
@@ -1678,8 +1673,31 @@ public partial class MainWindow : FluentWindow
         var member = FindVoiceChannelItem(_currentVoiceChannelId.Value)?.Members.FirstOrDefault(m => m.UserId == userId);
         if (member is not null) member.IsScreenSharing = false;
 
+        _activeScreenShares.Remove(userId);
         if (_screenShareViewers.Remove(userId, out var viewer))
             viewer.Close();
+    }
+
+    // Click target for the blue TV icon next to a sharing member's name -
+    // the only way a viewer window opens now (see OnRemoteScreenShareStarted).
+    // Clicking an already-open sharer's icon activates the existing window
+    // instead of opening a second one.
+    private void ScreenShareIcon_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: int userId }) return;
+        if (!_activeScreenShares.TryGetValue(userId, out var playback)) return;
+
+        if (_screenShareViewers.TryGetValue(userId, out var existing))
+        {
+            existing.Activate();
+            return;
+        }
+
+        var member = FindVoiceChannelItem(_currentVoiceChannelId ?? -1)?.Members.FirstOrDefault(m => m.UserId == userId);
+        var viewer = new ScreenShareViewerWindow(member?.Username ?? "Someone", playback);
+        _screenShareViewers[userId] = viewer;
+        viewer.Closed += (_, _) => _screenShareViewers.Remove(userId);
+        viewer.Show();
     }
 
     private async void AddServerButton_Click(object sender, RoutedEventArgs e)
