@@ -68,7 +68,7 @@
                     <TextBlock x:Name="PostFilterBetaDisplay" Width="46" Margin="6,0,0,0"
                                VerticalAlignment="Center" Foreground="{StaticResource TextMuted}"/>
                 </StackPanel>
-                <TextBlock Text="Smooths artifacts ('robotic'/musical noise sound) left behind by the main filter. Raise this if suppressed audio sounds warbly."
+                <TextBlock Text="Adjusts the plugin's post-filter smoothing. The effect varies by mic/setup - 0 (default) is the safest starting point; try both directions with Test Mic rather than assuming higher is better."
                            FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}"/>
             </StackPanel>
 

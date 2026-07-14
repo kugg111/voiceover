@@ -106,13 +106,19 @@ internal class LadspaHost : IDisposable
         }
     }
 
-    // Post Filter Beta (port 7) - how much smoothing/artifact-reduction the
-    // plugin applies after its main filter pass. The plugin's own declared
-    // range is 0-1 (DefaultValue::Minimum = 0); raising it is the standard
-    // fix for the "sounds robotic/musical noise artifacts" complaint that
-    // aggressive ML denoisers are prone to. Same get/set-with-Marshal.Copy
-    // shape as AttenuationLimit above - LADSPA control ports just point at a
-    // float the plugin re-reads every run() call.
+    // Post Filter Beta (port 7) - controls the plugin's post-filter
+    // smoothing pass. The plugin's own declared range is 0-1
+    // (DefaultValue::Minimum = 0). Originally assumed (based on how "post-
+    // filter beta" parameters usually work in the speech-enhancement
+    // literature - more smoothing = fewer musical-noise artifacts) that
+    // raising it would fix "sounds robotic" complaints; real listening
+    // tests against this specific plugin build found the opposite -
+    // raising it sounded noticeably worse. Exposed as a user-adjustable
+    // knob regardless (see VoiceSettingsPanel's Test Mic), but the UI copy
+    // no longer asserts a direction - 0 (the plugin's own default) is the
+    // known-good starting point. Same get/set-with-Marshal.Copy shape as
+    // AttenuationLimit above - LADSPA control ports just point at a float
+    // the plugin re-reads every run() call.
     public const float PostFilterBetaMin = 0f;
     public const float PostFilterBetaMax = 1f;
 
