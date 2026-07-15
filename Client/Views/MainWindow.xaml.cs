@@ -623,6 +623,16 @@ public partial class MainWindow : FluentWindow
         InitializeComponent();
         _api = api;
 
+        // /uploads now requires auth (see Server/Program.cs) - both image
+        // caches need a way to attach a bearer token to their own HttpClient
+        // requests. Must happen before anything below that could trigger a
+        // fetch - AvatarView.ImageUrl's setter calls Refresh() immediately
+        // (not gated on the control's own Loaded event), so setting
+        // MyAvatarView.ImageUrl just a few lines down would otherwise race
+        // this if it were done any later (e.g. in MainWindow_Loaded,
+        // alongside SignalRService.ConnectAsync's own accessTokenProvider).
+        AvatarImageCache.AccessTokenProvider = AttachmentImageCache.AccessTokenProvider = _api.GetFreshAccessTokenAsync;
+
         MyAvatarView.DisplayName = _api.CurrentUsername ?? "?";
         MyAvatarView.ImageUrl = _api.CurrentUserAvatarUrl;
 

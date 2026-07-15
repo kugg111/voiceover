@@ -19,6 +19,12 @@ public static class AttachmentImageCache
     private static readonly ConcurrentDictionary<string, Task<BitmapImage?>> InFlight = new();
     private static readonly HttpClient Http = new();
 
+    // Set once at login (see MainWindow.xaml.cs, right next to
+    // SignalRService.ConnectAsync's own accessTokenProvider) - see
+    // AvatarImageCache.AccessTokenProvider for the full reasoning, same
+    // shape here.
+    public static Func<Task<string?>>? AccessTokenProvider { get; set; }
+
     private static readonly string CacheDir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "Voiceover", "attachmentcache");
@@ -51,7 +57,7 @@ public static class AttachmentImageCache
             }
             else
             {
-                bytes = await Http.GetByteArrayAsync(url);
+                bytes = await FetchAsync(url);
                 await File.WriteAllBytesAsync(cacheFile, bytes);
             }
 
@@ -86,5 +92,19 @@ public static class AttachmentImageCache
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(url)));
         var ext = Path.GetExtension(new Uri(url).AbsolutePath);
         return string.IsNullOrEmpty(ext) ? hash : hash + ext;
+    }
+
+    // /uploads now requires auth (see Program.cs) - see
+    // AvatarImageCache.FetchAsync for the full reasoning, same shape here.
+    private static async Task<byte[]> FetchAsync(string url)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        var token = AccessTokenProvider is null ? null : await AccessTokenProvider();
+        if (token is not null)
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+        using var response = await Http.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadAsByteArrayAsync();
     }
 }

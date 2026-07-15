@@ -226,14 +226,20 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         options.TokenValidationParameters = jwtServiceForAuth.GetValidationParameters();
 
         // Allows SignalR to receive the JWT via query string, since browsers/
-        // desktop SignalR clients can't set Authorization headers on WS upgrade.
+        // desktop SignalR clients can't set Authorization headers on WS
+        // upgrade. Also covers /uploads for the same reason a bearer header
+        // isn't always practical there - see AvatarImageCache/
+        // AttachmentImageCache client-side, which attach it as a header, but
+        // this query-string fallback exists in case that ever isn't
+        // possible for a given caller.
         options.Events = new JwtBearerEvents
         {
             OnMessageReceived = context =>
             {
                 var accessToken = context.Request.Query["access_token"];
                 var path = context.HttpContext.Request.Path;
-                if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs/chat"))
+                if (!string.IsNullOrEmpty(accessToken) &&
+                    (path.StartsWithSegments("/hubs/chat") || path.StartsWithSegments("/uploads")))
                 {
                     context.Token = accessToken;
                 }
@@ -308,13 +314,31 @@ app.Use(async (context, next) =>
 app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = new PhysicalFileProvider(sitePath) });
 app.UseStaticFiles(new StaticFileOptions { FileProvider = new PhysicalFileProvider(sitePath) });
 
+app.UseAuthentication();
+app.UseAuthorization();
+
+// /uploads (avatars/icons/attachments) previously had no auth at all - now
+// gated to "must be a logged-in app user," not per-file ownership (mapping
+// every upload URL back to a specific message/membership would need new
+// tracking this app doesn't have - a deliberate, narrower fix). Must come
+// after UseAuthentication above so HttpContext.User is populated from
+// either the bearer header or the access_token query param (see the
+// JwtBearerEvents.OnMessageReceived override above).
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/uploads") && context.User.Identity?.IsAuthenticated != true)
+    {
+        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        return;
+    }
+    await next();
+});
 app.UseStaticFiles(new StaticFileOptions
 {
     FileProvider = new PhysicalFileProvider(uploadsDir),
     RequestPath = "/uploads"
 });
-app.UseAuthentication();
-app.UseAuthorization();
+
 // After auth: the "invites" policy partitions by the authenticated user,
 // which needs HttpContext.User already populated by UseAuthentication above.
 app.UseRateLimiter();

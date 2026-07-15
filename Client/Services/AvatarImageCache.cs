@@ -29,6 +29,14 @@ public static class AvatarImageCache
 
     private static readonly HttpClient Http = new();
 
+    // Set once at login (see MainWindow.xaml.cs, right next to
+    // SignalRService.ConnectAsync's own accessTokenProvider) - /uploads now
+    // requires auth (see Program.cs), so every fetch needs a bearer token
+    // attached. A static class has no DI/instance state of its own to hold
+    // ApiService, so this is the same "hand in a token-fetching delegate"
+    // shape SignalRService already uses instead.
+    public static Func<Task<string?>>? AccessTokenProvider { get; set; }
+
     private static readonly string CacheDir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "Voiceover", "avatarcache");
@@ -61,7 +69,7 @@ public static class AvatarImageCache
             }
             else
             {
-                bytes = await Http.GetByteArrayAsync(url);
+                bytes = await FetchAsync(url);
                 await File.WriteAllBytesAsync(cacheFile, bytes);
             }
 
@@ -103,5 +111,22 @@ public static class AvatarImageCache
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(url)));
         var ext = Path.GetExtension(new Uri(url).AbsolutePath);
         return string.IsNullOrEmpty(ext) ? hash : hash + ext;
+    }
+
+    // /uploads now requires auth (see Program.cs) - GetByteArrayAsync can't
+    // attach a header, so this builds the request manually. Falls back to a
+    // token-less request when AccessTokenProvider hasn't been wired up yet
+    // (e.g. LoginWindow's own logo, if it's ever routed through this cache
+    // before a session exists) rather than throwing outright.
+    private static async Task<byte[]> FetchAsync(string url)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        var token = AccessTokenProvider is null ? null : await AccessTokenProvider();
+        if (token is not null)
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+        using var response = await Http.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadAsByteArrayAsync();
     }
 }
