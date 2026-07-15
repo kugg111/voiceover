@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Controls;
+using Voiceover.Client.Models;
 using Voiceover.Client.Services;
 
 namespace Voiceover.Client.Views;
@@ -60,7 +61,21 @@ public partial class BanListPage : UserControl
 
     private async Task LoadAsync()
     {
-        var bans = await _api.GetBansAsync(_serverId);
+        List<BannedUserResponse> bans;
+        try
+        {
+            bans = await _api.GetBansAsync(_serverId);
+        }
+        catch
+        {
+            // Network blip, server hiccup, etc. - GetBansAsync doesn't catch
+            // its own failures, so without this an unhandled exception would
+            // propagate out of the Loaded event's async lambda instead of
+            // showing a graceful in-page state.
+            EmptyStateText.Text = "Could not load banned users - try again later.";
+            EmptyStateText.Visibility = Visibility.Visible;
+            return;
+        }
 
         _bans.Clear();
         foreach (var b in bans)
@@ -74,6 +89,7 @@ public partial class BanListPage : UserControl
             });
         }
 
+        EmptyStateText.Text = "No banned users.";
         EmptyStateText.Visibility = _bans.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 

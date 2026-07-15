@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Controls;
+using Voiceover.Client.Models;
 using Voiceover.Client.Services;
 
 namespace Voiceover.Client.Views;
@@ -37,7 +38,19 @@ public partial class PinnedMessagesPage : UserControl
 
     private async Task LoadPinnedAsync()
     {
-        var pinned = await _api.GetPinnedMessagesAsync(_channelId);
+        List<MessageResponse> pinned;
+        try
+        {
+            pinned = await _api.GetPinnedMessagesAsync(_channelId);
+        }
+        catch
+        {
+            // GetPinnedMessagesAsync doesn't catch its own failures - see
+            // BanListPage.LoadAsync for why this needs to.
+            EmptyStateText.Text = "Could not load pinned messages - try again later.";
+            EmptyStateText.Visibility = Visibility.Visible;
+            return;
+        }
 
         _pinned.Clear();
         foreach (var m in pinned)
@@ -54,6 +67,7 @@ public partial class PinnedMessagesPage : UserControl
             });
         }
 
+        EmptyStateText.Text = "No pinned messages yet.";
         EmptyStateText.Visibility = _pinned.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 

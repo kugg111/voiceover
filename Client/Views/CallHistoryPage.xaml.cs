@@ -44,12 +44,25 @@ public partial class CallHistoryPage : UserControl
 
     private async Task LoadCallHistoryAsync()
     {
-        var history = await _api.GetCallHistoryAsync();
+        List<CallRecordResponse> history;
+        try
+        {
+            history = await _api.GetCallHistoryAsync();
+        }
+        catch
+        {
+            // GetCallHistoryAsync doesn't catch its own failures - see
+            // BanListPage.LoadAsync for why this needs to.
+            EmptyStateText.Text = "Could not load call history - try again later.";
+            EmptyStateText.Visibility = Visibility.Visible;
+            return;
+        }
 
         _calls.Clear();
         foreach (var c in history)
             _calls.Add(ToCallHistoryItem(c));
 
+        EmptyStateText.Text = "No calls yet.";
         EmptyStateText.Visibility = _calls.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         SetHasMore(history.Count);
     }
@@ -61,14 +74,27 @@ public partial class CallHistoryPage : UserControl
         _isLoadingMore = true;
         LoadMoreButton.IsEnabled = false;
 
-        var oldest = _calls[^1].Id;
-        var older = await _api.GetCallHistoryAsync(oldest);
-        foreach (var c in older)
-            _calls.Add(ToCallHistoryItem(c));
+        try
+        {
+            var oldest = _calls[^1].Id;
+            var older = await _api.GetCallHistoryAsync(oldest);
+            foreach (var c in older)
+                _calls.Add(ToCallHistoryItem(c));
 
-        SetHasMore(older.Count);
-        _isLoadingMore = false;
-        LoadMoreButton.IsEnabled = true;
+            SetHasMore(older.Count);
+        }
+        catch
+        {
+            // Leave _hasMore/the button as they were - a failed "Load More"
+            // shouldn't hide the button, just let the user retry.
+        }
+        finally
+        {
+            // Previously only reset on success - a failed request left this
+            // permanently disabled for the rest of the session.
+            _isLoadingMore = false;
+            LoadMoreButton.IsEnabled = true;
+        }
     }
 
     private void SetHasMore(int lastPageCount)
