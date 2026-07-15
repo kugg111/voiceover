@@ -22,6 +22,7 @@ public class AppDbContext : DbContext
     public DbSet<DirectMessageReaction> DirectMessageReactions => Set<DirectMessageReaction>();
     public DbSet<BannedUser> BannedUsers => Set<BannedUser>();
     public DbSet<ModerationLogEntry> ModerationLogEntries => Set<ModerationLogEntry>();
+    public DbSet<Block> Blocks => Set<Block>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -178,5 +179,14 @@ public class AppDbContext : DbContext
         // one server at a time.
         modelBuilder.Entity<ModerationLogEntry>()
             .HasIndex(m => new { m.GuildServerId, m.CreatedAt });
+
+        // Unique so blocking the same user twice is a no-op at the DB level
+        // rather than piling up duplicate rows. Directional (unlike
+        // Friendship) - blocking isn't symmetric, so no reverse-pair index
+        // is needed; every check queries BOTH directions explicitly instead
+        // (see FriendsController.SendRequest/ChatHub.SendDirectMessage).
+        modelBuilder.Entity<Block>()
+            .HasIndex(b => new { b.BlockerId, b.BlockedId })
+            .IsUnique();
     }
 }

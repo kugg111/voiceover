@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -7,11 +8,18 @@ using Voiceover.Client.Services;
 
 namespace Voiceover.Client.Views;
 
+public class BlockedUserItem
+{
+    public int UserId { get; set; }
+    public string Username { get; set; } = string.Empty;
+}
+
 public partial class SettingsPage : UserControl
 {
     private readonly MainWindow _mainWindow;
     private readonly ApiService _api;
     private VersionInfo? _latestVersion;
+    private readonly ObservableCollection<BlockedUserItem> _blockedUsers = new();
 
     public SettingsPage(MainWindow mainWindow, ApiService api, VoiceService? voice)
     {
@@ -30,12 +38,48 @@ public partial class SettingsPage : UserControl
         UpdateStatusText.Text = $"You're on version {UpdateChecker.CurrentVersion}" +
             (UpdateChecker.IsInstalled ? " (installed)." : " (portable).");
 
+        BlockedUsersList.ItemsSource = _blockedUsers;
+
         ShowAccountTab();
 
         // My Account may have just changed the avatar - refresh MainWindow's
         // own copy once this page leaves the PageHost, the same timing the
         // old Window-based version refreshed it after ShowDialog() returned.
         Unloaded += (_, _) => _mainWindow.RefreshMyAvatarView();
+
+        Loaded += async (_, _) => await LoadBlockedUsersAsync();
+    }
+
+    private async Task LoadBlockedUsersAsync()
+    {
+        List<BlockedUserResponse> blocked;
+        try
+        {
+            blocked = await _api.GetBlockedUsersAsync();
+        }
+        catch
+        {
+            // Same reasoning as BanListPage.LoadAsync's own try/catch - a
+            // network blip shouldn't surface as an uncaught exception out of
+            // this Loaded event's async lambda.
+            return;
+        }
+
+        _blockedUsers.Clear();
+        foreach (var b in blocked) _blockedUsers.Add(new BlockedUserItem { UserId = b.UserId, Username = b.Username });
+        BlockedEmptyText.Visibility = _blockedUsers.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private async void UnblockButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: int userId }) return;
+
+        var success = await _api.UnblockUserAsync(userId);
+        if (!success) return;
+
+        var item = _blockedUsers.FirstOrDefault(b => b.UserId == userId);
+        if (item is not null) _blockedUsers.Remove(item);
+        BlockedEmptyText.Visibility = _blockedUsers.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void AccountTabButton_Click(object sender, RoutedEventArgs e) => ShowAccountTab();

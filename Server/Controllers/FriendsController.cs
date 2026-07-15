@@ -108,6 +108,11 @@ public class FriendsController : ControllerBase
         if (userId == CurrentUserId) return BadRequest("Can't friend yourself.");
         if (!await _db.Users.AnyAsync(u => u.Id == userId)) return NotFound();
 
+        if (await _db.Blocks.AnyAsync(b =>
+                (b.BlockerId == CurrentUserId && b.BlockedId == userId) ||
+                (b.BlockerId == userId && b.BlockedId == CurrentUserId)))
+            return BadRequest("Can't send a friend request to this user.");
+
         var existing = await _db.Friendships.FirstOrDefaultAsync(f =>
             (f.RequesterId == CurrentUserId && f.AddresseeId == userId) ||
             (f.RequesterId == userId && f.AddresseeId == CurrentUserId));
@@ -168,5 +173,75 @@ public class FriendsController : ControllerBase
         _db.Friendships.Remove(friendship);
         await _db.SaveChangesAsync();
         return Ok();
+    }
+
+    // POST /api/friends/5/block - also drops any existing friendship/pending
+    // request in either direction, so a blocked user disappears from friend
+    // lists too rather than lingering there alongside the block.
+    [HttpPost("{userId}/block")]
+    public async Task<ActionResult> Block(int userId)
+    {
+        if (userId == CurrentUserId) return BadRequest("Can't block yourself.");
+        if (!await _db.Users.AnyAsync(u => u.Id == userId)) return NotFound();
+
+        if (await _db.Blocks.AnyAsync(b => b.BlockerId == CurrentUserId && b.BlockedId == userId))
+            return Ok();
+
+        _db.Blocks.Add(new Block { BlockerId = CurrentUserId, BlockedId = userId });
+
+        var friendship = await _db.Friendships.FirstOrDefaultAsync(f =>
+            (f.RequesterId == CurrentUserId && f.AddresseeId == userId) ||
+            (f.RequesterId == userId && f.AddresseeId == CurrentUserId));
+        if (friendship is not null) _db.Friendships.Remove(friendship);
+
+        try
+        {
+            await _db.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            // Backstop for two concurrent block requests racing past the
+            // AnyAsync check above - same pattern as ServersController.Ban.
+            return Ok();
+        }
+
+        return Ok();
+    }
+
+    [HttpDelete("{userId}/block")]
+    public async Task<ActionResult> Unblock(int userId)
+    {
+        var block = await _db.Blocks.FirstOrDefaultAsync(b => b.BlockerId == CurrentUserId && b.BlockedId == userId);
+        if (block is null) return NotFound();
+
+        _db.Blocks.Remove(block);
+        await _db.SaveChangesAsync();
+        return Ok();
+    }
+
+    // GET /api/friends/blocked -> users the CURRENT user has blocked
+    // (one-directional - being blocked BY someone else isn't surfaced here).
+    [HttpGet("blocked")]
+    public async Task<ActionResult<List<BlockedUserResponse>>> GetBlocked()
+    {
+        var blocks = await _db.Blocks
+            .Where(b => b.BlockerId == CurrentUserId)
+            .OrderByDescending(b => b.CreatedAt)
+            .ToListAsync();
+
+        var userIds = blocks.Select(b => b.BlockedId).ToList();
+        var userInfo = await _db.Users
+            .Where(u => userIds.Contains(u.Id))
+            .ToDictionaryAsync(u => u.Id, u => new { u.Username, u.AvatarUrl });
+
+        var result = blocks
+            .Select(b =>
+            {
+                var info = userInfo.GetValueOrDefault(b.BlockedId);
+                return new BlockedUserResponse(b.BlockedId, info?.Username ?? "Unknown", info?.AvatarUrl);
+            })
+            .ToList();
+
+        return Ok(result);
     }
 }

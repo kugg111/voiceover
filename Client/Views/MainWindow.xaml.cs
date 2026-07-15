@@ -2364,6 +2364,7 @@ public partial class MainWindow : FluentWindow
         _messages.Clear();
         ChannelNameText.Text = "Select a conversation";
         DmCallButton.Visibility = Visibility.Collapsed;
+        DmBlockUserButton.Visibility = Visibility.Collapsed;
         PinnedMessagesButton.Visibility = Visibility.Collapsed;
         SearchMessagesButton.Visibility = Visibility.Collapsed;
         ModerationLogButton.Visibility = Visibility.Collapsed;
@@ -2401,6 +2402,7 @@ public partial class MainWindow : FluentWindow
         _messages.Clear();
         ChannelNameText.Text = "Select a conversation";
         DmCallButton.Visibility = Visibility.Collapsed;
+        DmBlockUserButton.Visibility = Visibility.Collapsed;
         PinnedMessagesButton.Visibility = Visibility.Collapsed;
         SearchMessagesButton.Visibility = Visibility.Collapsed;
         ModerationLogButton.Visibility = Visibility.Collapsed;
@@ -2438,6 +2440,7 @@ public partial class MainWindow : FluentWindow
             _messages.Clear();
             ChannelNameText.Text = "# select-a-channel";
             DmCallButton.Visibility = Visibility.Collapsed;
+            DmBlockUserButton.Visibility = Visibility.Collapsed;
             PinnedMessagesButton.Visibility = Visibility.Collapsed;
             SearchMessagesButton.Visibility = Visibility.Collapsed;
         }
@@ -2494,6 +2497,7 @@ public partial class MainWindow : FluentWindow
         _dmActiveUsername = username;
         ChannelNameText.Text = $"@{username}";
         DmCallButton.Visibility = Visibility.Visible;
+        DmBlockUserButton.Visibility = Visibility.Visible;
         PinnedMessagesButton.Visibility = Visibility.Collapsed;
         SearchMessagesButton.Visibility = Visibility.Visible;
         ModerationLogButton.Visibility = Visibility.Collapsed;
@@ -2600,6 +2604,56 @@ public partial class MainWindow : FluentWindow
         if (sender is not Button { Tag: int userId } button) return;
         var username = (button.DataContext as FriendListItem)?.Username ?? "user";
         await OpenDmConversation(userId, username);
+    }
+
+    // Blocking also drops any existing friendship server-side (see
+    // FriendsController.Block), so a full refetch is enough to make the
+    // blocked user disappear from this list too, without needing to also
+    // reach into _friends and remove it manually.
+    private async void BlockUserMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.MenuItem { Tag: int userId }) return;
+
+        if (!await ConfirmAsync("Block User", "Block this user? They won't be able to send you friend requests or direct messages.", "Block", destructive: true)) return;
+
+        var success = await _api.BlockUserAsync(userId);
+        if (!success)
+        {
+            await AlertAsync("Error", "Could not block this user.");
+            return;
+        }
+
+        await LoadFriendsAsync();
+    }
+
+    private async void DmBlockUserButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_dmActiveUserId is not int userId) return;
+
+        if (!await ConfirmAsync("Block User", $"Block {_dmActiveUsername}? They won't be able to send you friend requests or direct messages.", "Block", destructive: true)) return;
+
+        var success = await _api.BlockUserAsync(userId);
+        if (!success)
+        {
+            await AlertAsync("Error", "Could not block this user.");
+            return;
+        }
+
+        // Same DM-conversation reset FriendsButton_Click does - inlined
+        // rather than awaiting that handler directly, since it's declared
+        // async void (Click handlers aren't awaitable).
+        _dmActiveUserId = null;
+        _dmActiveUsername = null;
+        _messages.Clear();
+        ChannelNameText.Text = "Select a conversation";
+        DmCallButton.Visibility = Visibility.Collapsed;
+        DmBlockUserButton.Visibility = Visibility.Collapsed;
+        PinnedMessagesButton.Visibility = Visibility.Collapsed;
+        SearchMessagesButton.Visibility = Visibility.Collapsed;
+        ModerationLogButton.Visibility = Visibility.Collapsed;
+        BanListButton.Visibility = Visibility.Collapsed;
+
+        await LoadFriendsAsync();
     }
 
     private void OnFriendRequestReceived(int friendshipId, int requesterId, string requesterUsername)

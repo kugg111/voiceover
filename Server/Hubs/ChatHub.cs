@@ -247,6 +247,15 @@ public class ChatHub : Hub
         // RecipientId - see AppDbContext).
         if (!await _db.Users.AnyAsync(u => u.Id == recipientId)) return;
 
+        // Silent no-op either direction - same style as the other drops in
+        // this method (FriendsController.SendRequest gives an explicit
+        // BadRequest for the equivalent friend-request case, but a DM send
+        // has no request/response UI worth surfacing an error into).
+        if (await _db.Blocks.AnyAsync(b =>
+                (b.BlockerId == CurrentUserId && b.BlockedId == recipientId) ||
+                (b.BlockerId == recipientId && b.BlockedId == CurrentUserId)))
+            return;
+
         var dm = new Models.DirectMessage
         {
             SenderId = CurrentUserId,

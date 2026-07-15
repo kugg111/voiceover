@@ -474,6 +474,16 @@ public class ApiService
     public async Task<bool> RemoveFriendshipAsync(int friendshipId)
         => (await _http.DeleteAsync($"api/friends/{friendshipId}")).IsSuccessStatusCode;
 
+    // --- Blocking ---
+    public async Task<bool> BlockUserAsync(int userId)
+        => (await _http.PostAsync($"api/friends/{userId}/block", null)).IsSuccessStatusCode;
+
+    public async Task<bool> UnblockUserAsync(int userId)
+        => (await _http.DeleteAsync($"api/friends/{userId}/block")).IsSuccessStatusCode;
+
+    public async Task<List<BlockedUserResponse>> GetBlockedUsersAsync()
+        => await _http.GetFromJsonAsync<List<BlockedUserResponse>>("api/friends/blocked") ?? new();
+
     // url is a relative /uploads/... path already returned by UploadFileAsync.
     public async Task<bool> SetMyAvatarAsync(string url)
         => (await _http.PutAsJsonAsync("api/users/me/avatar", new SetAvatarRequest(url))).IsSuccessStatusCode;
