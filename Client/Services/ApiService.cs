@@ -237,6 +237,14 @@ public class ApiService
             : null;
     }
 
+    // Owner-only server-side (see ServersController.Rename).
+    public async Task<(bool Success, string? Error)> RenameServerAsync(int serverId, string name)
+    {
+        var response = await _http.PutAsJsonAsync($"api/servers/{serverId}/rename", new RenameServerRequest(name));
+        if (response.IsSuccessStatusCode) return (true, null);
+        return (false, await response.Content.ReadAsStringAsync());
+    }
+
     public async Task<List<ChannelResponse>> GetChannelsAsync(int serverId)
         => await _http.GetFromJsonAsync<List<ChannelResponse>>($"api/servers/{serverId}/channels") ?? new();
 
@@ -250,6 +258,13 @@ public class ApiService
 
     public async Task<bool> SetSlowModeAsync(int serverId, int channelId, int seconds)
         => (await _http.PutAsJsonAsync($"api/servers/{serverId}/channels/{channelId}/slowmode", new SetSlowModeRequest(seconds))).IsSuccessStatusCode;
+
+    public async Task<(bool Success, string? Error)> RenameChannelAsync(int serverId, int channelId, string name)
+    {
+        var response = await _http.PutAsJsonAsync($"api/servers/{serverId}/channels/{channelId}/rename", new RenameChannelRequest(name));
+        if (response.IsSuccessStatusCode) return (true, null);
+        return (false, await response.Content.ReadAsStringAsync());
+    }
 
     public async Task<List<MessageResponse>> GetMessageHistoryAsync(int channelId, int? beforeId = null)
         => await _http.GetFromJsonAsync<List<MessageResponse>>(

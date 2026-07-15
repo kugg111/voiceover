@@ -678,6 +678,7 @@ public partial class MainWindow : FluentWindow
         _hub.ChannelCreated += serverId => Dispatcher.Invoke(() => OnChannelCreated(serverId));
         _hub.ChannelDeleted += serverId => Dispatcher.Invoke(() => OnChannelDeleted(serverId));
         _hub.ServerDeleted += serverId => Dispatcher.Invoke(() => OnServerDeleted(serverId));
+        _hub.ServerRenamed += serverId => Dispatcher.Invoke(() => OnServerRenamed(serverId));
         _hub.ServerKeyRequested += OnServerKeyRequested;
         _hub.ServerKeyProvisioned += OnServerKeyProvisioned;
         _hub.UserTyping += OnUserTyping;
@@ -2095,6 +2096,25 @@ public partial class MainWindow : FluentWindow
         await LeaveServerLocallyIfCurrentlyViewing(serverId);
     }
 
+    // Owner-only, same gating as DeleteServerMenuItem_Click above.
+    private async void RenameServerMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.MenuItem { Tag: int serverId }) return;
+
+        var current = _servers.FirstOrDefault(s => s.Id == serverId)?.Name ?? "";
+        var name = await PromptAsync("Rename Server", "New name:", current);
+        if (string.IsNullOrWhiteSpace(name) || name == current) return;
+
+        var (success, error) = await _api.RenameServerAsync(serverId, name);
+        if (!success)
+        {
+            await AlertAsync("Error", error ?? "Could not rename this server.");
+            return;
+        }
+
+        await RefreshServerNameLocallyAsync(serverId);
+    }
+
     // Sets the "Mute Notifications"/"Unmute Notifications" label to match
     // this server's current state right before the menu actually opens -
     // items[2] is the mute entry's fixed position in the ContextMenu below
@@ -2130,6 +2150,23 @@ public partial class MainWindow : FluentWindow
         var success = await _api.SetSlowModeAsync(_currentServerId.Value, channelId, seconds);
         if (!success)
             await AlertAsync("Error", "Could not set slow mode (you may lack permission).");
+    }
+
+    private async void RenameChannelMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.MenuItem { Tag: int channelId } || _currentServerId is null) return;
+
+        // DisplayName carries a "# "/"🔊 " prefix (see RefreshChannelsAsync)
+        // - strip it back off so the prompt starts from the plain name.
+        var current = FindChannelDisplayName(channelId);
+        var initial = current is null ? "" : current[(current.IndexOf(' ') + 1)..];
+
+        var name = await PromptAsync("Rename Channel", "New name:", initial);
+        if (string.IsNullOrWhiteSpace(name) || name == initial) return;
+
+        var (success, error) = await _api.RenameChannelAsync(_currentServerId.Value, channelId, name);
+        if (!success)
+            await AlertAsync("Error", error ?? "Could not rename this channel (you may lack permission).");
     }
 
     // Same reasoning as ServerButton_ContextMenuOpening above - items[1] is
@@ -3156,6 +3193,29 @@ public partial class MainWindow : FluentWindow
     // not via this broadcast). Reuses the same "server no longer available"
     // recovery OnYouWereKicked already does.
     private async void OnServerDeleted(int serverId) => await LeaveServerLocallyIfCurrentlyViewing(serverId);
+
+    // Fires for the caller (RenameServerMenuItem_Click doesn't do its own
+    // local patch, unlike Delete) and every bystander with this server's
+    // list open. LoadServersAsync refetches the new name; the header text
+    // also needs its own update since it's read once at ServerButton_Click
+    // time rather than bound live to the ServerListItem.
+    private async void OnServerRenamed(int serverId) => await RefreshServerNameLocallyAsync(serverId);
+
+    // Shared by the broadcast handler above (bystanders) and
+    // RenameServerMenuItem_Click (the caller's own connection) - the caller
+    // can't rely solely on receiving its own ServerRenamed broadcast since
+    // right-clicking a server from the rail doesn't guarantee this
+    // connection has joined its presence group yet (same reasoning
+    // DeleteServerMenuItem_Click's comment gives for its own local reset).
+    private async Task RefreshServerNameLocallyAsync(int serverId)
+    {
+        await LoadServersAsync();
+        if (serverId == _currentServerId)
+        {
+            var server = _servers.FirstOrDefault(s => s.Id == serverId);
+            ServerNameText.Text = server?.Name ?? "Server";
+        }
+    }
 
     // A moderator force-muted us (ChatHub.ForceMuteUser) - just flips our
     // own mic mute state; VoiceService.MicMutedChanged (already subscribed,

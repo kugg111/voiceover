@@ -106,4 +106,26 @@ public class ChannelsController : ControllerBase
         await _db.SaveChangesAsync();
         return Ok();
     }
+
+    // ManageChannels-gated, same as Create/Delete/SetSlowMode above.
+    [HttpPut("{channelId}/rename")]
+    public async Task<ActionResult> Rename(int serverId, int channelId, RenameChannelRequest req)
+    {
+        if (!await _permissions.HasPermissionAsync(CurrentUserId, serverId, ServerPermission.ManageChannels))
+            return Forbid();
+
+        if (string.IsNullOrWhiteSpace(req.Name)) return BadRequest("Name cannot be empty.");
+
+        var channel = await _db.Channels.FirstOrDefaultAsync(c => c.Id == channelId && c.GuildServerId == serverId);
+        if (channel is null) return NotFound();
+
+        channel.Name = req.Name.Trim();
+        await _db.SaveChangesAsync();
+
+        // Reuses ChannelCreated purely as a "refetch the channel list"
+        // signal - no dedicated event needed since the new name travels via
+        // the refetch, not over the wire.
+        await _hub.Clients.Group(HubGroups.ServerPresence(serverId)).SendAsync("ChannelCreated", serverId);
+        return Ok();
+    }
 }

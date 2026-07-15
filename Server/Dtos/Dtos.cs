@@ -29,10 +29,12 @@ public record DeleteAccountRequest(List<OwnershipTransfer>? Transfers);
 public record CreateServerRequest(string Name);
 public record GuildServerResponse(int Id, string Name, string? IconUrl, int OwnerId);
 public record SetIconRequest(string Url);
+public record RenameServerRequest(string Name);
 
 public record CreateChannelRequest(string Name, string Type); // "Text" or "Voice"
 public record ChannelResponse(int Id, string Name, string Type, int GuildServerId, int Position, int SlowModeSeconds = 0);
 public record SetSlowModeRequest(int Seconds);
+public record RenameChannelRequest(string Name);
 
 // Aggregated per (message, emoji) - ReactedByMe lets the client render the
 // "you reacted" highlight without shipping every individual reactor's id.

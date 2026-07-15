@@ -322,9 +322,9 @@ public class ServersController : ControllerBase
     }
 
     // Url is expected to already be an uploaded file's path (from POST
-    // /api/upload). Owner-only, same as the rest of a server's identity
-    // (renaming isn't even exposed yet) - matches real Discord where
-    // moderators can manage members/channels but not the server's branding.
+    // /api/upload). Owner-only, same as Rename below - matches real Discord
+    // where moderators can manage members/channels but not the server's
+    // branding/identity.
     [HttpPut("{serverId}/icon")]
     public async Task<ActionResult<GuildServerResponse>> SetIcon(int serverId, SetIconRequest req)
     {
@@ -336,6 +336,25 @@ public class ServersController : ControllerBase
 
         server.IconUrl = req.Url;
         await _db.SaveChangesAsync();
+        return Ok(new GuildServerResponse(server.Id, server.Name, server.IconUrl, server.OwnerId));
+    }
+
+    // Owner-only, same gate as SetIcon above.
+    [HttpPut("{serverId}/rename")]
+    public async Task<ActionResult<GuildServerResponse>> Rename(int serverId, RenameServerRequest req)
+    {
+        if (!await _permissions.IsOwnerAsync(CurrentUserId, serverId))
+            return Forbid();
+
+        if (string.IsNullOrWhiteSpace(req.Name)) return BadRequest("Name cannot be empty.");
+
+        var server = await _db.GuildServers.FirstOrDefaultAsync(s => s.Id == serverId);
+        if (server is null) return NotFound();
+
+        server.Name = req.Name.Trim();
+        await _db.SaveChangesAsync();
+
+        await _hub.Clients.Group(HubGroups.ServerPresence(serverId)).SendAsync("ServerRenamed", serverId);
         return Ok(new GuildServerResponse(server.Id, server.Name, server.IconUrl, server.OwnerId));
     }
 
