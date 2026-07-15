@@ -22,6 +22,12 @@
          member avatars). -->
     <Resource Include="Assets\AppIcon.ico" />
     <Resource Include="Assets\AppIcon.png" />
+    <!-- Pre-rendered color emoji for the reaction picker (see
+         Client/Services/EmojiImageCache.cs) - neither WPF's own text
+         rendering nor classic GDI can draw color emoji glyphs on this
+         platform, so these are real PNGs generated once via a browser's
+         canvas renderer instead of drawn from a font at runtime. -->
+    <Resource Include="Assets\Emoji\*.png" />
     <!-- Custom notification sounds (NotificationService) - short synthesized
          tones, not the OS's own notification sound, so Voiceover doesn't
          sound identical to every other Windows app pinging you. -->
