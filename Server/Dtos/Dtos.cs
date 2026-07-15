@@ -35,6 +35,7 @@ public record CreateChannelRequest(string Name, string Type); // "Text" or "Voic
 public record ChannelResponse(int Id, string Name, string Type, int GuildServerId, int Position, int SlowModeSeconds = 0);
 public record SetSlowModeRequest(int Seconds);
 public record RenameChannelRequest(string Name);
+public record ReorderChannelsRequest(List<int> OrderedChannelIds);
 
 // Aggregated per (message, emoji) - ReactedByMe lets the client render the
 // "you reacted" highlight without shipping every individual reactor's id.

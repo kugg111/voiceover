@@ -596,6 +596,8 @@ public partial class MainWindow : FluentWindow
     private readonly BulkObservableCollection<MemberListItem> _members = new();
     private readonly BulkObservableCollection<ChannelListItem> _textChannels = new();
     private readonly BulkObservableCollection<ChannelListItem> _voiceChannels = new();
+    private ChannelListItem? _draggedChannelItem;
+    private Point _channelDragStartPoint;
     private readonly BulkObservableCollection<MessageListItem> _messages = new();
     private readonly BulkObservableCollection<DmConversationListItem> _dmConversations = new();
     private readonly ObservableCollection<UserSearchResultItem> _dmSearchResults = new();
@@ -2218,6 +2220,56 @@ public partial class MainWindow : FluentWindow
         }
 
         await RefreshChannelsAsync(_currentServerId.Value);
+    }
+
+    // Drag-and-drop channel reordering. Shared by both the text- and
+    // voice-channel row templates (each row's outer Grid carries these three
+    // handlers) - which BulkObservableCollection a drag belongs to is
+    // resolved by membership check in ChannelRow_Drop rather than needing
+    // separate handler pairs per list.
+    private void ChannelRow_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        _channelDragStartPoint = e.GetPosition(null);
+        _draggedChannelItem = (sender as FrameworkElement)?.DataContext as ChannelListItem;
+    }
+
+    private void ChannelRow_PreviewMouseMove(object sender, MouseEventArgs e)
+    {
+        if (e.LeftButton != MouseButtonState.Pressed || _draggedChannelItem is null) return;
+
+        var pos = e.GetPosition(null);
+        if (Math.Abs(pos.X - _channelDragStartPoint.X) < SystemParameters.MinimumHorizontalDragDistance &&
+            Math.Abs(pos.Y - _channelDragStartPoint.Y) < SystemParameters.MinimumVerticalDragDistance)
+            return;
+
+        // Cleared before DoDragDrop (whose modal loop blocks this method)
+        // so a stray move after the drop doesn't start a second drag.
+        var dragged = _draggedChannelItem;
+        _draggedChannelItem = null;
+        DragDrop.DoDragDrop((DependencyObject)sender, dragged, DragDropEffects.Move);
+    }
+
+    private async void ChannelRow_Drop(object sender, DragEventArgs e)
+    {
+        if (sender is not FrameworkElement { DataContext: ChannelListItem targetItem }) return;
+        if (e.Data.GetData(typeof(ChannelListItem)) is not ChannelListItem draggedItem) return;
+        if (ReferenceEquals(draggedItem, targetItem) || _currentServerId is null) return;
+
+        BulkObservableCollection<ChannelListItem> list;
+        if (_textChannels.Contains(draggedItem) && _textChannels.Contains(targetItem)) list = _textChannels;
+        else if (_voiceChannels.Contains(draggedItem) && _voiceChannels.Contains(targetItem)) list = _voiceChannels;
+        else return; // dragging between the text and voice lists isn't supported
+
+        var oldIndex = list.IndexOf(draggedItem);
+        var newIndex = list.IndexOf(targetItem);
+        if (oldIndex < 0 || newIndex < 0) return;
+
+        // Optimistic reorder - RefreshChannelsAsync below reverts it if the
+        // API call fails (e.g. permission lost mid-drag).
+        list.Move(oldIndex, newIndex);
+
+        var success = await _api.ReorderChannelsAsync(_currentServerId.Value, list.Select(c => c.Id).ToList());
+        if (!success) await RefreshChannelsAsync(_currentServerId.Value);
     }
 
     private async void LeaveVoiceButton_Click(object sender, RoutedEventArgs e)

@@ -142,7 +142,10 @@
                     <ItemsControl x:Name="TextChannelList">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Grid>
+                                <Grid AllowDrop="True"
+                                      PreviewMouseLeftButtonDown="ChannelRow_PreviewMouseLeftButtonDown"
+                                      PreviewMouseMove="ChannelRow_PreviewMouseMove"
+                                      Drop="ChannelRow_Drop">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
@@ -183,7 +186,10 @@
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <StackPanel>
-                                    <Grid>
+                                    <Grid AllowDrop="True"
+                                          PreviewMouseLeftButtonDown="ChannelRow_PreviewMouseLeftButtonDown"
+                                          PreviewMouseMove="ChannelRow_PreviewMouseMove"
+                                          Drop="ChannelRow_Drop">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="Auto"/>

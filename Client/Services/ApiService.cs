@@ -266,6 +266,12 @@ public class ApiService
         return (false, await response.Content.ReadAsStringAsync());
     }
 
+    // orderedChannelIds is one type's channels (text or voice) in their new
+    // visual order - see ChannelsController.Reorder for why a partial list
+    // covering just one type is fine.
+    public async Task<bool> ReorderChannelsAsync(int serverId, List<int> orderedChannelIds)
+        => (await _http.PutAsJsonAsync($"api/servers/{serverId}/channels/reorder", new ReorderChannelsRequest(orderedChannelIds))).IsSuccessStatusCode;
+
     public async Task<List<MessageResponse>> GetMessageHistoryAsync(int channelId, int? beforeId = null)
         => await _http.GetFromJsonAsync<List<MessageResponse>>(
             $"api/channels/{channelId}/messages?take=50{(beforeId.HasValue ? $"&beforeId={beforeId}" : "")}") ?? new();

@@ -6,6 +6,7 @@ public record SetIconRequest(string Url);
 public record RenameServerRequest(string Name);
 public record ChannelResponse(int Id, string Name, string Type, int GuildServerId, int Position, int SlowModeSeconds = 0);
 public record RenameChannelRequest(string Name);
+public record ReorderChannelsRequest(List<int> OrderedChannelIds);
 public record ReactionSummaryResponse(string Emoji, int Count, bool ReactedByMe);
 public record MessageResponse(int Id, string Content, int ChannelId, int AuthorId, string AuthorUsername, DateTime SentAt, string? AttachmentUrl = null, string? AuthorAvatarUrl = null, DateTime? EditedAt = null, List<ReactionSummaryResponse>? Reactions = null, DateTime? PinnedAt = null);
 public record EditMessageRequest(string Content);

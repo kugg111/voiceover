@@ -128,4 +128,30 @@ public class ChannelsController : ControllerBase
         await _hub.Clients.Group(HubGroups.ServerPresence(serverId)).SendAsync("ChannelCreated", serverId);
         return Ok();
     }
+
+    // ManageChannels-gated, same as the other channel-management endpoints.
+    // Only the given ids get repositioned (0..count-1, in list order) - the
+    // client sends one type's channels at a time (text and voice render as
+    // two separate lists), which is fine since GetChannels only relies on
+    // Position for ordering *within* a type after it's split client-side,
+    // not for any cross-type meaning.
+    [HttpPut("reorder")]
+    public async Task<ActionResult> Reorder(int serverId, ReorderChannelsRequest req)
+    {
+        if (!await _permissions.HasPermissionAsync(CurrentUserId, serverId, ServerPermission.ManageChannels))
+            return Forbid();
+
+        var channels = await _db.Channels
+            .Where(c => c.GuildServerId == serverId && req.OrderedChannelIds.Contains(c.Id))
+            .ToDictionaryAsync(c => c.Id);
+        if (channels.Count != req.OrderedChannelIds.Distinct().Count())
+            return BadRequest("One or more channel ids don't belong to this server.");
+
+        for (var i = 0; i < req.OrderedChannelIds.Count; i++)
+            channels[req.OrderedChannelIds[i]].Position = i;
+
+        await _db.SaveChangesAsync();
+        await _hub.Clients.Group(HubGroups.ServerPresence(serverId)).SendAsync("ChannelCreated", serverId);
+        return Ok();
+    }
 }
