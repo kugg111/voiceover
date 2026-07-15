@@ -43,9 +43,17 @@ public class ChatHub : Hub
     private string CurrentUsername => Context.User!.FindFirstValue(ClaimTypes.Name)!;
 
     // Client calls this after opening a channel so it starts receiving
-    // messages/typing events for that channel via SignalR groups.
+    // messages/typing events for that channel via SignalR groups. Membership-
+    // gated - previously anyone authenticated could join any channel's group
+    // regardless of whether they belonged to that server. A banned user
+    // never has a Membership row to begin with (ServersController.Ban
+    // removes it atomically in the same save as adding the ban), so this
+    // check alone also covers "and isn't banned" without a second query.
     public async Task JoinChannel(int channelId)
     {
+        var channel = await _db.Channels.AsNoTracking().FirstOrDefaultAsync(c => c.Id == channelId);
+        if (channel is null || !await _permissions.IsMemberAsync(CurrentUserId, channel.GuildServerId)) return;
+
         await Groups.AddToGroupAsync(Context.ConnectionId, HubGroups.Channel(channelId));
     }
 
@@ -76,6 +84,10 @@ public class ChatHub : Hub
         // for the common case of a channel with slow-mode off.
         var channel = await _db.Channels.AsNoTracking().FirstOrDefaultAsync(c => c.Id == channelId);
         if (channel is null) return;
+
+        // Membership check - same reasoning as JoinChannel above (a banned
+        // user has no Membership row, so this alone also excludes them).
+        if (!await _permissions.IsMemberAsync(CurrentUserId, channel.GuildServerId)) return;
 
         if (channel.SlowModeSeconds > 0)
         {
@@ -130,8 +142,11 @@ public class ChatHub : Hub
         if (string.IsNullOrWhiteSpace(emoji) || emoji.Length > 8) return;
         if (!_messageRateLimiter.TryAcquire(CurrentUserId)) return;
 
-        var message = await _db.Messages.FirstOrDefaultAsync(m => m.Id == messageId);
+        var message = await _db.Messages.Include(m => m.Channel).FirstOrDefaultAsync(m => m.Id == messageId);
         if (message is null) return;
+
+        // Membership check - same reasoning as JoinChannel/SendMessage above.
+        if (!await _permissions.IsMemberAsync(CurrentUserId, message.Channel!.GuildServerId)) return;
 
         var existing = await _db.MessageReactions.FirstOrDefaultAsync(r =>
             r.MessageId == messageId && r.UserId == CurrentUserId && r.Emoji == emoji);
@@ -224,6 +239,11 @@ public class ChatHub : Hub
         // allowance across channels and DMs, not double the throughput by
         // splitting between the two.
         if (!_messageRateLimiter.TryAcquire(CurrentUserId)) return;
+
+        // A bad/stale/typo'd recipient id would otherwise silently create a
+        // permanent, undeliverable row (DirectMessage has no FK on
+        // RecipientId - see AppDbContext).
+        if (!await _db.Users.AnyAsync(u => u.Id == recipientId)) return;
 
         var dm = new Models.DirectMessage
         {
@@ -398,10 +418,17 @@ public class ChatHub : Hub
     // while the client-side rewrite to actually use it is still pending
     // (see LiveKitTokenService for why this doesn't require configuration
     // at server startup). Room name mirrors VoiceGroupName's convention.
-    public Task<LiveKitJoinResponse> GetLiveKitToken(int channelId)
+    // Membership-gated, same reasoning as JoinChannel above - this
+    // previously had no check at all, letting anyone authenticated mint a
+    // token to join the live audio of any voice channel in any server.
+    public async Task<LiveKitJoinResponse> GetLiveKitToken(int channelId)
     {
+        var channel = await _db.Channels.AsNoTracking().FirstOrDefaultAsync(c => c.Id == channelId);
+        if (channel is null || !await _permissions.IsMemberAsync(CurrentUserId, channel.GuildServerId))
+            throw new HubException("Not a member of this channel's server.");
+
         var token = _liveKitTokens.CreateJoinToken(CurrentUserId, CurrentUsername, channelId);
-        return Task.FromResult(new LiveKitJoinResponse(token, _liveKitTokens.ServerUrl ?? string.Empty));
+        return new LiveKitJoinResponse(token, _liveKitTokens.ServerUrl ?? string.Empty);
     }
 
     public async Task LeaveVoiceChannel(int channelId)
