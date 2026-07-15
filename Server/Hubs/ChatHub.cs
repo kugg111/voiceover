@@ -67,7 +67,7 @@ public class ChatHub : Hub
     // calling this (see Client/Services/E2eeService.cs and
     // ServerMemberKey). This hub relays opaque bytes; it can't decrypt
     // channel messages even if it wanted to.
-    public async Task SendMessage(int channelId, string content, string? attachmentUrl = null)
+    public async Task SendMessage(int channelId, string content, string? attachmentUrl = null, int? replyToMessageId = null)
     {
         if (string.IsNullOrWhiteSpace(content) && string.IsNullOrWhiteSpace(attachmentUrl)) return;
         if (content.Length > ContentLimits.MaxMessageLength) return;
@@ -103,7 +103,8 @@ public class ChatHub : Hub
             AuthorId = CurrentUserId,
             Content = content ?? string.Empty,
             AttachmentUrl = attachmentUrl,
-            SentAt = DateTime.UtcNow
+            SentAt = DateTime.UtcNow,
+            ReplyToMessageId = replyToMessageId
         };
 
         _db.Messages.Add(message);
@@ -122,7 +123,15 @@ public class ChatHub : Hub
             _avatarCache.Set(CurrentUserId, authorAvatarUrl);
         }
 
-        var response = new MessageResponse(message.Id, message.Content, channelId, CurrentUserId, CurrentUsername, message.SentAt, message.AttachmentUrl, authorAvatarUrl);
+        // Only the id + author id travel over the wire - content is E2EE
+        // ciphertext the server can't read, so no preview text is possible
+        // here; the client resolves a preview from its own decrypted cache
+        // (see MainWindow's reply-preview rendering).
+        int? replyToAuthorId = replyToMessageId is null
+            ? null
+            : await _db.Messages.Where(m => m.Id == replyToMessageId.Value).Select(m => (int?)m.AuthorId).FirstOrDefaultAsync();
+
+        var response = new MessageResponse(message.Id, message.Content, channelId, CurrentUserId, CurrentUsername, message.SentAt, message.AttachmentUrl, authorAvatarUrl, ReplyToMessageId: message.ReplyToMessageId, ReplyToAuthorId: replyToAuthorId);
         await Clients.Group(HubGroups.Channel(channelId)).SendAsync("ReceiveMessage", response);
     }
 
@@ -232,7 +241,7 @@ public class ChatHub : Hub
     // Client/Services/E2eeService.cs) using a key derived from both
     // participants' ECDH keypairs that the server never has. This hub
     // relays opaque bytes; it can't decrypt DMs even if it wanted to.
-    public async Task SendDirectMessage(int recipientId, string content)
+    public async Task SendDirectMessage(int recipientId, string content, int? replyToMessageId = null)
     {
         if (string.IsNullOrWhiteSpace(content)) return;
         if (content.Length > ContentLimits.MaxMessageLength) return;
@@ -261,13 +270,19 @@ public class ChatHub : Hub
             SenderId = CurrentUserId,
             RecipientId = recipientId,
             Content = content,
-            SentAt = DateTime.UtcNow
+            SentAt = DateTime.UtcNow,
+            ReplyToMessageId = replyToMessageId
         };
 
         _db.DirectMessages.Add(dm);
         await _db.SaveChangesAsync();
 
-        var response = new Dtos.DirectMessageResponse(dm.Id, dm.Content, dm.SenderId, dm.RecipientId, dm.SentAt);
+        // Same "id + author id only" reasoning as SendMessage above.
+        int? replyToAuthorId = replyToMessageId is null
+            ? null
+            : await _db.DirectMessages.Where(m => m.Id == replyToMessageId.Value).Select(m => (int?)m.SenderId).FirstOrDefaultAsync();
+
+        var response = new Dtos.DirectMessageResponse(dm.Id, dm.Content, dm.SenderId, dm.RecipientId, dm.SentAt, ReplyToMessageId: dm.ReplyToMessageId, ReplyToAuthorId: replyToAuthorId);
 
         await Clients.User(recipientId.ToString()).SendAsync("ReceiveDirectMessage", response);
         await Clients.User(CurrentUserId.ToString()).SendAsync("ReceiveDirectMessage", response);

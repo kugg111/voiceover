@@ -8,9 +8,9 @@ public record ChannelResponse(int Id, string Name, string Type, int GuildServerI
 public record RenameChannelRequest(string Name);
 public record ReorderChannelsRequest(List<int> OrderedChannelIds);
 public record ReactionSummaryResponse(string Emoji, int Count, bool ReactedByMe);
-public record MessageResponse(int Id, string Content, int ChannelId, int AuthorId, string AuthorUsername, DateTime SentAt, string? AttachmentUrl = null, string? AuthorAvatarUrl = null, DateTime? EditedAt = null, List<ReactionSummaryResponse>? Reactions = null, DateTime? PinnedAt = null);
+public record MessageResponse(int Id, string Content, int ChannelId, int AuthorId, string AuthorUsername, DateTime SentAt, string? AttachmentUrl = null, string? AuthorAvatarUrl = null, DateTime? EditedAt = null, List<ReactionSummaryResponse>? Reactions = null, DateTime? PinnedAt = null, int? ReplyToMessageId = null, int? ReplyToAuthorId = null);
 public record EditMessageRequest(string Content);
-public record DirectMessageResponse(int Id, string Content, int SenderId, int RecipientId, DateTime SentAt, DateTime? EditedAt = null, DateTime? ReadAt = null, List<ReactionSummaryResponse>? Reactions = null);
+public record DirectMessageResponse(int Id, string Content, int SenderId, int RecipientId, DateTime SentAt, DateTime? EditedAt = null, DateTime? ReadAt = null, List<ReactionSummaryResponse>? Reactions = null, int? ReplyToMessageId = null, int? ReplyToAuthorId = null);
 public record DmConversationResponse(int OtherUserId, string OtherUsername, string LastMessagePreview, DateTime LastMessageAt, string? OtherUserAvatarUrl = null);
 public record CallRecordResponse(int Id, int OtherUserId, string OtherUsername, bool WasIncoming, string Outcome, DateTime StartedAt, DateTime EndedAt, int? DurationSeconds, string? OtherUserAvatarUrl = null);
 public record SetKeyMaterialRequest(string PublicKey, string WrappedPrivateKey, string PrivateKeySalt);

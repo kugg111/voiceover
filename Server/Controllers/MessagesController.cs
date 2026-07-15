@@ -59,9 +59,10 @@ public class MessagesController : ControllerBase
             .ToListAsync();
 
         var reactionsByMessage = await LoadReactionsAsync(messages.Select(m => m.Id).ToList());
+        var replyAuthors = await LoadReplyAuthorsAsync(messages);
 
         var response = messages
-            .Select(m => new MessageResponse(m.Id, m.Content, m.ChannelId, m.AuthorId, m.Author!.Username, m.SentAt, m.AttachmentUrl, m.Author!.AvatarUrl, m.EditedAt, reactionsByMessage.GetValueOrDefault(m.Id), m.PinnedAt))
+            .Select(m => new MessageResponse(m.Id, m.Content, m.ChannelId, m.AuthorId, m.Author!.Username, m.SentAt, m.AttachmentUrl, m.Author!.AvatarUrl, m.EditedAt, reactionsByMessage.GetValueOrDefault(m.Id), m.PinnedAt, m.ReplyToMessageId, m.ReplyToMessageId is null ? null : replyAuthors.GetValueOrDefault(m.ReplyToMessageId.Value)))
             .ToList();
 
         return Ok(response);
@@ -91,9 +92,10 @@ public class MessagesController : ControllerBase
             .ToListAsync();
 
         var reactionsByMessage = await LoadReactionsAsync(messages.Select(m => m.Id).ToList());
+        var replyAuthors = await LoadReplyAuthorsAsync(messages);
 
         var response = messages
-            .Select(m => new MessageResponse(m.Id, m.Content, m.ChannelId, m.AuthorId, m.Author!.Username, m.SentAt, m.AttachmentUrl, m.Author!.AvatarUrl, m.EditedAt, reactionsByMessage.GetValueOrDefault(m.Id), m.PinnedAt))
+            .Select(m => new MessageResponse(m.Id, m.Content, m.ChannelId, m.AuthorId, m.Author!.Username, m.SentAt, m.AttachmentUrl, m.Author!.AvatarUrl, m.EditedAt, reactionsByMessage.GetValueOrDefault(m.Id), m.PinnedAt, m.ReplyToMessageId, m.ReplyToMessageId is null ? null : replyAuthors.GetValueOrDefault(m.ReplyToMessageId.Value)))
             .ToList();
 
         return Ok(response);
@@ -161,6 +163,20 @@ public class MessagesController : ControllerBase
                 .ToList());
     }
 
+    // Batches the "who wrote the message being replied to" lookup that
+    // MessageResponse.ReplyToAuthorId needs - content itself is E2EE
+    // ciphertext the server can't preview, so this is the only extra piece
+    // of context worth shipping alongside the raw ReplyToMessageId.
+    private async Task<Dictionary<int, int>> LoadReplyAuthorsAsync(List<Message> messages)
+    {
+        var replyToIds = messages.Where(m => m.ReplyToMessageId.HasValue).Select(m => m.ReplyToMessageId!.Value).Distinct().ToList();
+        if (replyToIds.Count == 0) return new();
+
+        return await _db.Messages
+            .Where(m => replyToIds.Contains(m.Id))
+            .ToDictionaryAsync(m => m.Id, m => m.AuthorId);
+    }
+
     // Author-only - unlike Delete, moderators can remove someone else's
     // message but shouldn't be able to rewrite their words.
     [HttpPut("{messageId}")]
@@ -184,7 +200,8 @@ public class MessagesController : ControllerBase
         await _db.SaveChangesAsync();
 
         var reactions = (await LoadReactionsAsync(new List<int> { messageId })).GetValueOrDefault(messageId);
-        var response = new MessageResponse(message.Id, message.Content, channelId, message.AuthorId, message.Author!.Username, message.SentAt, message.AttachmentUrl, message.Author.AvatarUrl, message.EditedAt, reactions, message.PinnedAt);
+        var replyAuthors = await LoadReplyAuthorsAsync(new List<Message> { message });
+        var response = new MessageResponse(message.Id, message.Content, channelId, message.AuthorId, message.Author!.Username, message.SentAt, message.AttachmentUrl, message.Author.AvatarUrl, message.EditedAt, reactions, message.PinnedAt, message.ReplyToMessageId, message.ReplyToMessageId is null ? null : replyAuthors.GetValueOrDefault(message.ReplyToMessageId.Value));
         await _hub.Clients.Group(HubGroups.Channel(channelId)).SendAsync("MessageEdited", response);
 
         return Ok(response);

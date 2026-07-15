@@ -372,6 +372,21 @@ public class MessageListItem : INotifyPropertyChanged
     public Visibility EditedTagVisibility => IsEdited ? Visibility.Visible : Visibility.Collapsed;
     public Visibility EditBoxVisibility => IsEditing ? Visibility.Visible : Visibility.Collapsed;
 
+    // Set from MessageResponse/DirectMessageResponse.ReplyToMessageId at
+    // construction. ReplyPreviewAuthor/Text are resolved separately (see
+    // MainWindow.ResolveReplyPreview) since the referenced message's
+    // decrypted content is only available client-side, and only if that
+    // original message happens to still be loaded - a null ReplyToMessageId
+    // means "not a reply" (ReplyPreviewVisibility hides the quote line
+    // entirely), while a non-null one with no resolved preview falls back to
+    // a placeholder rather than leaving the quote line blank.
+    public int? ReplyToMessageId { get; set; }
+    public int? ReplyToAuthorId { get; set; }
+    public string ReplyPreviewAuthor { get; set; } = string.Empty;
+    public string ReplyPreviewText { get; set; } = "Original message";
+    public Visibility ReplyPreviewVisibility => ReplyToMessageId.HasValue ? Visibility.Visible : Visibility.Collapsed;
+    public string ReplyPreviewDisplay => string.IsNullOrEmpty(ReplyPreviewAuthor) ? ReplyPreviewText : $"{ReplyPreviewAuthor}: {ReplyPreviewText}";
+
     public event PropertyChangedEventHandler? PropertyChanged;
 }
 
@@ -559,6 +574,10 @@ public partial class MainWindow : FluentWindow
     private int? _currentChannelId;
     private int? _currentVoiceChannelId;
     private int? _dmActiveUserId;
+    // Set by ReplyMessageButton_Click, cleared on send/cancel/context-switch
+    // (see CancelReply) - the message SendCurrentMessage attaches as
+    // replyToMessageId on the next send.
+    private int? _replyingToMessageId;
     // Set by LoadMembersPanelAsync whenever a server is opened - whether the
     // current user can pin/unpin messages in it (owner/moderator only).
     private bool _canManageCurrentServer;
@@ -1381,6 +1400,7 @@ public partial class MainWindow : FluentWindow
         // channels in the open server stay joined (see RefreshChannelsAsync)
         // so unread dots keep working for channels you switch away from too.
         _currentChannelId = channelId;
+        CancelReply();
         await _hub.JoinChannelAsync(channelId);
 
         _unreadTextChannelCounts.Remove(channelId);
@@ -1431,6 +1451,7 @@ public partial class MainWindow : FluentWindow
         var history = await _api.GetMessageHistoryAsync(channelId);
         var items = await Task.WhenAll(history.Select(async m =>
             ToListItem(m, await _api.E2ee.DecryptForServerAsync(serverId, m.Content))));
+        foreach (var item in items) ResolveReplyPreview(item, items);
         _messages.ReplaceAll(items);
         SetHasMoreHistory(items.Length);
 
@@ -2068,6 +2089,7 @@ public partial class MainWindow : FluentWindow
             ServerNameText.Text = "Select a server";
             ChannelNameText.Text = "# select-a-channel";
             _messages.Clear();
+            CancelReply();
         }
 
         await LoadServersAsync();
@@ -2204,6 +2226,7 @@ public partial class MainWindow : FluentWindow
             await _hub.LeaveChannelAsync(_currentChannelId.Value);
             _currentChannelId = null;
             _messages.Clear();
+            CancelReply();
             ChannelNameText.Text = "# select-a-channel";
         }
 
@@ -2362,6 +2385,7 @@ public partial class MainWindow : FluentWindow
         _dmActiveUserId = null;
         _dmActiveUsername = null;
         _messages.Clear();
+        CancelReply();
         ChannelNameText.Text = "Select a conversation";
         DmCallButton.Visibility = Visibility.Collapsed;
         DmBlockUserButton.Visibility = Visibility.Collapsed;
@@ -2400,6 +2424,7 @@ public partial class MainWindow : FluentWindow
         _dmActiveUserId = null;
         _dmActiveUsername = null;
         _messages.Clear();
+        CancelReply();
         ChannelNameText.Text = "Select a conversation";
         DmCallButton.Visibility = Visibility.Collapsed;
         DmBlockUserButton.Visibility = Visibility.Collapsed;
@@ -2438,6 +2463,7 @@ public partial class MainWindow : FluentWindow
             _dmActiveUserId = null;
             _dmActiveUsername = null;
             _messages.Clear();
+            CancelReply();
             ChannelNameText.Text = "# select-a-channel";
             DmCallButton.Visibility = Visibility.Collapsed;
             DmBlockUserButton.Visibility = Visibility.Collapsed;
@@ -2495,6 +2521,7 @@ public partial class MainWindow : FluentWindow
     {
         _dmActiveUserId = userId;
         _dmActiveUsername = username;
+        CancelReply();
         ChannelNameText.Text = $"@{username}";
         DmCallButton.Visibility = Visibility.Visible;
         DmBlockUserButton.Visibility = Visibility.Visible;
@@ -2511,7 +2538,9 @@ public partial class MainWindow : FluentWindow
         _dmSearchResults.Clear();
 
         var history = await _api.GetDmHistoryAsync(userId);
-        _messages.ReplaceAll(history.Select(m => ToDmListItem(m)));
+        var items = history.Select(m => ToDmListItem(m)).ToList();
+        foreach (var item in items) ResolveReplyPreview(item, items);
+        _messages.ReplaceAll(items);
         SetHasMoreHistory(history.Count);
         RefreshLatestOwnMessageFlag();
 
@@ -2645,6 +2674,7 @@ public partial class MainWindow : FluentWindow
         _dmActiveUserId = null;
         _dmActiveUsername = null;
         _messages.Clear();
+        CancelReply();
         ChannelNameText.Text = "Select a conversation";
         DmCallButton.Visibility = Visibility.Collapsed;
         DmBlockUserButton.Visibility = Visibility.Collapsed;
@@ -2860,6 +2890,8 @@ public partial class MainWindow : FluentWindow
     {
         if (string.IsNullOrWhiteSpace(MessageInput.Text)) return;
 
+        var replyToMessageId = _replyingToMessageId;
+
         if (_dmActiveUserId.HasValue)
         {
             // Encrypted client-side before it ever reaches the hub - see
@@ -2874,8 +2906,9 @@ public partial class MainWindow : FluentWindow
                 return;
             }
 
-            await _hub.SendDirectMessageAsync(_dmActiveUserId.Value, encrypted);
+            await _hub.SendDirectMessageAsync(_dmActiveUserId.Value, encrypted, replyToMessageId);
             MessageInput.Clear();
+            CancelReply();
             return;
         }
 
@@ -2890,8 +2923,35 @@ public partial class MainWindow : FluentWindow
             return;
         }
 
-        await _hub.SendMessageAsync(_currentChannelId.Value, encryptedChannelMessage);
+        await _hub.SendMessageAsync(_currentChannelId.Value, encryptedChannelMessage, replyToMessageId: replyToMessageId);
         MessageInput.Clear();
+        CancelReply();
+    }
+
+    // Tag="{Binding}" on both the hover icon and the context menu item (see
+    // MainWindow.xaml) - either one hands back the whole MessageListItem,
+    // matching ReactButton_Click's existing convention for this row.
+    private void ReplyMessageButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: MessageListItem item }) return;
+
+        _replyingToMessageId = item.Id;
+        ReplyBannerText.Text = $"Replying to {item.AuthorUsername}";
+        ReplyBanner.Visibility = Visibility.Visible;
+        MessageInput.Focus();
+    }
+
+    private void CancelReplyButton_Click(object sender, RoutedEventArgs e) => CancelReply();
+
+    // Also called on send (the reply state doesn't carry over to the next
+    // message) and whenever the open channel/DM changes - a reply banner
+    // pointing at a message from a conversation that's no longer open would
+    // otherwise linger and attach the wrong replyToMessageId to whatever
+    // gets typed next.
+    private void CancelReply()
+    {
+        _replyingToMessageId = null;
+        ReplyBanner.Visibility = Visibility.Collapsed;
     }
 
     // Shared by both the right-click context menu items and the hover
@@ -3065,7 +3125,9 @@ public partial class MainWindow : FluentWindow
 
                 if (isCurrentlyOpen)
                 {
-                    _messages.Add(ToListItem(msg, content));
+                    var item = ToListItem(msg, content);
+                    ResolveReplyPreview(item, _messages);
+                    _messages.Add(item);
                     ScrollToBottom();
                 }
                 else if (!isOwnMessage)
@@ -3156,7 +3218,9 @@ public partial class MainWindow : FluentWindow
 
                 if (isCurrentlyOpen)
                 {
-                    _messages.Add(ToDmListItem(dm, content));
+                    var item = ToDmListItem(dm, content);
+                    ResolveReplyPreview(item, _messages);
+                    _messages.Add(item);
                     RefreshLatestOwnMessageFlag();
                     ScrollToBottom();
 
@@ -3254,6 +3318,7 @@ public partial class MainWindow : FluentWindow
             ServerNameText.Text = "Select a server";
             ChannelNameText.Text = "# select-a-channel";
             _messages.Clear();
+            CancelReply();
         }
 
         await LoadServersAsync();
@@ -3705,10 +3770,32 @@ public partial class MainWindow : FluentWindow
             IsOwnMessage = m.AuthorId == _api.CurrentUserId,
             IsChannelMessage = true,
             CanManageServer = _canManageCurrentServer,
-            IsPinned = m.PinnedAt is not null
+            IsPinned = m.PinnedAt is not null,
+            ReplyToMessageId = m.ReplyToMessageId,
+            ReplyToAuthorId = m.ReplyToAuthorId
         };
         PopulateReactions(item, m.Reactions);
         return item;
+    }
+
+    // Fills in ReplyPreviewAuthor/Text for a reply row from whichever
+    // messages are actually available client-side right now - pool is
+    // either the batch just being constructed (bulk history loads, where
+    // _messages itself is still empty/stale at construction time) or the
+    // live _messages collection (single-message receive, where it's already
+    // populated with everything loaded so far). Falls back to the
+    // placeholder set in MessageListItem's own field initializer if the
+    // original isn't in the given pool - it may be older than what's paged
+    // in, or the referenced row may have since been deleted.
+    private static void ResolveReplyPreview(MessageListItem item, IEnumerable<MessageListItem> pool)
+    {
+        if (item.ReplyToMessageId is not { } replyId) return;
+
+        var original = pool.FirstOrDefault(x => x.Id == replyId);
+        if (original is null) return;
+
+        item.ReplyPreviewAuthor = original.AuthorUsername;
+        item.ReplyPreviewText = original.Content.Length > 80 ? original.Content[..80] + "…" : original.Content;
     }
 
     // ToListItem/ToDmListItem's own object initializers can't populate
@@ -3745,7 +3832,9 @@ public partial class MainWindow : FluentWindow
             IsEdited = dm.EditedAt is not null,
             IsOwnMessage = dm.SenderId == _api.CurrentUserId,
             IsChannelMessage = false,
-            IsRead = dm.ReadAt is not null
+            IsRead = dm.ReadAt is not null,
+            ReplyToMessageId = dm.ReplyToMessageId,
+            ReplyToAuthorId = dm.ReplyToAuthorId
         };
         PopulateReactions(item, dm.Reactions);
         return item;
@@ -3860,6 +3949,8 @@ public partial class MainWindow : FluentWindow
             {
                 return;
             }
+
+            foreach (var item in olderItems) ResolveReplyPreview(item, olderItems);
 
             SetHasMoreHistory(olderItems.Count);
             if (olderItems.Count == 0) return;

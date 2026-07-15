@@ -17,4 +17,7 @@ public class DirectMessage
     // Set when the recipient has opened this conversation on or after this
     // message arrived (see ChatHub.MarkDmRead) - null means unread.
     public DateTime? ReadAt { get; set; }
+
+    // No FK - same reasoning as Message.ReplyToMessageId.
+    public int? ReplyToMessageId { get; set; }
 }

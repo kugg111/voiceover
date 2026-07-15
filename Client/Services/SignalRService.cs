@@ -124,10 +124,11 @@ public class SignalRService
 
     public Task JoinChannelAsync(int channelId) => _connection!.InvokeAsync("JoinChannel", channelId);
     public Task LeaveChannelAsync(int channelId) => _connection!.InvokeAsync("LeaveChannel", channelId);
-    public Task SendMessageAsync(int channelId, string content, string? attachmentUrl = null)
-        => _connection!.InvokeAsync("SendMessage", channelId, content, attachmentUrl);
+    public Task SendMessageAsync(int channelId, string content, string? attachmentUrl = null, int? replyToMessageId = null)
+        => _connection!.InvokeAsync("SendMessage", channelId, content, attachmentUrl, replyToMessageId);
     public Task NotifyTypingAsync(int channelId) => _connection!.InvokeAsync("NotifyTyping", channelId);
-    public Task SendDirectMessageAsync(int recipientId, string content) => _connection!.InvokeAsync("SendDirectMessage", recipientId, content);
+    public Task SendDirectMessageAsync(int recipientId, string content, int? replyToMessageId = null)
+        => _connection!.InvokeAsync("SendDirectMessage", recipientId, content, replyToMessageId);
     public Task MarkDmReadAsync(int otherUserId) => _connection!.InvokeAsync("MarkDmRead", otherUserId);
     public Task ToggleMessageReactionAsync(int messageId, string emoji) => _connection!.InvokeAsync("ToggleMessageReaction", messageId, emoji);
     public Task ToggleDirectMessageReactionAsync(int messageId, string emoji) => _connection!.InvokeAsync("ToggleDirectMessageReaction", messageId, emoji);

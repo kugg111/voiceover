@@ -45,14 +45,14 @@ public record ReactionSummaryResponse(string Emoji, int Count, bool ReactedByMe)
 // sending server's shared key - see Client/Services/E2eeService.cs and
 // ServerMemberKey. The server never has a usable key for this either.
 public record SendMessageRequest(string Content);
-public record MessageResponse(int Id, string Content, int ChannelId, int AuthorId, string AuthorUsername, DateTime SentAt, string? AttachmentUrl = null, string? AuthorAvatarUrl = null, DateTime? EditedAt = null, List<ReactionSummaryResponse>? Reactions = null, DateTime? PinnedAt = null);
+public record MessageResponse(int Id, string Content, int ChannelId, int AuthorId, string AuthorUsername, DateTime SentAt, string? AttachmentUrl = null, string? AuthorAvatarUrl = null, DateTime? EditedAt = null, List<ReactionSummaryResponse>? Reactions = null, DateTime? PinnedAt = null, int? ReplyToMessageId = null, int? ReplyToAuthorId = null);
 public record EditMessageRequest(string Content);
 public record UploadResponse(string Url);
 
 // Content/LastMessagePreview are opaque E2EE ciphertext - the client
 // decrypts them itself (see Client/Services/E2eeService.cs); the server
 // never has a usable key.
-public record DirectMessageResponse(int Id, string Content, int SenderId, int RecipientId, DateTime SentAt, DateTime? EditedAt = null, DateTime? ReadAt = null, List<ReactionSummaryResponse>? Reactions = null);
+public record DirectMessageResponse(int Id, string Content, int SenderId, int RecipientId, DateTime SentAt, DateTime? EditedAt = null, DateTime? ReadAt = null, List<ReactionSummaryResponse>? Reactions = null, int? ReplyToMessageId = null, int? ReplyToAuthorId = null);
 public record DmConversationResponse(int OtherUserId, string OtherUsername, string LastMessagePreview, DateTime LastMessageAt, string? OtherUserAvatarUrl = null);
 
 // "Recent Calls" history (see CallsController/CallRecord) - Outcome is one

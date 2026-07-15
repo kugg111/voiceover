@@ -554,6 +554,7 @@
                                 </Grid.ColumnDefinitions>
                                 <Grid.ContextMenu>
                                     <ContextMenu>
+                                        <MenuItem Header="Reply" Tag="{Binding}" Click="ReplyMessageButton_Click"/>
                                         <MenuItem Header="Edit Message" Tag="{Binding Id}" Click="EditMessageMenuItem_Click"
                                                   Visibility="{Binding EditMenuVisibility}"/>
                                         <MenuItem Header="Delete Message" Tag="{Binding Id}" Click="DeleteMessageMenuItem_Click"
@@ -596,6 +597,11 @@
                                             </ContextMenu>
                                         </Button.ContextMenu>
                                     </Button>
+                                    <Button Content="↩" Tag="{Binding}" Click="ReplyMessageButton_Click"
+                                            ToolTip="Reply"
+                                            Width="26" Height="26" Padding="0" FontSize="14" Margin="0,0,4,0"
+                                            Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
+                                            BorderThickness="0" Cursor="Hand"/>
                                     <Button Content="✏️" Tag="{Binding Id}" Click="EditMessageMenuItem_Click"
                                             Visibility="{Binding EditMenuVisibility}" ToolTip="Edit"
                                             Width="26" Height="26" Padding="0" FontSize="12" Margin="0,0,4,0"
@@ -608,6 +614,11 @@
                                             BorderThickness="0" Cursor="Hand"/>
                                 </StackPanel>
                                 <StackPanel Grid.Column="1">
+                                    <Border Visibility="{Binding ReplyPreviewVisibility}" Background="{StaticResource BgSidebar}"
+                                            CornerRadius="3" Padding="6,3" Margin="0,0,0,4" HorizontalAlignment="Left" MaxWidth="360">
+                                        <TextBlock Text="{Binding ReplyPreviewDisplay, StringFormat='↩ {0}'}" FontSize="11"
+                                                   Foreground="{StaticResource TextMuted}" TextTrimming="CharacterEllipsis"/>
+                                    </Border>
                                     <StackPanel Orientation="Horizontal">
                                         <TextBlock Text="{Binding AuthorUsername}" FontWeight="Bold"
                                                    Foreground="{StaticResource AccentBlurple}" Margin="0,0,8,0"/>
@@ -688,24 +699,40 @@
                 </Grid>
             </DockPanel>
 
-            <Grid Grid.Row="2" Margin="16,0,16,16" AllowDrop="True"
-                  DragOver="MessageInputArea_DragOver" Drop="MessageInputArea_Drop">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <Button Grid.Column="0" Content="📎" Width="40" Height="40" Margin="0,0,8,0"
-                        Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
-                        BorderThickness="0" Click="AttachButton_Click" ToolTip="Attach a file"/>
-                <TextBox Grid.Column="1" x:Name="MessageInput" Height="40" Padding="10,10" VerticalContentAlignment="Center"
-                         Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
-                         BorderThickness="0" KeyDown="MessageInput_KeyDown" TextChanged="MessageInput_TextChanged"
-                         DataObject.Pasting="MessageInput_Pasting"/>
-                <Button Grid.Column="2" Content="Send" Width="80" Height="40" Margin="8,0,0,0"
-                        Background="{StaticResource AccentBlurple}" Foreground="White"
-                        BorderThickness="0" Click="SendButton_Click"/>
-            </Grid>
+            <StackPanel Grid.Row="2" Margin="16,0,16,16">
+                <Border x:Name="ReplyBanner" Background="{StaticResource BgSidebar}" CornerRadius="4"
+                        Padding="10,6" Margin="0,0,0,6" Visibility="Collapsed">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" x:Name="ReplyBannerText" FontSize="12"
+                                   Foreground="{StaticResource TextNormal}" TextTrimming="CharacterEllipsis"/>
+                        <Button Grid.Column="1" Content="✕" Click="CancelReplyButton_Click" ToolTip="Cancel reply"
+                                Width="20" Height="20" Padding="0" FontSize="11"
+                                Background="Transparent" Foreground="{StaticResource TextMuted}"
+                                BorderThickness="0" Cursor="Hand"/>
+                    </Grid>
+                </Border>
+                <Grid AllowDrop="True" DragOver="MessageInputArea_DragOver" Drop="MessageInputArea_Drop">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Button Grid.Column="0" Content="📎" Width="40" Height="40" Margin="0,0,8,0"
+                            Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
+                            BorderThickness="0" Click="AttachButton_Click" ToolTip="Attach a file"/>
+                    <TextBox Grid.Column="1" x:Name="MessageInput" Height="40" Padding="10,10" VerticalContentAlignment="Center"
+                             Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
+                             BorderThickness="0" KeyDown="MessageInput_KeyDown" TextChanged="MessageInput_TextChanged"
+                             DataObject.Pasting="MessageInput_Pasting"/>
+                    <Button Grid.Column="2" Content="Send" Width="80" Height="40" Margin="8,0,0,0"
+                            Background="{StaticResource AccentBlurple}" Foreground="White"
+                            BorderThickness="0" Click="SendButton_Click"/>
+                </Grid>
+            </StackPanel>
         </Grid>
 
         <!-- MEMBERS (server view only, see ShowServerSidebar/ShowMessagesSidebar/ShowFriendsSidebar) -->

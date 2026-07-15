@@ -113,9 +113,10 @@ public class DirectMessagesController : ControllerBase
             .ToListAsync();
 
         var reactionsByMessage = await LoadReactionsAsync(messages.Select(m => m.Id).ToList());
+        var replyAuthors = await LoadReplyAuthorsAsync(messages);
 
         var response = messages
-            .Select(m => new DirectMessageResponse(m.Id, m.Content, m.SenderId, m.RecipientId, m.SentAt, m.EditedAt, m.ReadAt, reactionsByMessage.GetValueOrDefault(m.Id)))
+            .Select(m => new DirectMessageResponse(m.Id, m.Content, m.SenderId, m.RecipientId, m.SentAt, m.EditedAt, m.ReadAt, reactionsByMessage.GetValueOrDefault(m.Id), m.ReplyToMessageId, m.ReplyToMessageId is null ? null : replyAuthors.GetValueOrDefault(m.ReplyToMessageId.Value)))
             .ToList();
 
         return Ok(response);
@@ -137,6 +138,18 @@ public class DirectMessagesController : ControllerBase
                 .GroupBy(r => r.Emoji)
                 .Select(eg => new ReactionSummaryResponse(eg.Key, eg.Count(), eg.Any(r => r.UserId == CurrentUserId)))
                 .ToList());
+    }
+
+    // Same "batch the reply author lookup" shape as
+    // MessagesController.LoadReplyAuthorsAsync, over DirectMessage instead.
+    private async Task<Dictionary<int, int>> LoadReplyAuthorsAsync(List<Models.DirectMessage> messages)
+    {
+        var replyToIds = messages.Where(m => m.ReplyToMessageId.HasValue).Select(m => m.ReplyToMessageId!.Value).Distinct().ToList();
+        if (replyToIds.Count == 0) return new();
+
+        return await _db.DirectMessages
+            .Where(m => replyToIds.Contains(m.Id))
+            .ToDictionaryAsync(m => m.Id, m => m.SenderId);
     }
 
     // Author-only, always - DMs have no moderator concept the way server
@@ -161,7 +174,8 @@ public class DirectMessagesController : ControllerBase
         // themselves client-side (see ChatHub.SendDirectMessage for the
         // same reasoning on the send path).
         var reactions = (await LoadReactionsAsync(new List<int> { messageId })).GetValueOrDefault(messageId);
-        var response = new DirectMessageResponse(message.Id, message.Content, message.SenderId, message.RecipientId, message.SentAt, message.EditedAt, message.ReadAt, reactions);
+        var replyAuthors = await LoadReplyAuthorsAsync(new List<Models.DirectMessage> { message });
+        var response = new DirectMessageResponse(message.Id, message.Content, message.SenderId, message.RecipientId, message.SentAt, message.EditedAt, message.ReadAt, reactions, message.ReplyToMessageId, message.ReplyToMessageId is null ? null : replyAuthors.GetValueOrDefault(message.ReplyToMessageId.Value));
 
         // Same dual-send pattern SendDirectMessage already uses - both
         // participants' own connections need the update, there's no shared
