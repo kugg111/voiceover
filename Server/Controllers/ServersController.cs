@@ -27,14 +27,16 @@ public class ServersController : ControllerBase
     private readonly PermissionService _permissions;
     private readonly PresenceService _presence;
     private readonly ModerationLogService _modLog;
+    private readonly ServerDeletionService _serverDeletion;
     private readonly IHubContext<ChatHub> _hub;
 
-    public ServersController(AppDbContext db, PermissionService permissions, PresenceService presence, ModerationLogService modLog, IHubContext<ChatHub> hub)
+    public ServersController(AppDbContext db, PermissionService permissions, PresenceService presence, ModerationLogService modLog, ServerDeletionService serverDeletion, IHubContext<ChatHub> hub)
     {
         _db = db;
         _permissions = permissions;
         _presence = presence;
         _modLog = modLog;
+        _serverDeletion = serverDeletion;
         _hub = hub;
     }
 
@@ -292,6 +294,31 @@ public class ServersController : ControllerBase
             .ToListAsync();
 
         return Ok(result);
+    }
+
+    // Owner-only, permanent - deletes the server and everything in it.
+    // Channels/Messages/Memberships/Invites cascade automatically (real,
+    // required FKs); ServerDeletionService cleans up the rest (see its own
+    // comment for exactly what has no FK/cascade configured and why).
+    [HttpDelete("{serverId}")]
+    public async Task<ActionResult> Delete(int serverId)
+    {
+        if (!await _permissions.IsOwnerAsync(CurrentUserId, serverId))
+            return Forbid();
+
+        var server = await _db.GuildServers.FirstOrDefaultAsync(s => s.Id == serverId);
+        if (server is null) return NotFound();
+
+        await _serverDeletion.QueueDeleteAsync(server);
+        await _db.SaveChangesAsync();
+
+        // Every member either has this server's presence group joined
+        // (currently viewing it) or will simply stop seeing it on their next
+        // GetMyServers - no per-user targeted push needed like YouWereKicked,
+        // since deleting your own server isn't something the caller (the
+        // one who just did it) needs to be separately notified of.
+        await _hub.Clients.Group(HubGroups.ServerPresence(serverId)).SendAsync("ServerDeleted", serverId);
+        return Ok();
     }
 
     // Url is expected to already be an uploaded file's path (from POST

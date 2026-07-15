@@ -211,6 +211,14 @@ public class ApiService
         return (false, await response.Content.ReadAsStringAsync());
     }
 
+    // Owner-only, permanent - see ServersController.Delete server-side.
+    public async Task<(bool Success, string? Error)> DeleteServerAsync(int serverId)
+    {
+        var response = await _http.DeleteAsync($"api/servers/{serverId}");
+        if (response.IsSuccessStatusCode) return (true, null);
+        return (false, await response.Content.ReadAsStringAsync());
+    }
+
     public async Task<GuildServerResponse?> CreateServerAsync(string name)
     {
         var response = await _http.PostAsJsonAsync("api/servers", new { Name = name });

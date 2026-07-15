@@ -19,6 +19,14 @@ public class ServerListItem
     public string Name { get; set; } = string.Empty;
     public string? IconUrl { get; set; }
     public int OwnerId { get; set; }
+
+    // Set at construction (see LoadServersAsync) by comparing OwnerId to the
+    // current user - same "computed once at construction, not via binding
+    // to an external value" pattern VoiceMemberItem.IsSelf already uses.
+    // Gates the Rename/Delete Server context-menu items, which only make
+    // sense for the owner.
+    public bool IsOwner { get; set; }
+    public Visibility OwnerMenuItemVisibility => IsOwner ? Visibility.Visible : Visibility.Collapsed;
 }
 
 public class VoiceMemberItem : INotifyPropertyChanged
@@ -669,6 +677,7 @@ public partial class MainWindow : FluentWindow
         _hub.MemberRoleChanged += (serverId, userId) => Dispatcher.Invoke(() => OnMemberRoleChanged(serverId, userId));
         _hub.ChannelCreated += serverId => Dispatcher.Invoke(() => OnChannelCreated(serverId));
         _hub.ChannelDeleted += serverId => Dispatcher.Invoke(() => OnChannelDeleted(serverId));
+        _hub.ServerDeleted += serverId => Dispatcher.Invoke(() => OnServerDeleted(serverId));
         _hub.ServerKeyRequested += OnServerKeyRequested;
         _hub.ServerKeyProvisioned += OnServerKeyProvisioned;
         _hub.UserTyping += OnUserTyping;
@@ -1117,7 +1126,14 @@ public partial class MainWindow : FluentWindow
     private async Task LoadServersAsync()
     {
         var servers = await _api.GetMyServersAsync();
-        _servers.ReplaceAll(servers.Select(s => new ServerListItem { Id = s.Id, Name = s.Name, IconUrl = App.ResolveUploadUrl(s.IconUrl), OwnerId = s.OwnerId }));
+        _servers.ReplaceAll(servers.Select(s => new ServerListItem
+        {
+            Id = s.Id,
+            Name = s.Name,
+            IconUrl = App.ResolveUploadUrl(s.IconUrl),
+            OwnerId = s.OwnerId,
+            IsOwner = s.OwnerId == _api.CurrentUserId
+        }));
         OnboardingNudgePopup.IsOpen = _servers.Count == 0;
 
         // Join every text channel's SignalR group across every server the
@@ -2052,6 +2068,31 @@ public partial class MainWindow : FluentWindow
         }
 
         await LoadServersAsync();
+    }
+
+    // Owner-only (see ServerListItem.OwnerMenuItemVisibility gating the menu
+    // item itself) and permanent. Calls the same reset-and-reload helper
+    // OnYouWereKicked uses rather than waiting on the ServerDeleted
+    // broadcast to reach this client's own connection - that broadcast only
+    // reaches connections that already joined this server's presence group
+    // (i.e. had it open at some point this session), which isn't guaranteed
+    // just from right-clicking it in the rail.
+    private async void DeleteServerMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.MenuItem { Tag: int serverId }) return;
+
+        if (!await ConfirmAsync("Delete Server",
+            "This permanently deletes the server and everything in it - channels, messages, members. This cannot be undone.",
+            "Delete Server", destructive: true)) return;
+
+        var (success, error) = await _api.DeleteServerAsync(serverId);
+        if (!success)
+        {
+            await AlertAsync("Error", error ?? "Could not delete this server.");
+            return;
+        }
+
+        await LeaveServerLocallyIfCurrentlyViewing(serverId);
     }
 
     // Sets the "Mute Notifications"/"Unmute Notifications" label to match
@@ -3108,6 +3149,13 @@ public partial class MainWindow : FluentWindow
     {
         if (serverId == _currentServerId) await RefreshChannelsAsync(serverId);
     }
+
+    // Bystander-facing counterpart to DeleteServerMenuItem_Click's own
+    // cleanup below - fires for every other member with this server open
+    // (the caller who actually deleted it handles its own UI reset inline,
+    // not via this broadcast). Reuses the same "server no longer available"
+    // recovery OnYouWereKicked already does.
+    private async void OnServerDeleted(int serverId) => await LeaveServerLocallyIfCurrentlyViewing(serverId);
 
     // A moderator force-muted us (ChatHub.ForceMuteUser) - just flips our
     // own mic mute state; VoiceService.MicMutedChanged (already subscribed,

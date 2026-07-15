@@ -86,6 +86,8 @@
                                             <MenuItem Header="Invites" Tag="{Binding Id}" Click="InvitesMenuItem_Click"/>
                                             <MenuItem x:Name="ServerMuteMenuItem" Header="Mute Notifications" Tag="{Binding Id}" Click="ToggleServerMuteMenuItem_Click"/>
                                             <MenuItem Header="Leave Server" Tag="{Binding Id}" Click="LeaveServerMenuItem_Click"/>
+                                            <MenuItem Header="Delete Server" Tag="{Binding Id}" Click="DeleteServerMenuItem_Click"
+                                                      Visibility="{Binding OwnerMenuItemVisibility}"/>
                                         </ContextMenu>
                                     </Button.ContextMenu>
                                 </Button>

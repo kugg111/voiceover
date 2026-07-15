@@ -34,6 +34,7 @@ public class SignalRService
     public event Action<int>? ModerationLogChanged; // serverId
     public event Action<int>? ChannelCreated; // serverId
     public event Action<int>? ChannelDeleted; // serverId
+    public event Action<int>? ServerDeleted; // serverId
     public event Action<string, int>? UserTyping;
     public event Action<int, string, int, string?>? VoiceUserJoined;
     public event Action<int, string, int>? VoiceUserLeft;
@@ -94,6 +95,7 @@ public class SignalRService
         _connection.On<int>("ModerationLogChanged", serverId => ModerationLogChanged?.Invoke(serverId));
         _connection.On<int>("ChannelCreated", serverId => ChannelCreated?.Invoke(serverId));
         _connection.On<int>("ChannelDeleted", serverId => ChannelDeleted?.Invoke(serverId));
+        _connection.On<int>("ServerDeleted", serverId => ServerDeleted?.Invoke(serverId));
         _connection.On<string, int>("UserTyping", (username, channelId) => UserTyping?.Invoke(username, channelId));
         _connection.On<int, string, int, string?>("VoiceUserJoined", (userId, username, channelId, avatarUrl) => VoiceUserJoined?.Invoke(userId, username, channelId, avatarUrl));
         _connection.On<int, string, int>("VoiceUserLeft", (userId, username, channelId) => VoiceUserLeft?.Invoke(userId, username, channelId));

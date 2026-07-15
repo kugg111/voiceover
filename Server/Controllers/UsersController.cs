@@ -19,12 +19,14 @@ public class UsersController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly UserAvatarCache _avatarCache;
+    private readonly ServerDeletionService _serverDeletion;
     private readonly IHubContext<ChatHub> _hub;
 
-    public UsersController(AppDbContext db, UserAvatarCache avatarCache, IHubContext<ChatHub> hub)
+    public UsersController(AppDbContext db, UserAvatarCache avatarCache, ServerDeletionService serverDeletion, IHubContext<ChatHub> hub)
     {
         _db = db;
         _avatarCache = avatarCache;
+        _serverDeletion = serverDeletion;
         _hub = hub;
     }
 
@@ -231,16 +233,10 @@ public class UsersController : ControllerBase
             if (others.Count == 0)
             {
                 // No one left to inherit it - delete the server outright.
-                // Channels/Messages/Invites cascade automatically (real,
-                // required FKs - see AppDbContext), but MessageReaction and
-                // ServerMemberKey have no FK/cascade configured, so clean
-                // those up explicitly first (same reasoning
-                // MessagesController.Delete already documents for
-                // MessageReactions).
-                var messageIds = await _db.Messages.Where(m => m.Channel!.GuildServerId == server.Id).Select(m => m.Id).ToListAsync();
-                _db.MessageReactions.RemoveRange(_db.MessageReactions.Where(r => messageIds.Contains(r.MessageId)));
-                _db.ServerMemberKeys.RemoveRange(_db.ServerMemberKeys.Where(k => k.GuildServerId == server.Id));
-                _db.GuildServers.Remove(server);
+                // See ServerDeletionService for exactly what it cleans up
+                // and why (shared with ServersController's own owner-
+                // initiated delete endpoint).
+                await _serverDeletion.QueueDeleteAsync(server);
                 continue;
             }
 
