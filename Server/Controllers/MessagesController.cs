@@ -167,6 +167,7 @@ public class MessagesController : ControllerBase
     public async Task<ActionResult<MessageResponse>> Edit(int channelId, int messageId, EditMessageRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Content)) return BadRequest();
+        if (request.Content.Length > ContentLimits.MaxMessageLength) return BadRequest("Message is too long.");
 
         var message = await _db.Messages
             .Include(m => m.Author)

@@ -6,6 +6,7 @@ using Voiceover.Server.Models;
 using Voiceover.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
@@ -31,9 +32,14 @@ public class UsersController : ControllerBase
 
     // GET /api/users/search?username=alice
     [HttpGet("search")]
+    [EnableRateLimiting("search")]
     public async Task<ActionResult<List<UserSummaryResponse>>> Search(string username)
     {
-        if (string.IsNullOrWhiteSpace(username)) return Ok(new List<UserSummaryResponse>());
+        // A 1-char query still triggers a trigram-index scan across every
+        // username with no floor - the rate limit above bounds how often,
+        // this bounds how cheap each individual call has to stay.
+        if (string.IsNullOrWhiteSpace(username) || username.Trim().Length < 2)
+            return Ok(new List<UserSummaryResponse>());
 
         var users = await _db.Users
             .Where(u => u.Username.Contains(username))

@@ -70,6 +70,7 @@ public class ChatHub : Hub
     public async Task SendMessage(int channelId, string content, string? attachmentUrl = null)
     {
         if (string.IsNullOrWhiteSpace(content) && string.IsNullOrWhiteSpace(attachmentUrl)) return;
+        if (content.Length > ContentLimits.MaxMessageLength) return;
 
         // Silently dropped rather than throwing - same treatment as the
         // empty-content no-op above. This is anti-spam, not a security
@@ -234,6 +235,7 @@ public class ChatHub : Hub
     public async Task SendDirectMessage(int recipientId, string content)
     {
         if (string.IsNullOrWhiteSpace(content)) return;
+        if (content.Length > ContentLimits.MaxMessageLength) return;
 
         // Shares the same per-user budget as SendMessage above - one spam
         // allowance across channels and DMs, not double the throughput by

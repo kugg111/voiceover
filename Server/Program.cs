@@ -186,6 +186,18 @@ builder.Services.AddRateLimiter(options =>
             Window = TimeSpan.FromMinutes(1),
             QueueLimit = 0
         }));
+
+    // User search: each call is a trigram-index scan across every username -
+    // cheap individually but worth bounding how often one caller can repeat
+    // it, on top of the 2-char query floor in UsersController.Search itself.
+    options.AddPolicy("search", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "unknown",
+        factory: _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 20,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0
+        }));
 });
 
 // The WPF client ignores CORS entirely (it's not a browser - CORS is only

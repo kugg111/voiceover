@@ -31,6 +31,9 @@ public class AuthController : ControllerBase
         if (string.IsNullOrWhiteSpace(req.Username) || string.IsNullOrWhiteSpace(req.Password))
             return BadRequest("Username and password are required.");
 
+        if (req.Password.Length < 8)
+            return BadRequest("Password must be at least 8 characters.");
+
         if (await _db.Users.AnyAsync(u => u.Username == req.Username))
             return Conflict("Username already taken.");
 
