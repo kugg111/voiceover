@@ -349,6 +349,22 @@ public class MessageListItem : INotifyPropertyChanged
     // Cancel can discard in-progress typing without touching the real value.
     public string EditingContent { get; set; } = string.Empty;
 
+    // Local-only UI state, same pattern as IsEditing above - true while this
+    // row's emoji picker Popup is open. Bound Mode=TwoWay so the Popup's own
+    // StaysOpen="False" auto-dismiss (clicking elsewhere) flips this back
+    // without needing an explicit close handler for that case.
+    private bool _isEmojiPickerOpen;
+    public bool IsEmojiPickerOpen
+    {
+        get => _isEmojiPickerOpen;
+        set
+        {
+            if (_isEmojiPickerOpen == value) return;
+            _isEmojiPickerOpen = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsEmojiPickerOpen)));
+        }
+    }
+
     private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".png", ".jpg", ".jpeg", ".gif", ".webp"
@@ -3495,19 +3511,21 @@ public partial class MainWindow : FluentWindow
     // right-click - a plain Button.ContextMenu requires that by default.
     private void ReactButton_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not FrameworkElement { ContextMenu: { } menu } element) return;
-        menu.PlacementTarget = element;
-        menu.IsOpen = true;
+        if (sender is not FrameworkElement { DataContext: MessageListItem item }) return;
+        item.IsEmojiPickerOpen = !item.IsEmojiPickerOpen;
     }
 
     // Tag is the whole MessageListItem (see MainWindow.xaml) so this has
     // both the message id and whether it's a channel message or a DM
-    // without needing a second lookup; Header is the literal emoji glyph.
+    // without needing a second lookup; Content is the literal emoji glyph
+    // (one of the picker's Buttons, not a MenuItem - see ReactButton_Click).
     private async void ReactionMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not MenuItem { Tag: MessageListItem message } menuItem) return;
-        var emoji = menuItem.Header?.ToString();
+        if (sender is not Button { Tag: MessageListItem message } button) return;
+        var emoji = button.Content?.ToString();
         if (string.IsNullOrEmpty(emoji)) return;
+
+        message.IsEmojiPickerOpen = false;
 
         try
         {
