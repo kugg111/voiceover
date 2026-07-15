@@ -546,7 +546,7 @@
                     </ListBox.ItemContainerStyle>
                     <ListBox.ItemTemplate>
                         <DataTemplate>
-                            <Grid x:Name="MessageRow" Margin="0,6,0,6">
+                            <Grid x:Name="MessageRow" Margin="0,6,0,6" Background="{Binding RowBackground}">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>

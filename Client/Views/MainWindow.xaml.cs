@@ -403,6 +403,28 @@ public class MessageListItem : INotifyPropertyChanged
     public Visibility ReplyPreviewVisibility => ReplyToMessageId.HasValue ? Visibility.Visible : Visibility.Collapsed;
     public string ReplyPreviewDisplay => string.IsNullOrEmpty(ReplyPreviewAuthor) ? ReplyPreviewText : $"{ReplyPreviewAuthor}: {ReplyPreviewText}";
 
+    // Briefly flashed true by MainWindow.HighlightMessageRowAsync when
+    // jumping here from a search result (see MessageSearchPage), then set
+    // back false after a short delay - a plain property swap rather than a
+    // Storyboard ColorAnimation, since animating a Background brush from
+    // XAML requires it to be a non-frozen SolidColorBrush and Style-Setter-
+    // created brushes get frozen by default, which is easy to get wrong.
+    private bool _isHighlighted;
+    public bool IsHighlighted
+    {
+        get => _isHighlighted;
+        set
+        {
+            if (_isHighlighted == value) return;
+            _isHighlighted = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsHighlighted)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(RowBackground)));
+        }
+    }
+
+    private static readonly Brush HighlightBrush = new SolidColorBrush(Color.FromArgb(90, 88, 101, 242));
+    public Brush RowBackground => IsHighlighted ? HighlightBrush : Brushes.Transparent;
+
     public event PropertyChangedEventHandler? PropertyChanged;
 }
 
@@ -3060,9 +3082,9 @@ public partial class MainWindow : FluentWindow
     private void SearchMessagesButton_Click(object sender, RoutedEventArgs e)
     {
         if (_currentChannelId.HasValue && _currentServerId.HasValue)
-            NavigateTo(new MessageSearchPage(_api, _currentServerId.Value, _currentChannelId.Value, null, ""), "Search Messages");
+            NavigateTo(new MessageSearchPage(this, _api, _currentServerId.Value, _currentChannelId.Value, null, ""), "Search Messages");
         else if (_dmActiveUserId.HasValue)
-            NavigateTo(new MessageSearchPage(_api, null, null, _dmActiveUserId.Value, _dmActiveUsername ?? "them"), "Search Messages");
+            NavigateTo(new MessageSearchPage(this, _api, null, null, _dmActiveUserId.Value, _dmActiveUsername ?? "them"), "Search Messages");
     }
 
     private async void SaveMessageEditButton_Click(object sender, RoutedEventArgs e)
@@ -3950,26 +3972,7 @@ public partial class MainWindow : FluentWindow
 
         try
         {
-            List<MessageListItem> olderItems;
-            if (_dmActiveUserId.HasValue)
-            {
-                var history = await _api.GetDmHistoryAsync(_dmActiveUserId.Value, oldest.Id);
-                olderItems = history.Select(m => ToDmListItem(m)).ToList();
-            }
-            else if (_currentChannelId.HasValue && _currentServerId.HasValue)
-            {
-                var history = await _api.GetMessageHistoryAsync(_currentChannelId.Value, oldest.Id);
-                var decrypted = await Task.WhenAll(history.Select(async m =>
-                    ToListItem(m, await _api.E2ee.DecryptForServerAsync(_currentServerId.Value, m.Content))));
-                olderItems = decrypted.ToList();
-            }
-            else
-            {
-                return;
-            }
-
-            foreach (var item in olderItems) ResolveReplyPreview(item, olderItems);
-
+            var olderItems = await FetchOlderMessagesAsync(oldest.Id);
             SetHasMoreHistory(olderItems.Count);
             if (olderItems.Count == 0) return;
 
@@ -3989,6 +3992,90 @@ public partial class MainWindow : FluentWindow
             _isLoadingOlderMessages = false;
             LoadOlderMessagesButton.IsEnabled = true;
         }
+    }
+
+    // Fetches and decrypts one page of history older than beforeId - shared
+    // by LoadOlderMessagesButton_Click and JumpToMessageAsync's own paging
+    // loop, which needs the same fetch without that button's specific
+    // scroll-position bookkeeping.
+    private async Task<List<MessageListItem>> FetchOlderMessagesAsync(int beforeId)
+    {
+        List<MessageListItem> olderItems;
+        if (_dmActiveUserId.HasValue)
+        {
+            var history = await _api.GetDmHistoryAsync(_dmActiveUserId.Value, beforeId);
+            olderItems = history.Select(m => ToDmListItem(m)).ToList();
+        }
+        else if (_currentChannelId.HasValue && _currentServerId.HasValue)
+        {
+            var history = await _api.GetMessageHistoryAsync(_currentChannelId.Value, beforeId);
+            var decrypted = await Task.WhenAll(history.Select(async m =>
+                ToListItem(m, await _api.E2ee.DecryptForServerAsync(_currentServerId.Value, m.Content))));
+            olderItems = decrypted.ToList();
+        }
+        else
+        {
+            return new List<MessageListItem>();
+        }
+
+        foreach (var item in olderItems) ResolveReplyPreview(item, olderItems);
+        return olderItems;
+    }
+
+    private const int JumpToMessagePageCap = 20;
+
+    // Called from MessageSearchPage when a result is clicked - by the time
+    // this runs the search page has already closed itself (GoBack), so the
+    // channel/DM view underneath is visible again with _currentChannelId/
+    // _dmActiveUserId still pointing at whatever conversation the search was
+    // launched from (search results can only ever be for that same
+    // conversation, since MessageSearchPage takes it as a constructor
+    // argument rather than reading "current" state itself). If the target
+    // message isn't in the currently-loaded window, walks "load older"
+    // pages (same cursor pagination LoadOlderMessagesButton uses) until it's
+    // found - capped at JumpToMessagePageCap so a message from very deep
+    // history doesn't hang this on an unbounded fetch; past the cap this
+    // just leaves the conversation open without scrolling/highlighting
+    // rather than blocking indefinitely.
+    public async Task JumpToMessageAsync(int messageId)
+    {
+        if (_isLoadingOlderMessages) return;
+
+        var pagesWalked = 0;
+        while (_messages.All(m => m.Id != messageId) && _hasMoreHistory && pagesWalked < JumpToMessagePageCap)
+        {
+            if (_messages.FirstOrDefault() is not { } oldest) break;
+
+            _isLoadingOlderMessages = true;
+            try
+            {
+                var olderItems = await FetchOlderMessagesAsync(oldest.Id);
+                SetHasMoreHistory(olderItems.Count);
+                if (olderItems.Count == 0) break;
+                _messages.PrependRange(olderItems);
+                RefreshLatestOwnMessageFlag();
+            }
+            finally
+            {
+                _isLoadingOlderMessages = false;
+            }
+
+            pagesWalked++;
+        }
+
+        var target = _messages.FirstOrDefault(m => m.Id == messageId);
+        if (target is null) return;
+
+        await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Loaded);
+        MessageList.ScrollIntoView(target);
+        await HighlightMessageRowAsync(target);
+    }
+
+    private static async Task HighlightMessageRowAsync(MessageListItem item)
+    {
+        item.IsHighlighted = true;
+        await Task.Delay(1200);
+        item.IsHighlighted = false;
     }
 
 }

@@ -20,12 +20,13 @@ public class SearchResultItem
 // beforeId-cursor pagination "Load Older Messages" already uses, capped at
 // a few thousand messages so an extremely long-lived channel doesn't hang
 // the page indefinitely), decrypts every page client-side, and filters in
-// memory. No "jump to the message in the main view" - a deliberate scope
-// cut, see the search UI's own README/plan notes for why.
+// memory. Clicking a result closes this page and jumps to/highlights the
+// message in the main view (see MainWindow.JumpToMessageAsync).
 public partial class MessageSearchPage : UserControl
 {
     private const int FetchCap = 2000;
 
+    private readonly MainWindow _mainWindow;
     private readonly ApiService _api;
     private readonly int? _serverId;
     private readonly int? _channelId;
@@ -36,9 +37,10 @@ public partial class MessageSearchPage : UserControl
 
     // Channel search: pass serverId + channelId, otherUserId/otherUsername null.
     // DM search: pass otherUserId + otherUsername, serverId/channelId null.
-    public MessageSearchPage(ApiService api, int? serverId, int? channelId, int? otherUserId, string otherUsername)
+    public MessageSearchPage(MainWindow mainWindow, ApiService api, int? serverId, int? channelId, int? otherUserId, string otherUsername)
     {
         InitializeComponent();
+        _mainWindow = mainWindow;
         _api = api;
         _serverId = serverId;
         _channelId = channelId;
@@ -48,6 +50,19 @@ public partial class MessageSearchPage : UserControl
 
         StatusText.Text = "Type a search term and press Enter or click Search.";
         Loaded += (_, _) => SearchBox.Focus();
+    }
+
+    // The whole conversation (channel or DM) this search is scoped to is
+    // already open behind this page (MessageSearchPage is only ever reached
+    // via its own conversation's search button) - GoBack reveals it again,
+    // then JumpToMessageAsync scrolls/highlights the target row, walking
+    // "load older" pages first if it isn't loaded yet.
+    private async void SearchResult_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not FrameworkElement { DataContext: SearchResultItem result }) return;
+
+        _mainWindow.GoBack();
+        await _mainWindow.JumpToMessageAsync(result.Id);
     }
 
     private void SearchBox_KeyDown(object sender, KeyEventArgs e)
