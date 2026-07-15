@@ -20,12 +20,12 @@ internal static class AuthFlow
 
         try
         {
-            var success = isRegister
+            var error = isRegister
                 ? await api.RegisterAsync(username, password)
                 : await api.LoginAsync(username, password);
 
-            if (!success)
-                return isRegister ? "That username is already taken." : "Invalid username or password.";
+            if (error is not null)
+                return error;
 
             // Best-effort - unlocks (or, for a fresh registration/pre-E2EE
             // account, generates and uploads) this device's E2EE keys now

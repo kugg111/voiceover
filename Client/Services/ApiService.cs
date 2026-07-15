@@ -49,22 +49,32 @@ public class ApiService
         E2ee = new E2eeService(this);
     }
 
-    public async Task<bool> RegisterAsync(string username, string password)
+    public async Task<string?> RegisterAsync(string username, string password)
         => await AuthenticateAsync("api/auth/register", username, password);
 
-    public async Task<bool> LoginAsync(string username, string password)
+    public async Task<string?> LoginAsync(string username, string password)
         => await AuthenticateAsync("api/auth/login", username, password);
 
-    private async Task<bool> AuthenticateAsync(string endpoint, string username, string password)
+    // Returns null on success, or the server's own error message on failure
+    // (e.g. "Password must be at least 8 characters." vs "Username already
+    // taken.") - the caller used to just get a bool and had to guess which
+    // of several possible reasons a failure was, which meant showing a wrong
+    // error message (e.g. "username taken" for what was actually a
+    // password-length rejection).
+    private async Task<string?> AuthenticateAsync(string endpoint, string username, string password)
     {
         var response = await _authHttp.PostAsJsonAsync(endpoint, new { Username = username, Password = password });
-        if (!response.IsSuccessStatusCode) return false;
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync();
+            return string.IsNullOrWhiteSpace(body) ? "Something went wrong. Please try again." : body;
+        }
 
         var auth = await response.Content.ReadFromJsonAsync<AuthResponse>();
-        if (auth is null) return false;
+        if (auth is null) return "Something went wrong. Please try again.";
 
         ApplyAuthResponse(auth);
-        return true;
+        return null;
     }
 
     private void ApplyAuthResponse(AuthResponse auth)
