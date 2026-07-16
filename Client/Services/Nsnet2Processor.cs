@@ -23,12 +23,31 @@ namespace Voiceover.Client.Services;
 // analysis frames and re-run the *whole window* through the model on every
 // new hop, only using the newest frame's output - this gives the GRU
 // layers real (if bounded, re-computed-each-time) temporal context, at the
-// cost of real added latency and repeated computation that RNNoise doesn't
+// cost of real added latency and repeated inference that RNNoise doesn't
 // have. That cost is deliberately isolated entirely inside this class (its
 // own buffers, its own history, nothing shared with the other backend) so
 // selecting NSNet2 can't affect RNNoise when that's selected instead - see
 // NoiseSuppressionProcessor's dispatch, which only ever touches one
 // backend's state per frame.
+//
+// Two CPU-cost traps specific to this "reprocess the window" design, both
+// fixed here rather than accepted as the price of the workaround:
+//
+// 1. A frame's STFT (windowing + FFT + log-power) never changes once
+//    computed - only the model re-run is inherently repeated, not the
+//    analysis feeding it. _spectrumWindow/_featureWindow cache the last
+//    WindowFrames frames so each hop computes exactly one new frame's STFT
+//    (shifting the rest down) instead of redoing all WindowFrames of them -
+//    a ~16x cut to the FFT/feature cost per hop.
+// 2. InferenceSession defaults to one thread per physical core with busy-
+//    spin waiting between calls (ONNX Runtime's default threading policy,
+//    tuned for large/batched inference) - for a model this small invoked
+//    every ~10.7ms, that mostly manifests as idle worker threads spinning,
+//    not real work: on an 8-core/16-thread thread CPU that's up to 8
+//    threads spinning almost continuously, i.e. up to ~50% total CPU, which
+//    is exactly the symptom this was fixed for. Forcing single-threaded
+//    execution (no separate thread pool spun up at all for a workload this
+//    small) removes that overhead entirely without slowing inference down.
 internal class Nsnet2Processor : IDisposable
 {
     private const int WinLen = 960; // 20ms @ 48kHz - matches this app's own frame size
@@ -59,9 +78,32 @@ internal class Nsnet2Processor : IDisposable
     private readonly float[] _outBuffer = new float[WinLen];
     private readonly Queue<float> _pendingOutput = new();
 
+    // Rolling cache of the last (up to) WindowFrames frames' spectra/log-
+    // power features, oldest-first - see the class header's cost trap #1.
+    // Always filled contiguously from index 0, so the first
+    // _framesFilled*FftBins entries of _featureWindow are exactly the
+    // model's input for the current hop, with no copy needed.
+    private readonly Complex[][] _spectrumWindow = new Complex[WindowFrames][];
+    private readonly float[] _featureWindow = new float[WindowFrames * FftBins];
+    private int _framesFilled;
+
+    // Reused across hops instead of allocated fresh each time - this runs
+    // roughly every 10.7ms for the lifetime of a voice call.
+    private readonly float[] _windowedScratch = new float[WinLen];
+    private readonly Complex[] _estimatedSpectrumScratch = new Complex[FftBins];
+
     public Nsnet2Processor(string modelPath)
     {
-        _session = new InferenceSession(modelPath);
+        // See the class header's cost trap #2 - this model's per-call
+        // workload is far too small to benefit from ONNX Runtime's default
+        // one-thread-per-physical-core pool, so force single-threaded,
+        // no-separate-thread-pool execution instead.
+        var options = new SessionOptions
+        {
+            IntraOpNumThreads = 1,
+            InterOpNumThreads = 1
+        };
+        _session = new InferenceSession(modelPath, options);
         _inputName = _session.InputMetadata.Keys.First();
         _analysisWindow = BuildPeriodicSqrtHann(WinLen);
         _synthesisWindow = BuildSynthesisWindow(_analysisWindow, Hop);
@@ -105,47 +147,53 @@ internal class Nsnet2Processor : IDisposable
 
     private void ProcessOneHop(long windowEndAbsolute)
     {
-        // How many of the WindowFrames most recent analysis frames
-        // actually have enough history behind them yet (ramps up from 1
-        // at the very start of a session to the full WindowFrames once
-        // enough audio has accumulated).
-        var framesAvailable = (int)Math.Min(WindowFrames, 1 + (windowEndAbsolute - WinLen) / Hop);
+        // windowEndAbsolute always lands exactly one hop past the previous
+        // call's (see the framesAvailable derivation this replaced -
+        // 1 + hopsProcessed - which only ever grows by exactly 1 per hop),
+        // so only the newest frame's STFT needs computing here; every
+        // older frame already sits in _spectrumWindow/_featureWindow from
+        // an earlier hop. See the class header's cost trap #1.
+        var frameStartRelative = (int)(windowEndAbsolute - WinLen - _historyStart);
+        for (var i = 0; i < WinLen; i++)
+            _windowedScratch[i] = _rawHistory[frameStartRelative + i] * _analysisWindow[i];
 
-        var frameSpectra = new Complex[framesAvailable][];
-        var features = new float[framesAvailable * FftBins];
+        var spectrum = FourierTransform.Rfft(_windowedScratch, Nfft);
 
-        for (var f = 0; f < framesAvailable; f++)
+        if (_framesFilled == WindowFrames)
         {
-            var thisFrameEnd = windowEndAbsolute - (framesAvailable - 1 - f) * Hop;
-            var frameStartRelative = (int)(thisFrameEnd - WinLen - _historyStart);
-
-            var windowed = new float[WinLen];
-            for (var i = 0; i < WinLen; i++)
-                windowed[i] = _rawHistory[frameStartRelative + i] * _analysisWindow[i];
-
-            var spectrum = FourierTransform.Rfft(windowed, Nfft);
-            frameSpectra[f] = spectrum;
-            for (var b = 0; b < FftBins; b++)
-            {
-                var power = spectrum[b].Real * spectrum[b].Real + spectrum[b].Imaginary * spectrum[b].Imaginary;
-                features[f * FftBins + b] = (float)Math.Log10(Math.Max(power, 1e-12));
-            }
+            // At capacity - shift every frame down one slot to drop the
+            // oldest, matching a FIFO of exactly WindowFrames frames.
+            Array.Copy(_spectrumWindow, 1, _spectrumWindow, 0, WindowFrames - 1);
+            Array.Copy(_featureWindow, FftBins, _featureWindow, 0, (WindowFrames - 1) * FftBins);
+        }
+        else
+        {
+            _framesFilled++;
         }
 
-        var mask = RunModel(features, framesAvailable);
+        var slot = _framesFilled - 1;
+        _spectrumWindow[slot] = spectrum;
+        for (var b = 0; b < FftBins; b++)
+        {
+            var power = spectrum[b].Real * spectrum[b].Real + spectrum[b].Imaginary * spectrum[b].Imaginary;
+            _featureWindow[slot * FftBins + b] = (float)Math.Log10(Math.Max(power, 1e-12));
+        }
+
+        var framesAvailable = _framesFilled;
+        var mask = RunModel(framesAvailable);
 
         // Only the newest frame's output is new information - the rest of
         // the window was already emitted on previous hops.
         var newestFrame = framesAvailable - 1;
         var minGain = (float)Math.Pow(10, MinGainDb / 20);
-        var estimatedSpectrum = new Complex[FftBins];
+        var newestSpectrum = _spectrumWindow[newestFrame];
         for (var b = 0; b < FftBins; b++)
         {
             var gain = Math.Clamp(mask[newestFrame * FftBins + b], minGain, 1.0f);
-            estimatedSpectrum[b] = frameSpectra[newestFrame][b] * gain;
+            _estimatedSpectrumScratch[b] = newestSpectrum[b] * gain;
         }
 
-        var timeDomain = FourierTransform.Irfft(estimatedSpectrum, Nfft);
+        var timeDomain = FourierTransform.Irfft(_estimatedSpectrumScratch, Nfft);
         // The analysis window zero-padded WinLen samples up to Nfft before
         // the FFT - only the first WinLen samples of the reconstruction
         // correspond to real windowed content.
@@ -163,9 +211,13 @@ internal class Nsnet2Processor : IDisposable
             _pendingOutput.Enqueue(_outBuffer[i]);
     }
 
-    private float[] RunModel(float[] features, int frames)
+    private float[] RunModel(int frames)
     {
-        var inputTensor = new DenseTensor<float>(features, new[] { 1, frames, FftBins });
+        // _featureWindow is always filled contiguously from index 0 (see
+        // ProcessOneHop), so the first frames*FftBins entries are exactly
+        // the current window - sliced via Memory<float> to avoid copying
+        // it into a fresh array on every hop.
+        var inputTensor = new DenseTensor<float>(new Memory<float>(_featureWindow, 0, frames * FftBins), new[] { 1, frames, FftBins });
         using var results = _session.Run(new[] { NamedOnnxValue.CreateFromTensor(_inputName, inputTensor) });
         return results.First().AsEnumerable<float>().ToArray();
     }
