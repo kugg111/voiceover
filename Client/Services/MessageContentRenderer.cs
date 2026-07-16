@@ -21,6 +21,16 @@ public static class MessageContentRenderer
         @"\*\*(?<bold>[^*]+?)\*\*|\*(?<italic>[^*]+?)\*|`(?<code>[^`]+?)`|\[(?<linktext>[^\]\r\n]+)\]\((?<linkurl>https?://[^\s)]+)\)|(?<url>https?://\S+)|(?<mention>@\w+)",
         RegexOptions.Compiled);
 
+    // Resolved once and reused rather than re-indexing Application.Current
+    // .Resources on every mention/blockquote token match - there's no theme
+    // switching in this app (see git history - the light theme option was
+    // removed entirely), so the resolved brush never goes stale.
+    private static Brush? _mentionBrush;
+    private static Brush MentionBrush => _mentionBrush ??= Application.Current?.Resources["AccentBlurple"] as Brush ?? Brushes.CornflowerBlue;
+
+    private static Brush? _mutedBrush;
+    private static Brush MutedBrush => _mutedBrush ??= Application.Current?.Resources["TextMuted"] as Brush ?? Brushes.Gray;
+
     public static List<Inline> BuildInlines(string content)
     {
         var inlines = new List<Inline>();
@@ -57,7 +67,7 @@ public static class MessageContentRenderer
     {
         var span = new Span
         {
-            Foreground = Application.Current?.Resources["TextMuted"] as Brush ?? Brushes.Gray,
+            Foreground = MutedBrush,
             FontStyle = FontStyles.Italic
         };
         span.Inlines.Add(new Run("▌ "));
@@ -89,7 +99,7 @@ public static class MessageContentRenderer
             {
                 result.Add(new Run(match.Groups["mention"].Value)
                 {
-                    Foreground = (Brush)Application.Current.Resources["AccentBlurple"],
+                    Foreground = MentionBrush,
                     FontWeight = FontWeights.Bold
                 });
             }
