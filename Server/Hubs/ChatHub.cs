@@ -532,12 +532,11 @@ public class ChatHub : Hub
     // Away is the only state the client actively reports, when its own
     // idle detection crosses the threshold (see IdleDetector client-side). ---
 
-    // Client calls this with "Online"/"Away" (idle detection) or "InCall"
-    // (entering/leaving a voice channel or private call) - Offline is never
-    // accepted from here, it can only happen via disconnection.
+    // Client calls this with "Online"/"Away" (idle detection) - Offline is
+    // never accepted from here, it can only happen via disconnection.
     public async Task SetPresenceState(string state)
     {
-        if (state is not ("Online" or "Away" or "InCall")) return;
+        if (state is not ("Online" or "Away")) return;
 
         // The client always confirms "Online" once right after connecting
         // (closes a race with this hub's own OnConnectedAsync - see

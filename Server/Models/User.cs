@@ -9,7 +9,7 @@ public class User
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     // Free-text custom status ("brb", "working", etc.) - unlike
-    // PresenceState (Online/Away/InCall, entirely in-memory - see
+    // PresenceState (Online/Away, entirely in-memory - see
     // PresenceService) this is account data the user sets deliberately, so
     // it's persisted and survives reconnects/logins like AvatarUrl does.
     public string? CustomStatus { get; set; }

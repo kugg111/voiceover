@@ -485,18 +485,12 @@ public class FriendListItem : INotifyPropertyChanged
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(OnlineDotVisibility)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AwayDotVisibility)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(OfflineDotVisibility)));
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(InCallDotVisibility)));
         }
     }
 
-    // "InCall" covers both server voice channels and private calls - either
-    // way, the server only ever reports one presence string per user (see
-    // PresenceService), so friends see the same "busy" signal regardless of
-    // which kind of voice you're actually in.
     public Visibility OnlineDotVisibility => PresenceState == "Online" ? Visibility.Visible : Visibility.Collapsed;
     public Visibility AwayDotVisibility => PresenceState == "Away" ? Visibility.Visible : Visibility.Collapsed;
     public Visibility OfflineDotVisibility => PresenceState == "Offline" ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility InCallDotVisibility => PresenceState == "InCall" ? Visibility.Visible : Visibility.Collapsed;
 
     private string? _customStatus;
     public string? CustomStatus
@@ -574,14 +568,12 @@ public class MemberListItem : INotifyPropertyChanged
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(OnlineDotVisibility)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AwayDotVisibility)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(OfflineDotVisibility)));
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(InCallDotVisibility)));
         }
     }
 
     public Visibility OnlineDotVisibility => PresenceState == "Online" ? Visibility.Visible : Visibility.Collapsed;
     public Visibility AwayDotVisibility => PresenceState == "Away" ? Visibility.Visible : Visibility.Collapsed;
     public Visibility OfflineDotVisibility => PresenceState == "Offline" ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility InCallDotVisibility => PresenceState == "InCall" ? Visibility.Visible : Visibility.Collapsed;
 
     private string? _customStatus;
     public string? CustomStatus
@@ -1082,23 +1074,13 @@ public partial class MainWindow : FluentWindow
     {
         await _hub.ConnectAsync(App.HubUrl, _api.GetFreshAccessTokenAsync);
         _voice = new VoiceService(_hub, _api.CurrentUserId!.Value);
-        // PeerConnected/PeerDisconnected fire for the local user's own Room
-        // regardless of whether it came from a server voice channel or a
-        // private call, so this is the one place that needs to know about
-        // either to keep friends' "in a call" dot accurate - restoring
-        // Away vs Online on disconnect from IdleDetector's own idle check
-        // rather than hardcoding Online, so leaving a call while genuinely
-        // away doesn't misreport you as active.
         _voice.PeerConnected += userId => Dispatcher.Invoke(() =>
         {
             ConnectionStatusText.Text = "Voice connected";
-            _ = SetPresenceStateSafeAsync("InCall");
         });
         _voice.PeerDisconnected += userId => Dispatcher.Invoke(() =>
         {
             ConnectionStatusText.Text = "";
-            var restored = IdleDetector.GetIdleTime() >= IdleDetector.AwayThreshold ? "Away" : "Online";
-            _ = SetPresenceStateSafeAsync(restored);
         });
         _voice.LocalSpeakingChanged += isSpeaking => _ = OnLocalSpeakingChangedAsync(isSpeaking);
         _voice.RemoteScreenShareStarted += (userId, playback) => Dispatcher.Invoke(() => OnRemoteScreenShareStarted(userId, playback));

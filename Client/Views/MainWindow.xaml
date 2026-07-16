@@ -448,8 +448,6 @@
                                                          Fill="#F0B232" Visibility="{Binding AwayDotVisibility}" ToolTip="Away"/>
                                                 <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
                                                          Fill="#80848E" Visibility="{Binding OfflineDotVisibility}" ToolTip="Offline"/>
-                                                <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
-                                                         Fill="#9B59B6" Visibility="{Binding InCallDotVisibility}" ToolTip="In a call"/>
                                             </StackPanel>
                                         </Button>
                                         <Button Grid.Column="1" Tag="{Binding UserId}" Click="CallFriendButton_Click"
@@ -864,8 +862,6 @@
                                                      Fill="#F0B232" Visibility="{Binding AwayDotVisibility}" ToolTip="Away"/>
                                             <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
                                                      Fill="#80848E" Visibility="{Binding OfflineDotVisibility}" ToolTip="Offline"/>
-                                            <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
-                                                     Fill="#9B59B6" Visibility="{Binding InCallDotVisibility}" ToolTip="In a call"/>
                                         </StackPanel>
                                         <TextBlock Text="{Binding Role}" Foreground="{StaticResource TextMuted}" FontSize="11"/>
                                         <TextBlock Text="{Binding CustomStatus}" Foreground="{StaticResource TextMuted}" FontSize="11"

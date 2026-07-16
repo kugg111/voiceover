@@ -4,9 +4,9 @@ namespace Voiceover.Server.Services;
 
 // Caches the "who should hear about this user's presence changes" answer
 // (accepted friend ids + joined server ids) so ChatHub.BroadcastPresenceChangeAsync
-// doesn't run two DB queries on every single Online/Away/InCall transition -
-// at real usage volumes (idle detection flips on lock/unlock, focus changes,
-// voice join/leave) this was the hottest per-transition cost in the hub.
+// doesn't run two DB queries on every single Online/Away transition - at
+// real usage volumes (idle detection flips on lock/unlock, focus changes)
+// this was the hottest per-transition cost in the hub.
 //
 // Time-based rather than write-invalidated like UserAvatarCache: friend/
 // membership changes happen at several different call sites (accept/remove

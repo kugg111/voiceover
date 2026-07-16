@@ -39,7 +39,7 @@ download the Windows installer or a portable ZIP from the landing page.
 - **Noise suppression**: two selectable engines — RNNoise and
   [NSNet2](https://github.com/microsoft/DNS-Challenge) — real denoisers, not
   a hand-rolled volume gate
-- **Presence**: Online / Away / In a Call / Offline status, Away triggered by
+- **Presence**: Online / Away / Offline status, Away triggered by
   real system idle detection; custom status text visible to friends and
   server members
 - **Avatars & server icons**, toast/sound notifications gated on window
