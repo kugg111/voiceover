@@ -55,14 +55,22 @@ public class DirectMessagesController : ControllerBase
         // same. Computing other_user_id once in an inner subquery and
         // referencing that plain column in DISTINCT ON/ORDER BY avoids the
         // duplication entirely.
+        //
+        // Every SELECT here uses "*" rather than naming DirectMessage's
+        // columns explicitly - EF Core's FromSql only requires every mapped
+        // column to be *present* in the result set, extra columns (like
+        // other_user_id) are ignored. Naming columns by hand broke this
+        // query the moment ReplyToMessageId was added to the entity and
+        // nobody updated the SQL to match; "*" makes that whole class of
+        // bug impossible going forward - a newly added column just shows
+        // up automatically.
         var latestMessages = await _db.DirectMessages
             .FromSqlInterpolated($@"
-                SELECT ""Id"", ""Content"", ""SenderId"", ""RecipientId"", ""SentAt"", ""EditedAt"", ""ReadAt"", ""ReplyToMessageId""
+                SELECT *
                 FROM (
-                    SELECT DISTINCT ON (other_user_id)
-                        ""Id"", ""Content"", ""SenderId"", ""RecipientId"", ""SentAt"", ""EditedAt"", ""ReadAt"", ""ReplyToMessageId"", other_user_id
+                    SELECT DISTINCT ON (other_user_id) *
                     FROM (
-                        SELECT ""Id"", ""Content"", ""SenderId"", ""RecipientId"", ""SentAt"", ""EditedAt"", ""ReadAt"", ""ReplyToMessageId"",
+                        SELECT *,
                             CASE WHEN ""SenderId"" = {currentUserId} THEN ""RecipientId"" ELSE ""SenderId"" END AS other_user_id
                         FROM ""DirectMessages""
                         WHERE ""SenderId"" = {currentUserId} OR ""RecipientId"" = {currentUserId}
