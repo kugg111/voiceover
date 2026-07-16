@@ -5,7 +5,6 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using NAudio.Wave;
-using SoundFlow.Extensions.WebRtc.Apm;
 using Voiceover.Client.Services;
 
 namespace Voiceover.Client.Views;
@@ -46,42 +45,16 @@ public partial class VoiceSettingsPanel : UserControl
         NoiseSuppressionBackendPanel.Visibility = _voice.NoiseSuppressionEnabled ? Visibility.Visible : Visibility.Collapsed;
         switch (_voice.NoiseSuppressionBackend)
         {
-            case NoiseSuppressionBackend.RNNoise:
-                RNNoiseRadio.IsChecked = true;
-                break;
-            case NoiseSuppressionBackend.DeepFilterNet:
-                DeepFilterNetRadio.IsChecked = true;
+            case NoiseSuppressionBackend.Nsnet2:
+                Nsnet2Radio.IsChecked = true;
                 break;
             default:
-                WebRtcApmRadio.IsChecked = true;
+                RNNoiseRadio.IsChecked = true;
                 break;
         }
-        DeepFilterOptionsPanel.Visibility = _voice.NoiseSuppressionBackend == NoiseSuppressionBackend.DeepFilterNet
-            ? Visibility.Visible : Visibility.Collapsed;
-        WebRtcOptionsPanel.Visibility = _voice.NoiseSuppressionBackend == NoiseSuppressionBackend.WebRtcApm
-            ? Visibility.Visible : Visibility.Collapsed;
-        AttenuationLimitSlider.Value = _voice.DeepFilterAttenuationLimit;
-        UpdateAttenuationLimitDisplay();
-        PostFilterBetaSlider.Value = _voice.DeepFilterPostFilterBeta;
-        UpdatePostFilterBetaDisplay();
         SuppressionMixSlider.Value = _voice.SuppressionMix * 100;
         UpdateSuppressionMixDisplay();
         UpdateSuppressionMixAvailability();
-        switch (_voice.WebRtcNoiseSuppressionLevel)
-        {
-            case NoiseSuppressionLevel.Low:
-                WebRtcLowRadio.IsChecked = true;
-                break;
-            case NoiseSuppressionLevel.Moderate:
-                WebRtcModerateRadio.IsChecked = true;
-                break;
-            case NoiseSuppressionLevel.VeryHigh:
-                WebRtcVeryHighRadio.IsChecked = true;
-                break;
-            default:
-                WebRtcHighRadio.IsChecked = true;
-                break;
-        }
 
         HotkeyRecordButton.Content = FormatTriggerName();
 
@@ -151,51 +124,14 @@ public partial class VoiceSettingsPanel : UserControl
     private void NoiseSuppressionBackendRadio_Changed(object sender, RoutedEventArgs e)
     {
         if (!_loaded) return;
-        _voice!.NoiseSuppressionBackend = sender switch
-        {
-            _ when sender == RNNoiseRadio => NoiseSuppressionBackend.RNNoise,
-            _ when sender == DeepFilterNetRadio => NoiseSuppressionBackend.DeepFilterNet,
-            _ => NoiseSuppressionBackend.WebRtcApm
-        };
-        DeepFilterOptionsPanel.Visibility = _voice.NoiseSuppressionBackend == NoiseSuppressionBackend.DeepFilterNet
-            ? Visibility.Visible : Visibility.Collapsed;
-        WebRtcOptionsPanel.Visibility = _voice.NoiseSuppressionBackend == NoiseSuppressionBackend.WebRtcApm
-            ? Visibility.Visible : Visibility.Collapsed;
+        _voice!.NoiseSuppressionBackend = sender == Nsnet2Radio
+            ? NoiseSuppressionBackend.Nsnet2
+            : NoiseSuppressionBackend.RNNoise;
         UpdateSuppressionMixAvailability();
     }
 
-    private void WebRtcLevelRadio_Changed(object sender, RoutedEventArgs e)
-    {
-        if (!_loaded) return;
-        _voice!.WebRtcNoiseSuppressionLevel = sender switch
-        {
-            _ when sender == WebRtcLowRadio => NoiseSuppressionLevel.Low,
-            _ when sender == WebRtcModerateRadio => NoiseSuppressionLevel.Moderate,
-            _ when sender == WebRtcVeryHighRadio => NoiseSuppressionLevel.VeryHigh,
-            _ => NoiseSuppressionLevel.High
-        };
-    }
-
-    private void AttenuationLimitSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
-    {
-        UpdateAttenuationLimitDisplay();
-        if (!_loaded) return;
-        _voice!.DeepFilterAttenuationLimit = (float)e.NewValue;
-    }
-
-    private void PostFilterBetaSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
-    {
-        UpdatePostFilterBetaDisplay();
-        if (!_loaded) return;
-        _voice!.DeepFilterPostFilterBeta = (float)e.NewValue;
-    }
-
-    private void UpdatePostFilterBetaDisplay() =>
-        PostFilterBetaDisplay.Text = $"{PostFilterBetaSlider.Value:0.000}";
-
-    // Stored/displayed as 0-100% in the UI, same convention as
-    // AttenuationLimit's dB slider - VoiceService.SuppressionMix itself is
-    // 0-1 (a plain multiplier used directly in the blend math).
+    // Stored/displayed as 0-100% in the UI - VoiceService.SuppressionMix
+    // itself is 0-1 (a plain multiplier used directly in the blend math).
     private void SuppressionMixSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
         UpdateSuppressionMixDisplay();
@@ -206,22 +142,21 @@ public partial class VoiceSettingsPanel : UserControl
     private void UpdateSuppressionMixDisplay() =>
         SuppressionMixDisplay.Text = $"{SuppressionMixSlider.Value:0}%";
 
-    // DeepFilterNet's filtering has real algorithmic delay (its "deep
-    // filtering" stage uses surrounding context to compute coefficients),
-    // unlike RNNoise/WebRTC APM which are built for near-zero added latency
-    // - blending its output against the undelayed raw signal sums a signal
+    // NSNet2's own overlap-add reconstruction, plus the inherent lag of
+    // re-processing a sliding window, gives it real algorithmic delay -
+    // blending its output against the undelayed raw signal sums a signal
     // with a delayed copy of itself (comb filtering, heard as an echo/
     // "doubling" artifact). NoiseSuppressionProcessor.ProcessFrame enforces
     // this same rule server-side (always full strength for this backend);
     // this just keeps the slider from looking like it does something it
-    // doesn't for DeepFilterNet.
+    // doesn't.
     private void UpdateSuppressionMixAvailability()
     {
-        bool supported = _voice!.NoiseSuppressionBackend != NoiseSuppressionBackend.DeepFilterNet;
+        bool supported = _voice!.NoiseSuppressionBackend != NoiseSuppressionBackend.Nsnet2;
         SuppressionMixSlider.IsEnabled = supported;
         SuppressionMixHelpText.Text = supported
             ? "Blends the suppressed signal with your raw mic - applies no matter which engine is selected above. 100% is fully processed; lower this if the engine is eating quiet parts of your voice."
-            : "Not available for DeepFilterNet - its filtering has real processing delay, so blending it with your undelayed raw mic causes an echo/doubling artifact. DeepFilterNet always runs at full strength when enabled; use Attenuation Limit and Post Filter Beta above to tune it instead.";
+            : "Not available for NSNet2 - its filtering has real processing delay, so blending with your undelayed raw mic causes an echo/doubling artifact. NSNet2 always runs at full strength when enabled.";
     }
 
     // Records ~3s from the selected input device, runs it through a
@@ -257,10 +192,7 @@ public partial class VoiceSettingsPanel : UserControl
             {
                 Enabled = _voice.NoiseSuppressionEnabled,
                 Backend = _voice.NoiseSuppressionBackend,
-                SuppressionMix = _voice.SuppressionMix,
-                DeepFilterAttenuationLimit = _voice.DeepFilterAttenuationLimit,
-                DeepFilterPostFilterBeta = _voice.DeepFilterPostFilterBeta,
-                WebRtcNoiseSuppressionLevel = _voice.WebRtcNoiseSuppressionLevel
+                SuppressionMix = _voice.SuppressionMix
             };
 
             // Same 20ms/960-sample frame size MicCaptureSource's live
@@ -280,9 +212,8 @@ public partial class VoiceSettingsPanel : UserControl
 
             TestMicResultText.Text = processor.Backend switch
             {
-                NoiseSuppressionBackend.RNNoise => $"RNNoise: ~{processor.LastRNNoiseMs:0.0}ms/frame (20ms budget)",
-                NoiseSuppressionBackend.DeepFilterNet => $"DeepFilterNet: ~{processor.LastDeepFilterMs:0.0}ms/frame (20ms budget)",
-                _ => $"WebRTC APM: ~{processor.LastWebRtcApmMs:0.0}ms/frame (20ms budget)"
+                NoiseSuppressionBackend.Nsnet2 => $"NSNet2: ~{processor.LastNsnet2Ms:0.0}ms/frame (20ms budget)",
+                _ => $"RNNoise: ~{processor.LastRNNoiseMs:0.0}ms/frame (20ms budget)"
             };
 
             TestMicButton.Content = "Playing back...";
@@ -348,9 +279,6 @@ public partial class VoiceSettingsPanel : UserControl
 
         return tcs.Task;
     }
-
-    private void UpdateAttenuationLimitDisplay() =>
-        AttenuationLimitDisplay.Text = $"{AttenuationLimitSlider.Value:0} dB";
 
     private void RingTimeoutSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {

@@ -1,22 +1,19 @@
 using System.Diagnostics;
-using SoundFlow.Extensions.WebRtc.Apm;
+using System.IO;
 using RNNoise.NET;
 
 namespace Voiceover.Client.Services;
 
-// Owns the three noise-suppression native engines (WebRTC APM, RNNoise,
-// DeepFilterNet) and the per-frame processing pipeline (suppression -> wet/
-// dry mix -> gain). Extracted out of MicCaptureSource so there's exactly one
-// implementation of "what happens to a captured frame" shared between the
-// live capture path and the Settings "Test Mic" preview (see
-// VoiceSettingsPanel), instead of two that could silently drift apart.
+// Owns the two noise-suppression engines (RNNoise, NSNet2) and the
+// per-frame processing pipeline (suppression -> wet/dry mix -> gain).
+// Extracted out of MicCaptureSource so there's exactly one implementation
+// of "what happens to a captured frame" shared between the live capture
+// path and the Settings "Test Mic" preview (see VoiceSettingsPanel),
+// instead of two that could silently drift apart.
 internal class NoiseSuppressionProcessor : IDisposable
 {
-    private const int SampleRate = 48000;
-    private const int Channels = 1;
-
     public bool Enabled { get; set; } = true;
-    public NoiseSuppressionBackend Backend { get; set; } = NoiseSuppressionBackend.WebRtcApm;
+    public NoiseSuppressionBackend Backend { get; set; } = NoiseSuppressionBackend.RNNoise;
 
     // Boosts quiet mics ("only picks up from really close") - applied after
     // suppression/mix, same tanh soft-knee limiter as before this existed.
@@ -26,136 +23,77 @@ internal class NoiseSuppressionProcessor : IDisposable
     // processed (matches every backend's behavior before this setting
     // existed), lower values back off an over-suppressing backend (eating
     // quiet speech, "musical noise" artifacts) without switching backends
-    // entirely - the one setting that applies uniformly to all three engines.
+    // entirely.
     public float SuppressionMix { get; set; } = 1f;
-
-    public float DeepFilterAttenuationLimit
-    {
-        get => _deepFilter?.AttenuationLimit ?? LadspaHost.AttenuationLimitMax;
-        set { if (_deepFilter is not null) _deepFilter.AttenuationLimit = value; }
-    }
-
-    public float DeepFilterPostFilterBeta
-    {
-        get => _deepFilter?.PostFilterBeta ?? LadspaHost.PostFilterBetaMin;
-        set { if (_deepFilter is not null) _deepFilter.PostFilterBeta = value; }
-    }
-
-    private NoiseSuppressionLevel _webRtcNoiseSuppressionLevel = NoiseSuppressionLevel.High;
-    public NoiseSuppressionLevel WebRtcNoiseSuppressionLevel
-    {
-        get => _webRtcNoiseSuppressionLevel;
-        set
-        {
-            _webRtcNoiseSuppressionLevel = value;
-            if (_apm is null || _apmConfig is null) return;
-            _apmConfig.SetNoiseSuppression(true, value);
-            _apm.ApplyConfig(_apmConfig);
-        }
-    }
 
     // Rolling (exponential moving average) ms/frame per backend - the
     // Test Mic preview surfaces these so users see a real, per-machine
-    // number instead of the old qualitative-only "heavier on CPU" copy.
-    // Only the currently-selected backend's number moves during live
-    // capture; all three can move during a Test Mic run if the user
-    // switches backends and re-tests.
-    public double LastWebRtcApmMs { get; private set; }
+    // number instead of a qualitative-only "heavier on CPU" copy. Only the
+    // currently-selected backend's number moves during live capture; both
+    // can move during a Test Mic run if the user switches backends and
+    // re-tests.
     public double LastRNNoiseMs { get; private set; }
-    public double LastDeepFilterMs { get; private set; }
+    public double LastNsnet2Ms { get; private set; }
 
-    // --- WebRTC noise suppression (Google's real Audio Processing Module,
-    // via SoundFlow's standalone wrapper - no SoundFlow capture/playback
-    // engine involved) ---
-    private readonly AudioProcessingModule? _apm;
-    private readonly ApmConfig? _apmConfig;
-    private const int ApmFrameSamples = 480;
-    private readonly float[] _apmInput = new float[ApmFrameSamples];
-    private readonly float[] _apmOutput = new float[ApmFrameSamples];
-    private readonly float[][] _apmInputChannels;
-    private readonly float[][] _apmOutputChannels;
-    private static readonly StreamConfig ApmStreamConfig = new(SampleRate, Channels);
-
-    // --- RNNoise (lightweight RNN denoiser, selectable alternative to the
-    // APM above) ---
+    // --- RNNoise (lightweight RNN denoiser) ---
     private readonly Denoiser? _rnnoise;
 
-    // --- DeepFilterNet3 (deep-learning denoiser, selectable alternative to
-    // the two above, driven through LadspaHost - see that class) ---
-    private readonly LadspaHost? _deepFilter;
-    private readonly float[] _deepFilterBuffer = new float[LadspaHost.FrameSamples];
+    // --- NSNet2 (ONNX-based denoiser - see its own header for why it's
+    // meaningfully different in cost/architecture from RNNoise) ---
+    private readonly Nsnet2Processor? _nsnet2;
 
     // Scratch buffers reused across calls (grown on demand) rather than
     // allocated per frame - this runs ~50 times/sec on the live capture
     // path, so a per-frame allocation here would add real GC pressure.
     private short[] _mixOriginalScratch = Array.Empty<short>();
     private float[] _rnnoiseScratch = Array.Empty<float>();
+    private float[] _nsnet2Scratch = Array.Empty<float>();
 
     private readonly Stopwatch _stopwatch = new();
 
     public NoiseSuppressionProcessor()
     {
-        _apmInputChannels = new[] { _apmInput };
-        _apmOutputChannels = new[] { _apmOutput };
-
-        _apm = new AudioProcessingModule();
-        _apm.Initialize();
-        _apmConfig = new ApmConfig();
-        _apmConfig.SetNoiseSuppression(true, _webRtcNoiseSuppressionLevel);
-        _apmConfig.SetHighPassFilter(true); // cuts low-frequency rumble (desk thumps, mic handling) below speech range
-        _apm.ApplyConfig(_apmConfig);
-
-        // Wrapped in try/catch unlike the APM above - both are newer, less-
-        // proven native dependencies (a NuGet package still on 0.x, and a
-        // hand-rolled LADSPA host against a third-party plugin DLL), so a
-        // failure to load either (missing file, wrong arch, AV quarantine)
-        // must not break voice capture entirely for people who never even
-        // select them. The corresponding Apply* method no-ops if its engine
-        // stayed null.
+        // Wrapped in try/catch - both are newer, less-proven native
+        // dependencies (a NuGet package still on 0.x, and a from-scratch
+        // ONNX inference pipeline), so a failure to load either (missing
+        // file, wrong arch, AV quarantine) must not break voice capture
+        // entirely for people who never even select them. The
+        // corresponding Apply* method no-ops if its engine stayed null.
         try { _rnnoise = new Denoiser(); }
         catch { _rnnoise = null; }
 
-        try { _deepFilter = new LadspaHost(); }
-        catch { _deepFilter = null; }
+        try
+        {
+            _nsnet2 = new Nsnet2Processor(Path.Combine(AppContext.BaseDirectory, "nsnet2-20ms-48k-baseline.onnx"));
+        }
+        catch { _nsnet2 = null; }
     }
 
     // Processes exactly one 20ms/960-sample frame in place - gain first,
-    // then noise suppression, then the wet/dry mix blend. Gain used to run
-    // last, on the theory that boosting first would distort the noise
-    // floor the suppressors are calibrated against - but ApplyGain's tanh
-    // soft-knee only meaningfully compresses (and so only meaningfully
-    // distorts spectral shape) values approaching full scale, i.e. loud
-    // speech peaks; for anything as quiet as a noise floor (fan hum, mic
-    // wind) it's effectively linear (tanh(x) ~= x for small x), so this
-    // doesn't reintroduce that problem. What running gain last did cause:
-    // every backend leaves *some* residual noise behind (no denoiser
-    // reaches true zero), and boosting after suppression amplifies that
-    // leftover right along with the voice - worse the higher Mic Gain is
-    // set, and identical across backends since it's this shared step, not
-    // any one engine, causing it. Gain-before-denoise is also the more
-    // standard signal-chain order (level the input, then process it,
-    // rather than processing a too-quiet signal and boosting the leftovers
-    // afterward). Callers (MicCaptureSource's live capture loop, and the
-    // Test Mic preview) both slice their input into this same frame size so
-    // preview and live behavior stay identical.
+    // then noise suppression, then the wet/dry mix blend. Gain runs first
+    // rather than last: no denoiser fully eliminates its target noise, and
+    // boosting after suppression would amplify whatever residual (fan hum,
+    // mic wind) each backend leaves behind right along with the voice -
+    // worse the higher Mic Gain is set. Gain-before-denoise is also the
+    // more standard signal-chain order (level the input, then process it).
+    // Callers (MicCaptureSource's live capture loop, and the Test Mic
+    // preview) both slice their input into this same frame size so preview
+    // and live behavior stay identical.
     public void ProcessFrame(short[] pcm)
     {
         ApplyGain(pcm, MicGain);
 
         if (Enabled)
         {
-            // DeepFilterNet's "deep filtering" stage computes filter
-            // coefficients from surrounding context and applies them with
-            // real algorithmic delay - unlike RNNoise/WebRTC APM, which are
-            // built for near-zero added latency in live calls. Blending its
-            // output sample-for-sample against the (undelayed) raw signal
-            // sums a signal with a delayed copy of itself - comb filtering,
-            // which is exactly what "echo"/"doubling" is. Without knowing
-            // the plugin's exact delay in samples to compensate for it,
-            // DeepFilterNet always runs at full strength when enabled - the
-            // UI (VoiceSettingsPanel) disables the Suppression Mix slider
-            // for this backend to match.
-            bool blending = SuppressionMix < 1f && Backend != NoiseSuppressionBackend.DeepFilterNet;
+            // NSNet2's own overlap-add reconstruction, plus the inherent
+            // lag of its sliding-window approach, gives it real
+            // algorithmic delay - blending its output sample-for-sample
+            // against the (undelayed) raw signal sums a signal with a
+            // delayed copy of itself, comb filtering ("echo"/"doubling").
+            // NSNet2 always runs at full strength when enabled - the UI
+            // (VoiceSettingsPanel) disables the Suppression Mix slider for
+            // this backend to match.
+            bool blending = SuppressionMix < 1f && Backend != NoiseSuppressionBackend.Nsnet2;
             if (blending)
             {
                 if (_mixOriginalScratch.Length < pcm.Length) _mixOriginalScratch = new short[pcm.Length];
@@ -164,14 +102,11 @@ internal class NoiseSuppressionProcessor : IDisposable
 
             switch (Backend)
             {
-                case NoiseSuppressionBackend.RNNoise:
-                    ApplyRNNoise(pcm);
-                    break;
-                case NoiseSuppressionBackend.DeepFilterNet:
-                    ApplyDeepFilterNet(pcm);
+                case NoiseSuppressionBackend.Nsnet2:
+                    ApplyNsnet2(pcm);
                     break;
                 default:
-                    ApplyWebRtcApm(pcm);
+                    ApplyRNNoise(pcm);
                     break;
             }
 
@@ -199,25 +134,6 @@ internal class NoiseSuppressionProcessor : IDisposable
         }
     }
 
-    private void ApplyWebRtcApm(short[] pcm)
-    {
-        if (_apm is null) return;
-
-        _stopwatch.Restart();
-        for (int offset = 0; offset < pcm.Length; offset += ApmFrameSamples)
-        {
-            for (int i = 0; i < ApmFrameSamples; i++)
-                _apmInput[i] = pcm[offset + i] / (float)short.MaxValue;
-
-            _apm.ProcessStream(_apmInputChannels, ApmStreamConfig, ApmStreamConfig, _apmOutputChannels);
-
-            for (int i = 0; i < ApmFrameSamples; i++)
-                pcm[offset + i] = (short)Math.Clamp(_apmOutput[i] * short.MaxValue, short.MinValue, short.MaxValue);
-        }
-        _stopwatch.Stop();
-        LastWebRtcApmMs = Ema(LastWebRtcApmMs, _stopwatch.Elapsed.TotalMilliseconds);
-    }
-
     private void ApplyRNNoise(short[] pcm)
     {
         if (_rnnoise is null) return;
@@ -235,23 +151,21 @@ internal class NoiseSuppressionProcessor : IDisposable
             pcm[i] = (short)Math.Clamp(_rnnoiseScratch[i] * short.MaxValue, short.MinValue, short.MaxValue);
     }
 
-    private void ApplyDeepFilterNet(short[] pcm)
+    private void ApplyNsnet2(short[] pcm)
     {
-        if (_deepFilter is null) return;
+        if (_nsnet2 is null) return;
+
+        if (_nsnet2Scratch.Length < pcm.Length) _nsnet2Scratch = new float[pcm.Length];
+        for (int i = 0; i < pcm.Length; i++)
+            _nsnet2Scratch[i] = pcm[i] / (float)short.MaxValue;
 
         _stopwatch.Restart();
-        for (int offset = 0; offset < pcm.Length; offset += LadspaHost.FrameSamples)
-        {
-            for (int i = 0; i < LadspaHost.FrameSamples; i++)
-                _deepFilterBuffer[i] = pcm[offset + i] / (float)short.MaxValue;
-
-            _deepFilter.Denoise(_deepFilterBuffer);
-
-            for (int i = 0; i < LadspaHost.FrameSamples; i++)
-                pcm[offset + i] = (short)Math.Clamp(_deepFilterBuffer[i] * short.MaxValue, short.MinValue, short.MaxValue);
-        }
+        _nsnet2.Denoise(_nsnet2Scratch);
         _stopwatch.Stop();
-        LastDeepFilterMs = Ema(LastDeepFilterMs, _stopwatch.Elapsed.TotalMilliseconds);
+        LastNsnet2Ms = Ema(LastNsnet2Ms, _stopwatch.Elapsed.TotalMilliseconds);
+
+        for (int i = 0; i < pcm.Length; i++)
+            pcm[i] = (short)Math.Clamp(_nsnet2Scratch[i] * short.MaxValue, short.MinValue, short.MaxValue);
     }
 
     private static double Ema(double previous, double sample) =>
@@ -259,9 +173,7 @@ internal class NoiseSuppressionProcessor : IDisposable
 
     public void Dispose()
     {
-        _apmConfig?.Dispose();
-        _apm?.Dispose();
         _rnnoise?.Dispose();
-        _deepFilter?.Dispose();
+        _nsnet2?.Dispose();
     }
 }

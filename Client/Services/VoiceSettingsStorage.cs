@@ -2,7 +2,6 @@ using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Windows.Input;
-using SoundFlow.Extensions.WebRtc.Apm;
 
 namespace Voiceover.Client.Services;
 
@@ -13,11 +12,8 @@ public record SavedVoiceSettings(
     VoiceInputMode InputMode,
     Key? PushToTalkKey,
     MouseButton? PushToTalkMouseButton = null,
-    NoiseSuppressionBackend NoiseSuppressionBackend = NoiseSuppressionBackend.WebRtcApm,
-    float DeepFilterAttenuationLimit = LadspaHost.AttenuationLimitMax,
+    NoiseSuppressionBackend NoiseSuppressionBackend = NoiseSuppressionBackend.RNNoise,
     int RingTimeoutSeconds = 40,
-    NoiseSuppressionLevel WebRtcNoiseSuppressionLevel = NoiseSuppressionLevel.High,
-    float DeepFilterPostFilterBeta = LadspaHost.PostFilterBetaMin,
     float SuppressionMix = 1f);
 
 // Persists voice preferences (devices, noise suppression, input mode, PTT/
@@ -33,8 +29,28 @@ public static class VoiceSettingsStorage
 
     private static readonly JsonSerializerOptions Options = new()
     {
-        Converters = { new JsonStringEnumConverter() }
+        // NoiseSuppressionBackendConverter must come first - System.Text.Json
+        // picks the first registered converter whose CanConvert matches, so
+        // this takes priority over the generic JsonStringEnumConverter below
+        // for this one enum type specifically.
+        Converters = { new NoiseSuppressionBackendConverter(), new JsonStringEnumConverter() }
     };
+
+    // A saved file can name a backend from an older client version that no
+    // longer exists (e.g. "WebRtcApm"/"DeepFilterNet"/"Dtln", removed after
+    // being replaced by RNNoise/NSNet2) - the generic enum-by-name converter
+    // would throw on that, which the try/catch below turns into "reset every
+    // saved setting, not just the backend". Falling back to the default
+    // backend here instead means the rest of the file (devices, hotkey,
+    // ring timeout, etc.) still loads normally.
+    private sealed class NoiseSuppressionBackendConverter : JsonConverter<NoiseSuppressionBackend>
+    {
+        public override NoiseSuppressionBackend Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+            Enum.TryParse<NoiseSuppressionBackend>(reader.GetString(), out var value) ? value : NoiseSuppressionBackend.RNNoise;
+
+        public override void Write(Utf8JsonWriter writer, NoiseSuppressionBackend value, JsonSerializerOptions options) =>
+            writer.WriteStringValue(value.ToString());
+    }
 
     public static void Save(SavedVoiceSettings settings)
     {

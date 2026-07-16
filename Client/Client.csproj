@@ -13,7 +13,7 @@
          version.json to detect an available update. Must move together with
          Voiceover.iss's MyAppVersion and version.json on every release, see
          REDEPLOY.txt. -->
-    <Version>1.0.15</Version>
+    <Version>1.0.16</Version>
   </PropertyGroup>
 
   <ItemGroup>
@@ -37,7 +37,18 @@
     <Resource Include="Assets\Sounds\mute.wav" />
     <Resource Include="Assets\Sounds\unmute.wav" />
     <Resource Include="Assets\Sounds\incoming-call.wav" />
-    <None Include="native\deep_filter_ladspa.dll" Link="deep_filter_ladspa.dll" CopyToOutputDirectory="PreserveNewest" />
+    <!-- NSNet2 - an alternative noise-suppression engine, selectable in
+         Voice Settings alongside RNNoise. Microsoft's ICASSP 2021 DNS
+         Challenge baseline, 48kHz variant (matches this app's sample rate
+         natively). The model itself is "other content" under this repo's
+         CC-BY 4.0 license (code is separately MIT) - see
+         Client/Services/Nsnet2Processor.cs's own header for the attribution
+         this requires and why it needs its own sliding-window buffering
+         (the published model has no externally-threaded state, unlike
+         RNNoise). Vendored from
+         https://github.com/microsoft/DNS-Challenge/tree/nsnset_48khz
+         /NSNet2-baseline/nsnet2-20ms-48k-baseline.onnx -->
+    <None Include="native\nsnet2-20ms-48k-baseline.onnx" Link="nsnet2-20ms-48k-baseline.onnx" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
@@ -51,6 +62,14 @@
          bindings wrap its real Rust WebRTC core, not a from-scratch
          reimplementation. -->
     <PackageReference Include="Livekit.Rtc.Dotnet" Version="0.1.3" />
+    <!-- Runs the NSNet2 ONNX model below (see Nsnet2Processor.cs) -
+         official Microsoft-maintained .NET bindings for ONNX Runtime. -->
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.27.1" />
+    <!-- FFT/IFFT for NSNet2's spectral-domain processing (see
+         FourierTransform.cs) - a correctness-tested, widely-used library
+         rather than a hand-rolled FFT, since subtly wrong DSP math here
+         means garbled audio, not an obvious crash. -->
+    <PackageReference Include="MathNet.Numerics" Version="5.0.0" />
     <!-- Screen sharing: captures a monitor/window via Windows.Graphics.Capture
          (built into the SDK for this net8.0-windows10.0.19041.0 TFM, no
          package needed) and reads the captured GPU texture back to CPU-side
@@ -64,29 +83,12 @@
          AudioSource/AudioStream take and give raw PCM frames, they don't
          touch physical audio devices themselves. -->
     <PackageReference Include="NAudio" Version="2.2.1" />
-    <!-- Real noise suppression (OpusAudioEndPoint.ApplyNoiseSuppression) -
-         Google's WebRTC Audio Processing Module via SoundFlow's wrapper.
-         Used standalone (AudioProcessingModule.ProcessStream) - none of
-         SoundFlow's own capture/playback engine is used, NAudio still owns
-         that; SoundFlow is only pulled in because the APM extension package
-         depends on it. Replaces the old hand-rolled RMS-threshold gate,
-         which couldn't tell a keyboard click from speech because it had no
-         actual model of what noise looks like, just "loud or not". -->
-    <PackageReference Include="SoundFlow.Extensions.WebRtc.Apm" Version="1.4.0" />
-    <!-- Alternative noise-suppression engine (selectable in Voice Settings,
-         see NoiseSuppressionBackend) - a lightweight RNN denoiser instead of
-         WebRTC's full Audio Processing Module. Real win-x64 native binary,
-         MIT licensed. Lighter on CPU than the APM; some mics do better with
-         one or the other, hence selectable rather than a hard swap. -->
+    <!-- Real noise suppression (see NoiseSuppressionProcessor.cs) - a
+         lightweight RNN denoiser, default backend. Real win-x64 native
+         binary, MIT licensed. Replaces the old hand-rolled RMS-threshold
+         gate, which couldn't tell a keyboard click from speech because it
+         had no actual model of what noise looks like, just "loud or not". -->
     <PackageReference Include="YellowDogMan.RRNoise.NET" Version="0.1.9" />
-    <!-- A second, higher-quality alternative noise-suppression engine
-         (DeepFilterNet3, also selectable in Voice Settings). No NuGet
-         package exists for this - it's DeepFilterNet's own official
-         prebuilt LADSPA plugin DLL, vendored directly from
-         https://github.com/Rikorose/DeepFilterNet/releases/tag/v0.5.6
-         (MIT/Apache-2.0), driven from C# via a small P/Invoke LADSPA host
-         (see Client/Services/LadspaHost.cs) since it isn't a simple
-         function-call library like RNNoise. -->
     <!-- Fluent Design controls/theming for a modern, Discord-like look -
          rounded window chrome, restyled standard controls (Button, TextBox,
          etc. get the new look automatically once the theme dictionaries are

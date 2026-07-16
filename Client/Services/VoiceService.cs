@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using System.Windows.Input;
 using LiveKit.Rtc;
-using SoundFlow.Extensions.WebRtc.Apm;
 using Voiceover.Client.Models;
 using Windows.Graphics.Capture;
 using TrackSource = LiveKit.Proto.TrackSource;
@@ -17,14 +16,11 @@ public enum VoiceInputMode
 
 // Which noise-suppression engine MicCaptureSource runs captured audio
 // through - see the PackageReference comments in Client.csproj for why
-// there's a choice at all instead of just one. WebRtcApm is first/default
-// so existing saved settings (missing this field entirely) deserialize to
-// today's behavior unchanged.
+// there's a choice at all instead of just one. RNNoise is first/default.
 public enum NoiseSuppressionBackend
 {
-    WebRtcApm,
     RNNoise,
-    DeepFilterNet
+    Nsnet2
 }
 
 // Connects to the self-hosted LiveKit SFU (see REDEPLOY.txt) for voice
@@ -156,7 +152,7 @@ public class VoiceService : IAsyncDisposable
         }
     }
 
-    private NoiseSuppressionBackend _noiseSuppressionBackend = NoiseSuppressionBackend.WebRtcApm;
+    private NoiseSuppressionBackend _noiseSuppressionBackend = NoiseSuppressionBackend.RNNoise;
     public NoiseSuppressionBackend NoiseSuppressionBackend
     {
         get => _noiseSuppressionBackend;
@@ -164,53 +160,6 @@ public class VoiceService : IAsyncDisposable
         {
             _noiseSuppressionBackend = value;
             if (_micCapture is not null) _micCapture.NoiseSuppressionBackend = value;
-            SaveSettings();
-        }
-    }
-
-    // Only meaningful for the DeepFilterNet backend - how aggressively it
-    // suppresses detected noise (0-100dB, matching the slider DeepFilterNet's
-    // own demo shows). See LadspaHost.AttenuationLimit for the LADSPA
-    // control-port plumbing this ultimately drives.
-    private float _deepFilterAttenuationLimit = LadspaHost.AttenuationLimitMax;
-    public float DeepFilterAttenuationLimit
-    {
-        get => _deepFilterAttenuationLimit;
-        set
-        {
-            _deepFilterAttenuationLimit = value;
-            if (_micCapture is not null) _micCapture.DeepFilterAttenuationLimit = value;
-            SaveSettings();
-        }
-    }
-
-    // Only meaningful for the DeepFilterNet backend - how much smoothing/
-    // artifact-reduction the plugin applies after its main filter pass
-    // (0-1). See LadspaHost.PostFilterBeta for the LADSPA control-port
-    // plumbing this ultimately drives.
-    private float _deepFilterPostFilterBeta = LadspaHost.PostFilterBetaMin;
-    public float DeepFilterPostFilterBeta
-    {
-        get => _deepFilterPostFilterBeta;
-        set
-        {
-            _deepFilterPostFilterBeta = value;
-            if (_micCapture is not null) _micCapture.DeepFilterPostFilterBeta = value;
-            SaveSettings();
-        }
-    }
-
-    // Only meaningful for the WebRtcApm backend - how aggressively its
-    // noise suppression runs (Low/Moderate/High/VeryHigh). Was hardcoded to
-    // High before this existed.
-    private NoiseSuppressionLevel _webRtcNoiseSuppressionLevel = NoiseSuppressionLevel.High;
-    public NoiseSuppressionLevel WebRtcNoiseSuppressionLevel
-    {
-        get => _webRtcNoiseSuppressionLevel;
-        set
-        {
-            _webRtcNoiseSuppressionLevel = value;
-            if (_micCapture is not null) _micCapture.WebRtcNoiseSuppressionLevel = value;
             SaveSettings();
         }
     }
@@ -310,8 +259,8 @@ public class VoiceService : IAsyncDisposable
     // this existed they'd silently reset to defaults every login.
     private void SaveSettings() =>
         VoiceSettingsStorage.Save(new SavedVoiceSettings(
-            InputDeviceIndex, OutputDeviceIndex, NoiseSuppressionEnabled, _inputMode, PushToTalkKey, PushToTalkMouseButton, _noiseSuppressionBackend, _deepFilterAttenuationLimit, _ringTimeoutSeconds,
-            _webRtcNoiseSuppressionLevel, _deepFilterPostFilterBeta, _suppressionMix));
+            InputDeviceIndex, OutputDeviceIndex, NoiseSuppressionEnabled, _inputMode, PushToTalkKey, PushToTalkMouseButton,
+            _noiseSuppressionBackend, _ringTimeoutSeconds, _suppressionMix));
 
     private void LoadSettings()
     {
@@ -322,10 +271,7 @@ public class VoiceService : IAsyncDisposable
         _outputDeviceIndex = saved.OutputDeviceIndex;
         _noiseSuppressionEnabled = saved.NoiseSuppressionEnabled;
         _noiseSuppressionBackend = saved.NoiseSuppressionBackend;
-        _deepFilterAttenuationLimit = saved.DeepFilterAttenuationLimit;
         _ringTimeoutSeconds = saved.RingTimeoutSeconds;
-        _webRtcNoiseSuppressionLevel = saved.WebRtcNoiseSuppressionLevel;
-        _deepFilterPostFilterBeta = saved.DeepFilterPostFilterBeta;
         _suppressionMix = saved.SuppressionMix;
 
         // Mouse button takes priority if somehow both are set in the saved
@@ -438,10 +384,10 @@ public class VoiceService : IAsyncDisposable
     // handles fanning existing participants' tracks out to us as part of
     // the room connection itself.
     //
-    // Constructing MicCaptureSource below loads three native libraries
-    // (WebRTC APM, RNNoise, and the ~50MB DeepFilterNet LADSPA plugin) the
-    // first time any of them run in this process - LoadLibrary plus P/Invoke
-    // stub JIT compilation is a real, synchronous, one-time cost. Without the
+    // Constructing MicCaptureSource below loads native/ONNX noise-suppression
+    // dependencies (RNNoise, NSNet2's ONNX Runtime session) the first time
+    // any of them run in this process - LoadLibrary plus P/Invoke stub JIT
+    // compilation is a real, synchronous, one-time cost. Without the
     // Task.Run wrapper on the callers above, that would run straight on the
     // WPF dispatcher thread (since nothing here uses ConfigureAwait(false))
     // and freeze the whole UI - including the mouse cursor - for however
@@ -466,9 +412,6 @@ public class VoiceService : IAsyncDisposable
             MicMuted = IsMicMuted,
             NoiseSuppressionEnabled = NoiseSuppressionEnabled,
             NoiseSuppressionBackend = NoiseSuppressionBackend,
-            DeepFilterAttenuationLimit = DeepFilterAttenuationLimit,
-            DeepFilterPostFilterBeta = DeepFilterPostFilterBeta,
-            WebRtcNoiseSuppressionLevel = WebRtcNoiseSuppressionLevel,
             SuppressionMix = SuppressionMix
         };
         // Local speaking-indicator detection, straight off the fully

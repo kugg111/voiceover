@@ -36,10 +36,9 @@ download the Windows installer or a portable ZIP from the landing page.
 - **Screen sharing**: share a window or monitor in a voice channel or a
   private call, with selectable resolution/framerate presets and your
   system audio (WASAPI loopback) published alongside the video
-- **Noise suppression**: three selectable engines — WebRTC's Audio Processing
-  Module, RNNoise, and [DeepFilterNet3](https://github.com/Rikorose/DeepFilterNet)
-  (with an adjustable attenuation limit) — all real native denoisers, not a
-  hand-rolled volume gate
+- **Noise suppression**: two selectable engines — RNNoise and
+  [NSNet2](https://github.com/microsoft/DNS-Challenge) — real denoisers, not
+  a hand-rolled volume gate
 - **Presence**: Online / Away / In a Call / Offline status, Away triggered by
   real system idle detection; custom status text visible to friends and
   server members
@@ -139,9 +138,8 @@ Client/                  WPF desktop app
   auth, BCrypt, Serilog (console + Postgres sink)
 - **Client**: WPF (.NET 8), WPF-UI (Fluent Design), NAudio (device/loopback
   capture), LiveKit's .NET client SDK, Windows.Graphics.Capture (screen share)
-- **Voice/video**: self-hosted LiveKit SFU; WebRTC APM / RNNoise /
-  DeepFilterNet3 for noise suppression (the last driven through a small
-  LADSPA host, since there's no native .NET package for it)
+- **Voice/video**: self-hosted LiveKit SFU; RNNoise / NSNet2 (ONNX Runtime)
+  for noise suppression
 - **Encryption**: ECDH (P-256) + HKDF + AES-256-GCM, entirely client-side
 - **Deployment**: server on [Railway](https://railway.app/) with a managed
   Postgres add-on; client installer/ZIP hosted as GitHub Releases

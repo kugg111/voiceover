@@ -1,6 +1,5 @@
 using LiveKit.Rtc;
 using NAudio.Wave;
-using SoundFlow.Extensions.WebRtc.Apm;
 
 namespace Voiceover.Client.Services;
 
@@ -9,11 +8,11 @@ namespace Voiceover.Client.Services;
 // half of OpusAudioEndPoint - LiveKit's own engine now owns Opus encoding
 // and jitter buffering, so this class only does what's still actually this
 // app's job: NAudio device capture and handing frames to a
-// NoiseSuppressionProcessor (gain + noise suppression - WebRTC's real Audio
-// Processing Module, RNNoise, or DeepFilterNet, not a hand-rolled RMS gate -
-// see the PR that introduced it for why that mattered). The processor is
-// its own class so the Settings "Test Mic" preview can share the exact same
-// frame-processing logic instead of duplicating it.
+// NoiseSuppressionProcessor (gain + noise suppression - RNNoise or NSNet2,
+// not a hand-rolled RMS gate - see the PR that introduced it for why that
+// mattered). The processor is its own class so the Settings "Test Mic"
+// preview can share the exact same frame-processing logic instead of
+// duplicating it.
 public class MicCaptureSource : IDisposable
 {
     private const int SampleRate = 48000;
@@ -25,9 +24,6 @@ public class MicCaptureSource : IDisposable
     public bool MicMuted { get; set; }
     public bool NoiseSuppressionEnabled { get => _processor.Enabled; set => _processor.Enabled = value; }
     public NoiseSuppressionBackend NoiseSuppressionBackend { get => _processor.Backend; set => _processor.Backend = value; }
-    public float DeepFilterAttenuationLimit { get => _processor.DeepFilterAttenuationLimit; set => _processor.DeepFilterAttenuationLimit = value; }
-    public float DeepFilterPostFilterBeta { get => _processor.DeepFilterPostFilterBeta; set => _processor.DeepFilterPostFilterBeta = value; }
-    public NoiseSuppressionLevel WebRtcNoiseSuppressionLevel { get => _processor.WebRtcNoiseSuppressionLevel; set => _processor.WebRtcNoiseSuppressionLevel = value; }
     public float SuppressionMix { get => _processor.SuppressionMix; set => _processor.SuppressionMix = value; }
 
     // Fires with the fully processed frame (post noise-suppression, post-

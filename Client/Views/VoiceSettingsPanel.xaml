@@ -19,58 +19,14 @@
                    FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}" Margin="0,0,0,12"/>
 
         <StackPanel x:Name="NoiseSuppressionBackendPanel" Visibility="Collapsed" Margin="16,0,0,16">
-            <RadioButton x:Name="WebRtcApmRadio" Content="WebRTC (default)" GroupName="NoiseBackend"
+            <RadioButton x:Name="RNNoiseRadio" Content="RNNoise (default)" GroupName="NoiseBackend"
                          Foreground="{StaticResource TextNormal}" Margin="0,0,0,4"
                          Checked="NoiseSuppressionBackendRadio_Changed"/>
-            <RadioButton x:Name="RNNoiseRadio" Content="RNNoise" GroupName="NoiseBackend"
+            <RadioButton x:Name="Nsnet2Radio" Content="NSNet2" GroupName="NoiseBackend"
                          Foreground="{StaticResource TextNormal}" Margin="0,0,0,4"
                          Checked="NoiseSuppressionBackendRadio_Changed"/>
-            <RadioButton x:Name="DeepFilterNetRadio" Content="DeepFilterNet (higher quality)" GroupName="NoiseBackend"
-                         Foreground="{StaticResource TextNormal}" Margin="0,0,0,4"
-                         Checked="NoiseSuppressionBackendRadio_Changed"/>
-            <TextBlock Text="RNNoise is a lightweight neural denoiser - lighter on CPU, sometimes more aggressive on background noise. DeepFilterNet is a heavier deep-learning model that handles complex/changing noise (rain, keyboard clicks, background chatter) more cleanly, at the cost of a bit more CPU and latency. Try them and pick whichever sounds better on your mic."
+            <TextBlock Text="RNNoise is a lightweight neural denoiser - lighter on CPU, sometimes more aggressive on background noise. NSNet2 is a heavier ML denoiser that re-analyzes a short rolling window on every frame rather than carrying state forward, so it costs more CPU than RNNoise. Try both and pick whichever sounds better on your mic."
                        FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}" Margin="0,0,0,12"/>
-
-            <StackPanel x:Name="WebRtcOptionsPanel" Visibility="Collapsed">
-                <TextBlock Text="Suppression Level" FontWeight="Bold"
-                           Foreground="{StaticResource TextNormal}" Margin="0,0,0,4"/>
-                <RadioButton x:Name="WebRtcLowRadio" Content="Low" GroupName="WebRtcLevel"
-                             Foreground="{StaticResource TextNormal}" Margin="0,0,0,2"
-                             Checked="WebRtcLevelRadio_Changed"/>
-                <RadioButton x:Name="WebRtcModerateRadio" Content="Moderate" GroupName="WebRtcLevel"
-                             Foreground="{StaticResource TextNormal}" Margin="0,0,0,2"
-                             Checked="WebRtcLevelRadio_Changed"/>
-                <RadioButton x:Name="WebRtcHighRadio" Content="High (default)" GroupName="WebRtcLevel"
-                             Foreground="{StaticResource TextNormal}" Margin="0,0,0,2"
-                             Checked="WebRtcLevelRadio_Changed"/>
-                <RadioButton x:Name="WebRtcVeryHighRadio" Content="Very High" GroupName="WebRtcLevel"
-                             Foreground="{StaticResource TextNormal}" Margin="0,0,0,12"
-                             Checked="WebRtcLevelRadio_Changed"/>
-            </StackPanel>
-
-            <StackPanel x:Name="DeepFilterOptionsPanel" Visibility="Collapsed">
-                <TextBlock Text="Attenuation Limit" FontWeight="Bold"
-                           Foreground="{StaticResource TextNormal}" Margin="0,0,0,4"/>
-                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                    <Slider x:Name="AttenuationLimitSlider" Width="200" Minimum="0" Maximum="100"
-                            ValueChanged="AttenuationLimitSlider_ValueChanged"/>
-                    <TextBlock x:Name="AttenuationLimitDisplay" Width="46" Margin="6,0,0,0"
-                               VerticalAlignment="Center" Foreground="{StaticResource TextMuted}"/>
-                </StackPanel>
-                <TextBlock Text="How aggressively DeepFilterNet suppresses detected noise, in dB. Higher removes more noise but can start to affect your voice; lower is gentler."
-                           FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}" Margin="0,0,0,12"/>
-
-                <TextBlock Text="Post Filter Beta" FontWeight="Bold"
-                           Foreground="{StaticResource TextNormal}" Margin="0,0,0,4"/>
-                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                    <Slider x:Name="PostFilterBetaSlider" Width="200" Minimum="0" Maximum="0.05"
-                            ValueChanged="PostFilterBetaSlider_ValueChanged"/>
-                    <TextBlock x:Name="PostFilterBetaDisplay" Width="46" Margin="6,0,0,0"
-                               VerticalAlignment="Center" Foreground="{StaticResource TextMuted}"/>
-                </StackPanel>
-                <TextBlock Text="Adjusts the plugin's post-filter smoothing. The effect varies by mic/setup - 0 (default) is the safest starting point; try both directions with Test Mic rather than assuming higher is better."
-                           FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}"/>
-            </StackPanel>
 
             <TextBlock Text="Suppression Mix" FontWeight="Bold"
                        Foreground="{StaticResource TextNormal}" Margin="0,12,0,4"/>
