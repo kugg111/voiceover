@@ -1,0 +1,90 @@
+name: Release
+
+# Triggered by pushing a version tag (e.g. `git tag v1.0.18 && git push origin
+# v1.0.18`) - replaces the manual publish/zip/installer/gh-release dance in
+# REDEPLOY.txt step 2. Still expects the version bump (Client.csproj,
+# Voiceover.iss, version.json - REDEPLOY.txt step 0) to already be committed
+# before tagging; the version-match check below fails loudly if one was
+# missed instead of silently shipping a mismatched build.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Verify version matches tag
+        shell: pwsh
+        run: |
+          $tagVersion = "${{ github.ref_name }}" -replace '^v', ''
+          $csprojVersion = (Select-String -Path Client/Client.csproj -Pattern '<Version>(.*)</Version>').Matches[0].Groups[1].Value
+          $issVersion = (Select-String -Path Client/installer/Voiceover.iss -Pattern '#define MyAppVersion "(.*)"').Matches[0].Groups[1].Value
+          $jsonVersion = (Get-Content Server/Site/downloads/version.json | ConvertFrom-Json).version
+
+          Write-Host "Tag: $tagVersion | Client.csproj: $csprojVersion | Voiceover.iss: $issVersion | version.json: $jsonVersion"
+
+          if ($tagVersion -ne $csprojVersion -or $tagVersion -ne $issVersion -or $tagVersion -ne $jsonVersion) {
+            Write-Error "Version mismatch - the pushed tag must match Client.csproj, Voiceover.iss, and version.json (see REDEPLOY.txt step 0)."
+            exit 1
+          }
+
+      - name: Restore
+        run: dotnet restore Voiceover.sln
+
+      - name: Build
+        run: dotnet build Voiceover.sln --configuration Release --no-restore
+
+      - name: Test Server.Tests
+        run: dotnet test Server.Tests/Server.Tests.csproj --configuration Release --no-build --verbosity normal
+
+      - name: Test Client.Tests
+        run: dotnet test Client.Tests/Client.Tests.csproj --configuration Release --no-build --verbosity normal
+
+      - name: Publish client (self-contained, single-file)
+        run: dotnet publish Client/Client.csproj --configuration Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish
+
+      - name: Remove debug symbols
+        shell: pwsh
+        run: Remove-Item publish\Client.pdb -ErrorAction SilentlyContinue
+
+      - name: Build ZIP
+        shell: pwsh
+        run: Compress-Archive -Path publish\* -DestinationPath Voiceover-Client.zip -Force
+
+      - name: Compile installer
+        uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
+        with:
+          path: Client/installer/Voiceover.iss
+
+      - name: Copy installer to repo root
+        shell: pwsh
+        run: Copy-Item installer-output\Voiceover-Setup.exe Voiceover-Setup.exe -Force
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            Voiceover-Client.zip
+            Voiceover-Setup.exe
+          generate_release_notes: true
+
+      # Deliberately does NOT redeploy the server (railway up) - that needs a
+      # Railway auth token as a repo secret and pushes straight to
+      # production with no human in the loop, a bigger step than "build the
+      # release artifacts." Still a manual `railway up --detach` per
+      # REDEPLOY.txt after this workflow finishes.

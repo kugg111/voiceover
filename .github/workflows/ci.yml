@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    # Client/Client.Tests target net8.0-windows (WPF) and need the Windows
+    # Desktop workload, which only windows-latest runners have preinstalled.
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore Voiceover.sln
+
+      - name: Build
+        run: dotnet build Voiceover.sln --configuration Release --no-restore
+
+      - name: Test Server.Tests
+        run: dotnet test Server.Tests/Server.Tests.csproj --configuration Release --no-build --verbosity normal
+
+      - name: Test Client.Tests
+        run: dotnet test Client.Tests/Client.Tests.csproj --configuration Release --no-build --verbosity normal
