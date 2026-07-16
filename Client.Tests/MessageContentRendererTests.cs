@@ -1,3 +1,4 @@
+using System.Windows;
 using System.Windows.Documents;
 using Voiceover.Client.Services;
 
@@ -92,5 +93,57 @@ public class MessageContentRendererTests
         Assert.Equal(" and ", PlainText(inlines[2]));
         Assert.Equal("code", ((Run)inlines[3]).Text);
         Assert.Equal(" too", PlainText(inlines[4]));
+    }
+
+    [Fact]
+    public void BuildInlines_NamedLink_BecomesHyperlinkWithDisplayText()
+    {
+        var inlines = MessageContentRenderer.BuildInlines("[title](https://www.example.com)");
+
+        var link = Assert.IsType<Hyperlink>(Assert.Single(inlines));
+        Assert.Equal("title", PlainText(link));
+        Assert.Equal("https://www.example.com/", link.NavigateUri!.AbsoluteUri);
+    }
+
+    [Fact]
+    public void BuildInlines_NamedLink_NonHttpScheme_IsNotTreatedAsALink()
+    {
+        var inlines = MessageContentRenderer.BuildInlines("[title](ftp://example.com/file)");
+
+        var single = Assert.Single(inlines);
+        Assert.IsType<Run>(single);
+        Assert.Equal("[title](ftp://example.com/file)", PlainText(single));
+    }
+
+    [Fact]
+    public void BuildInlines_Blockquote_WrapsLineInMutedItalicSpan()
+    {
+        var inlines = MessageContentRenderer.BuildInlines("> quoted text");
+
+        var span = Assert.IsType<Span>(Assert.Single(inlines));
+        Assert.Equal(FontStyles.Italic, span.FontStyle);
+        Assert.Equal("▌ quoted text", PlainText(span));
+    }
+
+    [Fact]
+    public void BuildInlines_BlockquoteWithBold_StillParsesInnerTokens()
+    {
+        var inlines = MessageContentRenderer.BuildInlines("> **important** quote");
+
+        var span = Assert.IsType<Span>(Assert.Single(inlines));
+        Assert.Contains(span.Inlines, i => i is Bold && PlainText(i) == "important");
+    }
+
+    [Fact]
+    public void BuildInlines_MultiLineWithBlockquote_OnlyQuotesThePrefixedLine()
+    {
+        var inlines = MessageContentRenderer.BuildInlines("before\n> quoted\nafter");
+
+        Assert.Equal(5, inlines.Count);
+        Assert.Equal("before", PlainText(inlines[0]));
+        Assert.Equal("\n", PlainText(inlines[1]));
+        Assert.IsType<Span>(inlines[2]);
+        Assert.Equal("\n", PlainText(inlines[3]));
+        Assert.Equal("after", PlainText(inlines[4]));
     }
 }
