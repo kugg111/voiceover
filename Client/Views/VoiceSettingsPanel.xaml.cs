@@ -191,7 +191,7 @@ public partial class VoiceSettingsPanel : UserControl
     }
 
     private void UpdatePostFilterBetaDisplay() =>
-        PostFilterBetaDisplay.Text = $"{PostFilterBetaSlider.Value:0.00}";
+        PostFilterBetaDisplay.Text = $"{PostFilterBetaSlider.Value:0.000}";
 
     // Stored/displayed as 0-100% in the UI, same convention as
     // AttenuationLimit's dB slider - VoiceService.SuppressionMix itself is

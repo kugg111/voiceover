@@ -107,20 +107,19 @@ internal class LadspaHost : IDisposable
     }
 
     // Post Filter Beta (port 7) - controls the plugin's post-filter
-    // smoothing pass. The plugin's own declared range is 0-1
-    // (DefaultValue::Minimum = 0). Originally assumed (based on how "post-
-    // filter beta" parameters usually work in the speech-enhancement
-    // literature - more smoothing = fewer musical-noise artifacts) that
-    // raising it would fix "sounds robotic" complaints; real listening
-    // tests against this specific plugin build found the opposite -
-    // raising it sounded noticeably worse. Exposed as a user-adjustable
-    // knob regardless (see VoiceSettingsPanel's Test Mic), but the UI copy
-    // no longer asserts a direction - 0 (the plugin's own default) is the
+    // smoothing pass. The plugin's own declared range (see PF_BETA_MIN/
+    // PF_BETA_MAX in Rikorose/DeepFilterNet's ladspa/src/lib.rs) is 0-0.05,
+    // NOT 0-1 as this used to say - that was a real bug: the UI slider let
+    // values go 20x past where the plugin was ever designed to operate.
+    // "Raising it sounded noticeably worse" in earlier testing is exactly
+    // what feeding a control port 20x outside its valid range would produce
+    // - undefined plugin behavior, not a genuine finding about the
+    // parameter's effect. 0 (the plugin's own default) is still the
     // known-good starting point. Same get/set-with-Marshal.Copy shape as
     // AttenuationLimit above - LADSPA control ports just point at a float
     // the plugin re-reads every run() call.
     public const float PostFilterBetaMin = 0f;
-    public const float PostFilterBetaMax = 1f;
+    public const float PostFilterBetaMax = 0.05f;
 
     private readonly IntPtr _postFilterBetaBuffer;
     private float _postFilterBeta;

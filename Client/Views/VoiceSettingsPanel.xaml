@@ -63,7 +63,7 @@
                 <TextBlock Text="Post Filter Beta" FontWeight="Bold"
                            Foreground="{StaticResource TextNormal}" Margin="0,0,0,4"/>
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                    <Slider x:Name="PostFilterBetaSlider" Width="200" Minimum="0" Maximum="1"
+                    <Slider x:Name="PostFilterBetaSlider" Width="200" Minimum="0" Maximum="0.05"
                             ValueChanged="PostFilterBetaSlider_ValueChanged"/>
                     <TextBlock x:Name="PostFilterBetaDisplay" Width="46" Margin="6,0,0,0"
                                VerticalAlignment="Center" Foreground="{StaticResource TextMuted}"/>

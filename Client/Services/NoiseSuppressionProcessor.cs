@@ -119,14 +119,29 @@ internal class NoiseSuppressionProcessor : IDisposable
         catch { _deepFilter = null; }
     }
 
-    // Processes exactly one 20ms/960-sample frame in place - noise
-    // suppression (on the raw captured signal, before gain distorts the
-    // noise floor it's calibrated against), then the wet/dry mix blend,
-    // then gain. Callers (MicCaptureSource's live capture loop, and the
+    // Processes exactly one 20ms/960-sample frame in place - gain first,
+    // then noise suppression, then the wet/dry mix blend. Gain used to run
+    // last, on the theory that boosting first would distort the noise
+    // floor the suppressors are calibrated against - but ApplyGain's tanh
+    // soft-knee only meaningfully compresses (and so only meaningfully
+    // distorts spectral shape) values approaching full scale, i.e. loud
+    // speech peaks; for anything as quiet as a noise floor (fan hum, mic
+    // wind) it's effectively linear (tanh(x) ~= x for small x), so this
+    // doesn't reintroduce that problem. What running gain last did cause:
+    // every backend leaves *some* residual noise behind (no denoiser
+    // reaches true zero), and boosting after suppression amplifies that
+    // leftover right along with the voice - worse the higher Mic Gain is
+    // set, and identical across backends since it's this shared step, not
+    // any one engine, causing it. Gain-before-denoise is also the more
+    // standard signal-chain order (level the input, then process it,
+    // rather than processing a too-quiet signal and boosting the leftovers
+    // afterward). Callers (MicCaptureSource's live capture loop, and the
     // Test Mic preview) both slice their input into this same frame size so
     // preview and live behavior stay identical.
     public void ProcessFrame(short[] pcm)
     {
+        ApplyGain(pcm, MicGain);
+
         if (Enabled)
         {
             // DeepFilterNet's "deep filtering" stage computes filter
@@ -169,8 +184,6 @@ internal class NoiseSuppressionProcessor : IDisposable
                 }
             }
         }
-
-        ApplyGain(pcm, MicGain);
     }
 
     // Boosts quiet input, then compresses through a tanh soft-knee limiter
