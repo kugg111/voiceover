@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Voiceover Admin</title>
+<link rel="icon" type="image/x-icon" href="/images/favicon.ico">
+<style>
+  :root {
+    --bg-dark: #2B2D31;
+    --bg-darker: #1E1F22;
+    --bg-sidebar: #232428;
+    --accent: #5865F2;
+    --accent-hover: #4752C4;
+    --danger: #ED4245;
+    --danger-hover: #C93A3D;
+    --text-normal: #DBDEE1;
+    --text-muted: #949BA4;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg-darker);
+    color: var(--text-normal);
+    min-height: 100vh;
+  }
+
+  a { color: var(--accent); }
+
+  .hidden { display: none !important; }
+
+  /* --- Login screen --- */
+  #login-screen {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+  }
+
+  #login-box {
+    background: var(--bg-dark);
+    border-radius: 8px;
+    padding: 32px;
+    width: 320px;
+  }
+
+  #login-box h1 { font-size: 20px; margin: 0 0 20px; }
+
+  #login-box input {
+    width: 100%;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+    border-radius: 4px;
+    border: none;
+    background: var(--bg-sidebar);
+    color: var(--text-normal);
+    font-size: 14px;
+  }
+
+  button {
+    cursor: pointer;
+    border: none;
+    border-radius: 4px;
+    padding: 10px 16px;
+    font-size: 14px;
+    background: var(--accent);
+    color: white;
+  }
+  button:hover { background: var(--accent-hover); }
+  button.danger { background: var(--danger); }
+  button.danger:hover { background: var(--danger-hover); }
+  button.secondary { background: var(--bg-sidebar); color: var(--text-normal); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  #login-error, .status-message {
+    color: var(--danger);
+    font-size: 13px;
+    min-height: 18px;
+    margin-bottom: 8px;
+  }
+
+  /* --- Dashboard --- */
+  #dashboard { max-width: 1000px; margin: 0 auto; padding: 24px; }
+
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+  header h1 { font-size: 18px; margin: 0; }
+
+  nav { display: flex; gap: 4px; margin-bottom: 24px; border-bottom: 1px solid var(--bg-dark); }
+  nav button {
+    background: transparent;
+    color: var(--text-muted);
+    border-radius: 4px 4px 0 0;
+    padding: 8px 16px;
+  }
+  nav button:hover { background: var(--bg-dark); color: var(--text-normal); }
+  nav button.active { color: var(--text-normal); border-bottom: 2px solid var(--accent); }
+
+  #user-search-box { display: flex; gap: 8px; margin-bottom: 24px; }
+  #user-search-box input {
+    flex: 1;
+    padding: 10px 12px;
+    border-radius: 4px;
+    border: none;
+    background: var(--bg-dark);
+    color: var(--text-normal);
+  }
+
+  table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+  th, td {
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--bg-dark);
+    font-size: 13px;
+  }
+  th { color: var(--text-muted); font-weight: 600; }
+  tr.clickable { cursor: pointer; }
+  tr.clickable:hover td { background: var(--bg-dark); }
+
+  .panel { background: var(--bg-dark); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  .panel h2 { font-size: 15px; margin: 0 0 12px; }
+
+  .row-actions { display: flex; gap: 6px; }
+  .row-actions button { padding: 4px 10px; font-size: 12px; }
+
+  .modal-backdrop {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 10;
+  }
+  .modal {
+    background: var(--bg-dark);
+    border-radius: 8px;
+    padding: 24px;
+    width: 420px;
+    max-width: calc(100vw - 32px);
+  }
+  .modal h3 { margin: 0 0 12px; font-size: 16px; }
+  .modal p { font-size: 13px; line-height: 1.5; color: var(--text-normal); }
+  .modal input[type="text"], .modal input[type="password"] {
+    width: 100%;
+    padding: 8px 10px;
+    margin: 8px 0;
+    border-radius: 4px;
+    border: none;
+    background: var(--bg-sidebar);
+    color: var(--text-normal);
+  }
+  .modal label { display: flex; align-items: center; gap: 8px; font-size: 13px; margin: 12px 0; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
+  #back-link { display: inline-block; margin-bottom: 16px; cursor: pointer; color: var(--accent); font-size: 13px; }
+</style>
+</head>
+<body>
+
+<div id="login-screen">
+  <div id="login-box">
+    <h1>Voiceover Admin</h1>
+    <div id="login-error"></div>
+    <input type="text" id="login-username" placeholder="Username" autocomplete="username">
+    <input type="password" id="login-password" placeholder="Password" autocomplete="current-password">
+    <button id="login-button" style="width:100%">Log In</button>
+  </div>
+</div>
+
+<div id="dashboard" class="hidden">
+  <header>
+    <h1>Voiceover Admin</h1>
+    <button class="secondary" id="logout-button">Log Out</button>
+  </header>
+
+  <nav>
+    <button id="nav-servers" class="active">Servers</button>
+    <button id="nav-users">Users</button>
+  </nav>
+
+  <div id="servers-page">
+    <div id="server-list-view">
+      <table>
+        <thead>
+          <tr><th>Name</th><th>Owner</th><th>Members</th><th>Channels</th><th>Created</th><th></th></tr>
+        </thead>
+        <tbody id="server-list-body"></tbody>
+      </table>
+    </div>
+
+    <div id="server-detail-view" class="hidden">
+      <span id="back-link">&larr; Back to servers</span>
+      <div class="panel" style="display:flex; justify-content:space-between; align-items:center;">
+        <h2 id="detail-server-name" style="margin:0;"></h2>
+        <button class="danger" id="detail-delete-server-button">Delete Server</button>
+      </div>
+      <div class="panel">
+        <h2>Channels</h2>
+        <table>
+          <thead><tr><th>Name</th><th>Type</th><th>Messages</th></tr></thead>
+          <tbody id="detail-channels-body"></tbody>
+        </table>
+      </div>
+      <div class="panel">
+        <h2>Members</h2>
+        <table>
+          <thead><tr><th>Username</th><th>Role</th><th>Joined</th></tr></thead>
+          <tbody id="detail-members-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="users-page" class="hidden">
+    <div id="user-search-box">
+      <input type="text" id="user-search-input" placeholder="Search users by username&hellip; (min. 2 characters)">
+    </div>
+    <div id="user-search-results"></div>
+  </div>
+</div>
+
+<div id="modal-root"></div>
+
+<script>
+(function () {
+  var TOKEN_KEY = 'voiceoverAdminToken';
+
+  function getToken() { return localStorage.getItem(TOKEN_KEY); }
+  function setToken(t) { localStorage.setItem(TOKEN_KEY, t); }
+  function clearToken() { localStorage.removeItem(TOKEN_KEY); }
+
+  function fmtDate(iso) {
+    var d = new Date(iso);
+    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function showLogin(message) {
+    clearToken();
+    document.getElementById('dashboard').classList.add('hidden');
+    document.getElementById('login-screen').classList.remove('hidden');
+    document.getElementById('login-error').textContent = message || '';
+  }
+
+  function showDashboard() {
+    document.getElementById('login-screen').classList.add('hidden');
+    document.getElementById('dashboard').classList.remove('hidden');
+    showServersPage();
+  }
+
+  // --- Top-level nav (Servers / Users) ---
+
+  function showServersPage() {
+    document.getElementById('nav-servers').classList.add('active');
+    document.getElementById('nav-users').classList.remove('active');
+    document.getElementById('servers-page').classList.remove('hidden');
+    document.getElementById('users-page').classList.add('hidden');
+    showServerList();
+    loadServers();
+  }
+
+  function showUsersPage() {
+    document.getElementById('nav-users').classList.add('active');
+    document.getElementById('nav-servers').classList.remove('active');
+    document.getElementById('users-page').classList.remove('hidden');
+    document.getElementById('servers-page').classList.add('hidden');
+  }
+
+  document.getElementById('nav-servers').addEventListener('click', showServersPage);
+  document.getElementById('nav-users').addEventListener('click', showUsersPage);
+
+  // Wraps fetch with the Authorization header and centralizes the
+  // 401/403 handling - either means the stored token is no longer good
+  // (expired, or IsAdmin got revoked mid-session), so drop straight back
+  // to the login form rather than showing a half-broken dashboard.
+  function adminFetch(path, options) {
+    options = options || {};
+    options.headers = Object.assign({}, options.headers, { 'Authorization': 'Bearer ' + getToken() });
+    return fetch(path, options).then(function (res) {
+      if (res.status === 401 || res.status === 403) {
+        showLogin('Session expired or not authorized.');
+        throw new Error('unauthorized');
+      }
+      return res;
+    });
+  }
+
+  // --- Login ---
+
+  document.getElementById('login-button').addEventListener('click', function () {
+    var username = document.getElementById('login-username').value.trim();
+    var password = document.getElementById('login-password').value;
+    if (!username || !password) return;
+
+    fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: username, password: password })
+    }).then(function (res) {
+      if (!res.ok) throw new Error('bad credentials');
+      return res.json();
+    }).then(function (auth) {
+      if (!auth.isAdmin) {
+        showLogin('This account is not an admin.');
+        return;
+      }
+      setToken(auth.token);
+      showDashboard();
+    }).catch(function () {
+      showLogin('Invalid username or password.');
+    });
+  });
+
+  document.getElementById('logout-button').addEventListener('click', function () {
+    showLogin('');
+  });
+
+  // --- Server list / detail ---
+
+  function showServerList() {
+    document.getElementById('server-detail-view').classList.add('hidden');
+    document.getElementById('server-list-view').classList.remove('hidden');
+  }
+
+  function loadServers() {
+    adminFetch('/api/admin/servers').then(function (res) { return res.json(); }).then(function (servers) {
+      var body = document.getElementById('server-list-body');
+      body.innerHTML = '';
+      servers.forEach(function (s) {
+        var tr = document.createElement('tr');
+        tr.className = 'clickable';
+        tr.innerHTML =
+          '<td>' + escapeHtml(s.name) + '</td>' +
+          '<td>' + escapeHtml(s.ownerUsername) + '</td>' +
+          '<td>' + s.memberCount + '</td>' +
+          '<td>' + s.channelCount + '</td>' +
+          '<td>' + fmtDate(s.createdAt) + '</td>' +
+          '<td class="row-actions"></td>';
+        tr.addEventListener('click', function () { loadServerDetail(s.id); });
+
+        var deleteBtn = document.createElement('button');
+        deleteBtn.className = 'danger';
+        deleteBtn.textContent = 'Delete';
+        deleteBtn.addEventListener('click', function (e) {
+          e.stopPropagation(); // don't also trigger the row's own click (drill-down)
+          openDeleteServerModal(s, function () { loadServers(); });
+        });
+        tr.querySelector('.row-actions').appendChild(deleteBtn);
+
+        body.appendChild(tr);
+      });
+    });
+  }
+
+  function openDeleteServerModal(server, onDeleted) {
+    showModal(
+      '<h3>Delete ' + escapeHtml(server.name) + '</h3>' +
+      '<p>This permanently deletes the server and everything in it - channels, ' +
+      'messages, members, invites. <strong>This cannot be undone.</strong></p>' +
+      '<label><input type="checkbox" id="modal-confirm-checkbox"> I understand this cannot be undone.</label>' +
+      '<div id="modal-status" class="status-message"></div>' +
+      '<div class="modal-actions">' +
+        '<button class="secondary" id="modal-cancel">Cancel</button>' +
+        '<button class="danger" id="modal-confirm" disabled>Delete Server</button>' +
+      '</div>',
+      function () {
+        adminFetch('/api/admin/servers/' + server.id, { method: 'DELETE' }).then(function (res) {
+          if (!res.ok) return res.text().then(function (t) { throw new Error(t || 'Delete failed.'); });
+          closeModal();
+          onDeleted();
+        }).catch(function (err) {
+          document.getElementById('modal-status').textContent = err.message;
+        });
+      }
+    );
+
+    document.getElementById('modal-confirm-checkbox').addEventListener('change', function (e) {
+      document.getElementById('modal-confirm').disabled = !e.target.checked;
+    });
+  }
+
+  function loadServerDetail(id) {
+    adminFetch('/api/admin/servers/' + id).then(function (res) { return res.json(); }).then(function (detail) {
+      document.getElementById('server-list-view').classList.add('hidden');
+      document.getElementById('server-detail-view').classList.remove('hidden');
+      document.getElementById('detail-server-name').textContent = detail.server.name;
+
+      var deleteButton = document.getElementById('detail-delete-server-button');
+      deleteButton.onclick = function () {
+        openDeleteServerModal(detail.server, function () { showServerList(); loadServers(); });
+      };
+
+      var channelsBody = document.getElementById('detail-channels-body');
+      channelsBody.innerHTML = '';
+      detail.channels.forEach(function (c) {
+        var tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td>' + escapeHtml(c.name) + '</td>' +
+          '<td>' + c.type + '</td>' +
+          '<td>' + (c.messageCount === null ? '&mdash;' : c.messageCount) + '</td>';
+        channelsBody.appendChild(tr);
+      });
+
+      var membersBody = document.getElementById('detail-members-body');
+      membersBody.innerHTML = '';
+      detail.members.forEach(function (m) {
+        var tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td>' + escapeHtml(m.username) + '</td>' +
+          '<td>' + m.role + '</td>' +
+          '<td>' + fmtDate(m.joinedAt) + '</td>';
+        membersBody.appendChild(tr);
+      });
+    });
+  }
+
+  document.getElementById('back-link').addEventListener('click', function () {
+    showServerList();
+    loadServers();
+  });
+
+  // --- User search / rename / reset password ---
+
+  var searchDebounce = null;
+  document.getElementById('user-search-input').addEventListener('input', function (e) {
+    var query = e.target.value;
+    clearTimeout(searchDebounce);
+    searchDebounce = setTimeout(function () { searchUsers(query); }, 250);
+  });
+
+  function searchUsers(query) {
+    var results = document.getElementById('user-search-results');
+    if (!query || query.trim().length < 2) { results.innerHTML = ''; return; }
+
+    adminFetch('/api/admin/users/search?username=' + encodeURIComponent(query))
+      .then(function (res) { return res.json(); })
+      .then(function (users) {
+        results.innerHTML = '';
+        if (users.length === 0) return;
+
+        var table = document.createElement('table');
+        table.innerHTML = '<thead><tr><th>Username</th><th>Created</th><th>Admin</th><th></th></tr></thead>';
+        var body = document.createElement('tbody');
+        users.forEach(function (u) {
+          var tr = document.createElement('tr');
+          tr.innerHTML =
+            '<td>' + escapeHtml(u.username) + '</td>' +
+            '<td>' + fmtDate(u.createdAt) + '</td>' +
+            '<td>' + (u.isAdmin ? 'Yes' : '') + '</td>' +
+            '<td class="row-actions"></td>';
+          var actions = tr.querySelector('.row-actions');
+
+          var renameBtn = document.createElement('button');
+          renameBtn.className = 'secondary';
+          renameBtn.textContent = 'Rename';
+          renameBtn.addEventListener('click', function () { openRenameModal(u); });
+          actions.appendChild(renameBtn);
+
+          var resetBtn = document.createElement('button');
+          resetBtn.className = 'danger';
+          resetBtn.textContent = 'Reset password';
+          resetBtn.addEventListener('click', function () { openResetPasswordModal(u); });
+          actions.appendChild(resetBtn);
+
+          body.appendChild(tr);
+        });
+        table.appendChild(body);
+        results.appendChild(table);
+      });
+  }
+
+  function openRenameModal(user) {
+    showModal(
+      '<h3>Rename ' + escapeHtml(user.username) + '</h3>' +
+      '<input type="text" id="modal-new-username" placeholder="New username" value="' + escapeHtml(user.username) + '">' +
+      '<div id="modal-status" class="status-message"></div>' +
+      '<div class="modal-actions">' +
+        '<button class="secondary" id="modal-cancel">Cancel</button>' +
+        '<button id="modal-confirm">Rename</button>' +
+      '</div>',
+      function () {
+        var newUsername = document.getElementById('modal-new-username').value.trim();
+        if (!newUsername) return;
+        adminFetch('/api/admin/users/' + user.id + '/username', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: newUsername })
+        }).then(function (res) {
+          if (!res.ok) return res.text().then(function (t) { throw new Error(t || 'Rename failed.'); });
+          closeModal();
+          searchUsers(document.getElementById('user-search-input').value);
+        }).catch(function (err) {
+          document.getElementById('modal-status').textContent = err.message;
+        });
+      }
+    );
+  }
+
+  function openResetPasswordModal(user) {
+    showModal(
+      '<h3>Reset password for ' + escapeHtml(user.username) + '</h3>' +
+      '<p>Resetting this user’s password also clears their end-to-end encryption ' +
+      'keys. They’ll be able to log in with the new password, and a fresh ' +
+      'encryption key is generated automatically on their next login. All of ' +
+      'this user’s <strong>direct messages will be permanently deleted</strong> ' +
+      '(for them and everyone they DMed — that history can never be decrypted ' +
+      'again once their key changes). Server/channel messages are ' +
+      '<strong>not</strong> affected — this user just needs to be back online ' +
+      'once for another member to silently re-share channel access, same as ' +
+      'any returning member. <strong>The DM deletion cannot be undone.</strong></p>' +
+      '<input type="password" id="modal-new-password" placeholder="New password (min. 8 characters)">' +
+      '<label><input type="checkbox" id="modal-confirm-checkbox"> I understand this cannot be undone.</label>' +
+      '<div id="modal-status" class="status-message"></div>' +
+      '<div class="modal-actions">' +
+        '<button class="secondary" id="modal-cancel">Cancel</button>' +
+        '<button class="danger" id="modal-confirm" disabled>Reset Password</button>' +
+      '</div>',
+      function () {
+        var newPassword = document.getElementById('modal-new-password').value;
+        adminFetch('/api/admin/users/' + user.id + '/reset-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ newPassword: newPassword })
+        }).then(function (res) {
+          if (!res.ok) return res.text().then(function (t) { throw new Error(t || 'Reset failed.'); });
+          closeModal();
+        }).catch(function (err) {
+          document.getElementById('modal-status').textContent = err.message;
+        });
+      }
+    );
+
+    document.getElementById('modal-confirm-checkbox').addEventListener('change', function (e) {
+      document.getElementById('modal-confirm').disabled = !e.target.checked;
+    });
+  }
+
+  function showModal(innerHtml, onConfirm) {
+    var root = document.getElementById('modal-root');
+    root.innerHTML = '<div class="modal-backdrop"><div class="modal">' + innerHtml + '</div></div>';
+    document.getElementById('modal-cancel').addEventListener('click', closeModal);
+    document.getElementById('modal-confirm').addEventListener('click', onConfirm);
+  }
+
+  function closeModal() {
+    document.getElementById('modal-root').innerHTML = '';
+  }
+
+  function escapeHtml(s) {
+    var div = document.createElement('div');
+    div.textContent = s == null ? '' : String(s);
+    return div.innerHTML;
+  }
+
+  // --- Boot ---
+  if (getToken()) {
+    showDashboard();
+  }
+})();
+</script>
+
+</body>
+</html>

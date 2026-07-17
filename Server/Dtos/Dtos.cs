@@ -2,7 +2,7 @@ namespace Voiceover.Server.Dtos;
 
 public record RegisterRequest(string Username, string Password);
 public record LoginRequest(string Username, string Password);
-public record AuthResponse(string Token, DateTime ExpiresAtUtc, string RefreshToken, int UserId, string Username, string? AvatarUrl = null, string? CustomStatus = null);
+public record AuthResponse(string Token, DateTime ExpiresAtUtc, string RefreshToken, int UserId, string Username, string? AvatarUrl = null, string? CustomStatus = null, bool IsAdmin = false);
 public record RefreshRequest(string RefreshToken);
 public record LogoutRequest(string RefreshToken);
 

@@ -23,6 +23,7 @@ public class AppDbContext : DbContext
     public DbSet<BannedUser> BannedUsers => Set<BannedUser>();
     public DbSet<ModerationLogEntry> ModerationLogEntries => Set<ModerationLogEntry>();
     public DbSet<Block> Blocks => Set<Block>();
+    public DbSet<AdminAuditLogEntry> AdminAuditLogEntries => Set<AdminAuditLogEntry>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -188,5 +189,11 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Block>()
             .HasIndex(b => new { b.BlockerId, b.BlockedId })
             .IsUnique();
+
+        // AdminController's dashboard lists recent admin actions newest-first
+        // (mirrors ModerationLogEntry's own index, minus GuildServerId since
+        // this log is global, not per-server).
+        modelBuilder.Entity<AdminAuditLogEntry>()
+            .HasIndex(a => a.CreatedAt);
     }
 }

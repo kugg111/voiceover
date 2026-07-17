@@ -8,6 +8,12 @@ public class User
     public string? AvatarUrl { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
+    // Gates AdminController - checked fresh from the DB on every admin
+    // request (never baked into the JWT, which only carries
+    // NameIdentifier/Name - see JwtTokenService), so revoking access
+    // takes effect immediately rather than waiting for a token to expire.
+    public bool IsAdmin { get; set; } = false;
+
     // Free-text custom status ("brb", "working", etc.) - unlike
     // PresenceState (Online/Away, entirely in-memory - see
     // PresenceService) this is account data the user sets deliberately, so

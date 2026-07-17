@@ -118,6 +118,7 @@ builder.Services.AddSingleton<LiveKitTokenService>();
 builder.Services.AddScoped<PermissionService>();
 builder.Services.AddScoped<ModerationLogService>();
 builder.Services.AddScoped<ServerDeletionService>();
+builder.Services.AddScoped<AdminService>();
 // SendMessage/SendDirectMessage anti-spam - see MessageRateLimiter for why
 // this can't just be the HTTP rate limiter below (SignalR hub calls don't
 // go through the HTTP middleware pipeline at all).
@@ -196,6 +197,19 @@ builder.Services.AddRateLimiter(options =>
         factory: _ => new FixedWindowRateLimiterOptions
         {
             PermitLimit = 20,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0
+        }));
+
+    // Admin dashboard (AdminController): looser than "search" since
+    // browsing fires several GETs per click (list -> detail ->
+    // channels/members) - this isn't the real access control anyway
+    // (AdminService.IsAdminAsync is), just a sanity bound.
+    options.AddPolicy("admin", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "unknown",
+        factory: _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 30,
             Window = TimeSpan.FromMinutes(1),
             QueueLimit = 0
         }));
