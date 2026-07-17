@@ -107,14 +107,24 @@ public class AdminService
         return AdminActionResult.Success;
     }
 
-    public async Task<List<AdminUserSearchResponse>> SearchUsersAsync(string username)
+    // Browses all users, optionally narrowed by a username substring filter
+    // (backed by the same pg_trgm index UsersController.Search uses),
+    // paginated like every other list endpoint (PaginationLimits.Clamp,
+    // ordered for stable Skip/Take). Unlike that endpoint this has no
+    // minimum filter length - it's a browse-with-optional-filter admin
+    // page, not an autocomplete firing on every keystroke, and pagination
+    // already bounds each page's result size regardless of how broad the
+    // filter is.
+    public async Task<List<AdminUserSearchResponse>> GetUsersAsync(string? usernameFilter, int? take, int? skip)
     {
-        if (string.IsNullOrWhiteSpace(username) || username.Trim().Length < 2)
-            return new List<AdminUserSearchResponse>();
+        var query = _db.Users.AsQueryable();
+        if (!string.IsNullOrWhiteSpace(usernameFilter))
+            query = query.Where(u => u.Username.Contains(usernameFilter));
 
-        return await _db.Users
-            .Where(u => u.Username.Contains(username))
-            .Take(10)
+        query = query.OrderBy(u => u.Username).Skip(skip ?? 0);
+        if (PaginationLimits.Clamp(take) is { } clampedTake) query = query.Take(clampedTake);
+
+        return await query
             .Select(u => new AdminUserSearchResponse(u.Id, u.Username, u.CreatedAt, u.IsAdmin))
             .ToListAsync();
     }

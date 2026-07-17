@@ -219,9 +219,14 @@
 
   <div id="users-page" class="hidden">
     <div id="user-search-box">
-      <input type="text" id="user-search-input" placeholder="Search users by username&hellip; (min. 2 characters)">
+      <input type="text" id="user-search-input" placeholder="Filter by username&hellip;">
     </div>
     <div id="user-search-results"></div>
+    <div id="user-pagination" style="display:flex; align-items:center; gap:12px; margin-top:8px;">
+      <button class="secondary" id="user-prev-page">&larr; Prev</button>
+      <span id="user-page-label" style="font-size:13px; color:var(--text-muted);"></span>
+      <button class="secondary" id="user-next-page">Next &rarr;</button>
+    </div>
   </div>
 </div>
 
@@ -269,6 +274,7 @@
     document.getElementById('nav-servers').classList.remove('active');
     document.getElementById('users-page').classList.remove('hidden');
     document.getElementById('servers-page').classList.add('hidden');
+    loadUsers();
   }
 
   document.getElementById('nav-servers').addEventListener('click', showServersPage);
@@ -424,53 +430,83 @@
     loadServers();
   });
 
-  // --- User search / rename / reset password ---
+  // --- User list (paginated, optional username filter) / rename / reset password ---
+
+  var USERS_PAGE_SIZE = 20;
+  var usersPage = 0; // 0-based
+  var usersFilter = '';
 
   var searchDebounce = null;
   document.getElementById('user-search-input').addEventListener('input', function (e) {
-    var query = e.target.value;
     clearTimeout(searchDebounce);
-    searchDebounce = setTimeout(function () { searchUsers(query); }, 250);
+    searchDebounce = setTimeout(function () {
+      usersFilter = e.target.value.trim();
+      usersPage = 0;
+      loadUsers();
+    }, 250);
   });
 
-  function searchUsers(query) {
-    var results = document.getElementById('user-search-results');
-    if (!query || query.trim().length < 2) { results.innerHTML = ''; return; }
+  document.getElementById('user-prev-page').addEventListener('click', function () {
+    if (usersPage === 0) return;
+    usersPage--;
+    loadUsers();
+  });
 
-    adminFetch('/api/admin/users/search?username=' + encodeURIComponent(query))
+  document.getElementById('user-next-page').addEventListener('click', function () {
+    usersPage++;
+    loadUsers();
+  });
+
+  function loadUsers() {
+    var url = '/api/admin/users/search?take=' + USERS_PAGE_SIZE + '&skip=' + (usersPage * USERS_PAGE_SIZE);
+    if (usersFilter) url += '&username=' + encodeURIComponent(usersFilter);
+
+    adminFetch(url)
       .then(function (res) { return res.json(); })
       .then(function (users) {
+        var results = document.getElementById('user-search-results');
         results.innerHTML = '';
-        if (users.length === 0) return;
 
-        var table = document.createElement('table');
-        table.innerHTML = '<thead><tr><th>Username</th><th>Created</th><th>Admin</th><th></th></tr></thead>';
-        var body = document.createElement('tbody');
-        users.forEach(function (u) {
-          var tr = document.createElement('tr');
-          tr.innerHTML =
-            '<td>' + escapeHtml(u.username) + '</td>' +
-            '<td>' + fmtDate(u.createdAt) + '</td>' +
-            '<td>' + (u.isAdmin ? 'Yes' : '') + '</td>' +
-            '<td class="row-actions"></td>';
-          var actions = tr.querySelector('.row-actions');
+        if (users.length > 0) {
+          var table = document.createElement('table');
+          table.innerHTML = '<thead><tr><th>Username</th><th>Created</th><th>Admin</th><th></th></tr></thead>';
+          var body = document.createElement('tbody');
+          users.forEach(function (u) {
+            var tr = document.createElement('tr');
+            tr.innerHTML =
+              '<td>' + escapeHtml(u.username) + '</td>' +
+              '<td>' + fmtDate(u.createdAt) + '</td>' +
+              '<td>' + (u.isAdmin ? 'Yes' : '') + '</td>' +
+              '<td class="row-actions"></td>';
+            var actions = tr.querySelector('.row-actions');
 
-          var renameBtn = document.createElement('button');
-          renameBtn.className = 'secondary';
-          renameBtn.textContent = 'Rename';
-          renameBtn.addEventListener('click', function () { openRenameModal(u); });
-          actions.appendChild(renameBtn);
+            var renameBtn = document.createElement('button');
+            renameBtn.className = 'secondary';
+            renameBtn.textContent = 'Rename';
+            renameBtn.addEventListener('click', function () { openRenameModal(u); });
+            actions.appendChild(renameBtn);
 
-          var resetBtn = document.createElement('button');
-          resetBtn.className = 'danger';
-          resetBtn.textContent = 'Reset password';
-          resetBtn.addEventListener('click', function () { openResetPasswordModal(u); });
-          actions.appendChild(resetBtn);
+            var resetBtn = document.createElement('button');
+            resetBtn.className = 'danger';
+            resetBtn.textContent = 'Reset password';
+            resetBtn.addEventListener('click', function () { openResetPasswordModal(u); });
+            actions.appendChild(resetBtn);
 
-          body.appendChild(tr);
-        });
-        table.appendChild(body);
-        results.appendChild(table);
+            body.appendChild(tr);
+          });
+          table.appendChild(body);
+          results.appendChild(table);
+        } else if (usersPage === 0) {
+          results.innerHTML = '<p style="color:var(--text-muted); font-size:13px;">No users found.</p>';
+        }
+
+        // No total-count query (matches PaginationLimits' own "don't need
+        // exact counts for these lists" reasoning elsewhere) - a full page
+        // means there's likely a next page, a short page means this is the
+        // last one.
+        document.getElementById('user-prev-page').disabled = usersPage === 0;
+        document.getElementById('user-next-page').disabled = users.length < USERS_PAGE_SIZE;
+        document.getElementById('user-page-label').textContent = 'Page ' + (usersPage + 1);
       });
   }
 
@@ -493,7 +529,7 @@
         }).then(function (res) {
           if (!res.ok) return res.text().then(function (t) { throw new Error(t || 'Rename failed.'); });
           closeModal();
-          searchUsers(document.getElementById('user-search-input').value);
+          loadUsers();
         }).catch(function (err) {
           document.getElementById('modal-status').textContent = err.message;
         });

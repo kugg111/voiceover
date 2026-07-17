@@ -56,10 +56,10 @@ public class AdminController : ControllerBase
     }
 
     [HttpGet("users/search")]
-    public async Task<ActionResult<List<AdminUserSearchResponse>>> SearchUsers(string username)
+    public async Task<ActionResult<List<AdminUserSearchResponse>>> GetUsers(string? username = null, int? take = null, int? skip = null)
     {
         if (!await _admin.IsAdminAsync(CurrentUserId)) return Forbid();
-        return Ok(await _admin.SearchUsersAsync(username));
+        return Ok(await _admin.GetUsersAsync(username, take, skip));
     }
 
     [HttpPut("users/{id:int}/username")]

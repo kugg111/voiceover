@@ -154,15 +154,36 @@ public class AdminServiceTests
     }
 
     [Fact]
-    public async Task SearchUsersAsync_RespectsTwoCharFloor()
+    public async Task GetUsersAsync_NoFilter_ReturnsAllUsers_PaginatedAndOrderedByUsername()
+    {
+        var db = CreateDb();
+        db.Users.Add(new User { Username = "charlie" });
+        db.Users.Add(new User { Username = "alice" });
+        db.Users.Add(new User { Username = "bob" });
+        await db.SaveChangesAsync();
+
+        var page1 = await CreateAdminService(db).GetUsersAsync(null, take: 2, skip: 0);
+        var page2 = await CreateAdminService(db).GetUsersAsync(null, take: 2, skip: 2);
+
+        Assert.Equal(new[] { "alice", "bob" }, page1.Select(u => u.Username));
+        Assert.Equal(new[] { "charlie" }, page2.Select(u => u.Username));
+    }
+
+    [Fact]
+    public async Task GetUsersAsync_WithFilter_OnlyReturnsMatchingUsers_EvenForASingleCharacter()
     {
         var db = CreateDb();
         db.Users.Add(new User { Username = "alice" });
+        db.Users.Add(new User { Username = "bob" });
         await db.SaveChangesAsync();
 
-        var result = await CreateAdminService(db).SearchUsersAsync("a");
+        // No minimum filter length - unlike UsersController.Search, this is
+        // a browse-with-optional-filter admin page, not an autocomplete
+        // firing on every keystroke, and pagination already bounds result
+        // size regardless of filter breadth.
+        var result = await CreateAdminService(db).GetUsersAsync("a", take: 20, skip: 0);
 
-        Assert.Empty(result);
+        Assert.Equal(new[] { "alice" }, result.Select(u => u.Username));
     }
 
     [Fact]
