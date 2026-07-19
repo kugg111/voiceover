@@ -142,21 +142,16 @@ public partial class VoiceSettingsPanel : UserControl
     private void UpdateSuppressionMixDisplay() =>
         SuppressionMixDisplay.Text = $"{SuppressionMixSlider.Value:0}%";
 
-    // NSNet2's own overlap-add reconstruction, plus the inherent lag of
-    // re-processing a sliding window, gives it real algorithmic delay -
-    // blending its output against the undelayed raw signal sums a signal
-    // with a delayed copy of itself (comb filtering, heard as an echo/
-    // "doubling" artifact). NoiseSuppressionProcessor.ProcessFrame enforces
-    // this same rule server-side (always full strength for this backend);
-    // this just keeps the slider from looking like it does something it
-    // doesn't.
+    // NSNet2's own overlap-add reconstruction gives it real, fixed
+    // algorithmic delay. NoiseSuppressionProcessor.ProcessFrame runs the
+    // dry signal through a matching delay line before blending for this
+    // backend specifically, so the slider is safe to use for either engine
+    // without the comb-filtering ("echo"/"doubling") that blending against
+    // an undelayed raw signal would cause.
     private void UpdateSuppressionMixAvailability()
     {
-        bool supported = _voice!.NoiseSuppressionBackend != NoiseSuppressionBackend.Nsnet2;
-        SuppressionMixSlider.IsEnabled = supported;
-        SuppressionMixHelpText.Text = supported
-            ? "Blends the suppressed signal with your raw mic - applies no matter which engine is selected above. 100% is fully processed; lower this if the engine is eating quiet parts of your voice."
-            : "Not available for NSNet2 - its filtering has real processing delay, so blending with your undelayed raw mic causes an echo/doubling artifact. NSNet2 always runs at full strength when enabled.";
+        SuppressionMixSlider.IsEnabled = true;
+        SuppressionMixHelpText.Text = "Blends the suppressed signal with your raw mic - applies no matter which engine is selected above. 100% is fully processed; lower this if the engine is eating quiet parts of your voice.";
     }
 
     // Records ~3s from the selected input device, runs it through a

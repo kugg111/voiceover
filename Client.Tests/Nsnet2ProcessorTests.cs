@@ -148,4 +148,59 @@ public class Nsnet2ProcessorTests
 
         Assert.InRange(outRms / inRms, 0.95, 1.05);
     }
+
+    // Measures the real, fixed algorithmic delay of Denoise() end-to-end
+    // (STFT analysis + OLA synthesis + the 960-sample call/queue
+    // quantization all together, through the real model) rather than
+    // trusting a by-hand derivation - this number becomes the compensating
+    // delay NoiseSuppressionProcessor applies to the dry signal so NSNet2's
+    // Suppression Mix slider can be enabled without comb-filtering, so
+    // getting it wrong would silently reintroduce that exact bug.
+    //
+    // Call size matters here, not just WinLen/Hop: Denoise() is always
+    // called with exactly 960 samples (WinLen) per the class's own
+    // contract, and because 960 isn't a multiple of Hop (512), the queue's
+    // fill level - and therefore how many samples are available to
+    // dequeue - varies call to call. That makes the steady-state delay a
+    // property of the 960-sample call cadence, not just WinLen-Hop.
+    [Fact]
+    public void Denoise_HasFixedAlgorithmicDelay_Of896Samples()
+    {
+        using var processor = CreateProcessor();
+
+        const int totalSamples = 48000 * 3;
+        const int impulsePosition = 48000; // 1s in, well past the startup transient
+        var signal = new float[totalSamples];
+        signal[impulsePosition] = 1.0f;
+
+        var output = new float[totalSamples];
+        var frame = new float[960];
+        for (var start = 0; start + 960 <= totalSamples; start += 960)
+        {
+            Array.Copy(signal, start, frame, 0, 960);
+            processor.Denoise(frame);
+            Array.Copy(frame, 0, output, start, 960);
+        }
+
+        var peakIndex = 0;
+        var peakValue = 0f;
+        for (var i = 0; i < totalSamples; i++)
+        {
+            var abs = Math.Abs(output[i]);
+            if (abs > peakValue)
+            {
+                peakValue = abs;
+                peakIndex = i;
+            }
+        }
+
+        var measuredDelay = peakIndex - impulsePosition;
+
+        // A magnitude-only gain mask can smear a single-sample impulse
+        // slightly (it's a frequency-domain multiply, i.e. a time-domain
+        // convolution with the gain's own compact impulse response), so
+        // assert the peak lands at the expected delay rather than
+        // requiring an exact sample match.
+        Assert.Equal(896, measuredDelay);
+    }
 }

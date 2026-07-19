@@ -13,7 +13,23 @@ namespace Voiceover.Client.Services;
 internal class NoiseSuppressionProcessor : IDisposable
 {
     public bool Enabled { get; set; } = true;
-    public NoiseSuppressionBackend Backend { get; set; } = NoiseSuppressionBackend.RNNoise;
+
+    private NoiseSuppressionBackend _backend = NoiseSuppressionBackend.RNNoise;
+    public NoiseSuppressionBackend Backend
+    {
+        get => _backend;
+        set
+        {
+            if (_backend == value) return;
+            _backend = value;
+            // Drop whatever's mid-flight in the NSNet2 delay line - it
+            // holds raw samples captured while NSNet2 was last selected,
+            // which would otherwise get blended against fresh audio after
+            // a backend switch (a stale, wrong-content ~18ms blip instead
+            // of a clean one).
+            _nsnet2DryDelayLine.Clear();
+        }
+    }
 
     // Boosts quiet mics ("only picks up from really close") - applied after
     // suppression/mix, same tanh soft-knee limiter as before this existed.
@@ -48,6 +64,19 @@ internal class NoiseSuppressionProcessor : IDisposable
     private short[] _mixOriginalScratch = Array.Empty<short>();
     private float[] _rnnoiseScratch = Array.Empty<float>();
     private float[] _nsnet2Scratch = Array.Empty<float>();
+
+    // NSNet2's fixed algorithmic delay, measured empirically (not derived
+    // by hand alone) in Nsnet2ProcessorTests.
+    // Denoise_HasFixedAlgorithmicDelay_Of896Samples: the real 960-sample
+    // call cadence against its 512-sample hop produces an exact, constant
+    // 896-sample lag between a raw sample arriving and its processed
+    // counterpart coming out. Running the dry signal through a matching
+    // fixed-delay FIFO before blending keeps dry/wet time-aligned, so
+    // mixing them doesn't comb-filter the way blending against the
+    // undelayed raw signal would.
+    private const int Nsnet2DelaySamples = 896;
+    private readonly Queue<short> _nsnet2DryDelayLine = new();
+    private short[] _nsnet2DelayedDryScratch = Array.Empty<short>();
 
     private readonly Stopwatch _stopwatch = new();
 
@@ -85,19 +114,29 @@ internal class NoiseSuppressionProcessor : IDisposable
 
         if (Enabled)
         {
-            // NSNet2's own overlap-add reconstruction, plus the inherent
-            // lag of its sliding-window approach, gives it real
-            // algorithmic delay - blending its output sample-for-sample
-            // against the (undelayed) raw signal sums a signal with a
-            // delayed copy of itself, comb filtering ("echo"/"doubling").
-            // NSNet2 always runs at full strength when enabled - the UI
-            // (VoiceSettingsPanel) disables the Suppression Mix slider for
-            // this backend to match.
-            bool blending = SuppressionMix < 1f && Backend != NoiseSuppressionBackend.Nsnet2;
-            if (blending)
+            bool blending = SuppressionMix < 1f;
+            short[]? dryReference = null;
+
+            if (Backend == NoiseSuppressionBackend.Nsnet2)
+            {
+                // Keep the delay line fed every frame NSNet2 is selected,
+                // not only while blending is active, so toggling the mix
+                // slider mid-call never hits a cold, zero-filled start.
+                if (_nsnet2DelayedDryScratch.Length < pcm.Length) _nsnet2DelayedDryScratch = new short[pcm.Length];
+                for (int i = 0; i < pcm.Length; i++)
+                {
+                    _nsnet2DryDelayLine.Enqueue(pcm[i]);
+                    _nsnet2DelayedDryScratch[i] = _nsnet2DryDelayLine.Count > Nsnet2DelaySamples
+                        ? _nsnet2DryDelayLine.Dequeue()
+                        : (short)0;
+                }
+                if (blending) dryReference = _nsnet2DelayedDryScratch;
+            }
+            else if (blending)
             {
                 if (_mixOriginalScratch.Length < pcm.Length) _mixOriginalScratch = new short[pcm.Length];
                 Array.Copy(pcm, _mixOriginalScratch, pcm.Length);
+                dryReference = _mixOriginalScratch;
             }
 
             switch (Backend)
@@ -110,11 +149,11 @@ internal class NoiseSuppressionProcessor : IDisposable
                     break;
             }
 
-            if (blending)
+            if (dryReference is not null)
             {
                 for (int i = 0; i < pcm.Length; i++)
                 {
-                    float blended = _mixOriginalScratch[i] * (1 - SuppressionMix) + pcm[i] * SuppressionMix;
+                    float blended = dryReference[i] * (1 - SuppressionMix) + pcm[i] * SuppressionMix;
                     pcm[i] = (short)Math.Clamp(blended, short.MinValue, short.MaxValue);
                 }
             }
