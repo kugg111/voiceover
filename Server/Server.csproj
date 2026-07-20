@@ -5,6 +5,16 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <UserSecretsId>voiceover-server</UserSecretsId>
+    <!-- The Web SDK defaults to Server GC, which allocates a separate heap
+         per available core and is tuned for throughput over footprint - for
+         a single-instance app at this traffic level (a handful of
+         concurrent users) that's most of the ~1GB idle RSS seen in
+         production, not actual load. Workstation GC uses one small heap and
+         comfortably handles far more than this app's real throughput;
+         concurrent GC keeps it non-blocking so this isn't a latency
+         tradeoff, just a memory one. -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
   </PropertyGroup>
 
   <ItemGroup>
