@@ -25,8 +25,9 @@ public class AdminServiceTests
     // AdminService only ever fires a best-effort broadcast after the DB
     // write already succeeded, so a no-op here doesn't hide anything the
     // tests below actually need to verify.
-    private static AdminService CreateAdminService(AppDbContext db) =>
-        new(db, new ServerDeletionService(db), new NoOpHubContext());
+    private static AdminService CreateAdminService(AppDbContext db, string? uploadsDir = null) =>
+        new(db, new ServerDeletionService(db), new NoOpHubContext(),
+            new UploadsPathOptions(uploadsDir ?? Path.Combine(Path.GetTempPath(), "nonexistent-" + Guid.NewGuid())));
 
     private sealed class NoOpHubContext : IHubContext<ChatHub>
     {
@@ -420,5 +421,51 @@ public class AdminServiceTests
         var result = await CreateAdminService(db).DeleteServerAsync(1, "admin", 999);
 
         Assert.Equal(AdminActionResult.TargetNotFound, result);
+    }
+
+    [Fact]
+    public async Task MigrateUploadsFromDiskAsync_ReturnsZero_WhenDirectoryDoesNotExist()
+    {
+        var db = CreateDb();
+
+        var result = await CreateAdminService(db).MigrateUploadsFromDiskAsync();
+
+        Assert.Equal(0, result.Imported);
+        Assert.Equal(0, result.Skipped);
+    }
+
+    [Fact]
+    public async Task MigrateUploadsFromDiskAsync_ImportsNewFiles_AndSkipsAlreadyPresentOnes()
+    {
+        var db = CreateDb();
+        db.StoredFiles.Add(new StoredFile { FileName = "already-imported.png", ContentType = "image/png", Data = [1, 2, 3], Size = 3 });
+        await db.SaveChangesAsync();
+
+        var dir = Path.Combine(Path.GetTempPath(), "uploads-migration-test-" + Guid.NewGuid());
+        Directory.CreateDirectory(dir);
+        try
+        {
+            await File.WriteAllBytesAsync(Path.Combine(dir, "already-imported.png"), [9, 9, 9]);
+            var newFileBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47 };
+            await File.WriteAllBytesAsync(Path.Combine(dir, "brand-new.png"), newFileBytes);
+
+            var result = await CreateAdminService(db, dir).MigrateUploadsFromDiskAsync();
+
+            Assert.Equal(1, result.Imported);
+            Assert.Equal(1, result.Skipped);
+
+            // The pre-existing DB row must win - not overwritten by the file on disk.
+            var untouched = await db.StoredFiles.FindAsync("already-imported.png");
+            Assert.Equal(new byte[] { 1, 2, 3 }, untouched!.Data);
+
+            var imported = await db.StoredFiles.FindAsync("brand-new.png");
+            Assert.NotNull(imported);
+            Assert.Equal(newFileBytes, imported!.Data);
+            Assert.Equal("image/png", imported.ContentType);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
     }
 }

@@ -38,14 +38,19 @@ download the Windows installer or a portable ZIP from the landing page.
   system audio (WASAPI loopback) published alongside the video
 - **Noise suppression**: two selectable engines — RNNoise and
   [NSNet2](https://github.com/microsoft/DNS-Challenge) — real denoisers, not
-  a hand-rolled volume gate
+  a hand-rolled volume gate. NSNet2 can run on the GPU (DirectML, any DX12
+  adapter, selectable when more than one is installed) instead of the CPU,
+  and an optional Silero VAD pre-roll gate mutes confidently-silent stretches
+  before they reach the denoiser
 - **Presence**: Online / Away / Offline status, Away triggered by
   real system idle detection; custom status text visible to friends and
   server members
 - **Avatars & server icons**, toast/sound notifications gated on window
   focus, missed-call notifications
-- **Self-updating client**: checks for new releases and installs them in the
-  background, no manual download needed after the first install
+- **Self-updating client**: a pre-login screen checks for new releases before
+  the login window even appears, offering to install in the background — no
+  manual download needed after the first install. Updates can also be
+  flagged mandatory, blocking login until the user updates
 - **Security hardening**: ASP.NET Core rate limiting on auth/messages/calls,
   TLS-required Postgres connection, short-lived JWTs with server-side
   revocation, DM content encrypted at rest
@@ -53,6 +58,9 @@ download the Windows installer or a portable ZIP from the landing page.
   Discord-inspired dark theme — settings, moderation tools, and other
   secondary views are in-window pages inside the main window rather than
   separate popups
+- **Admin dashboard**: a web page (`/admin`) gated behind an `IsAdmin` flag
+  on the account, for developer use — browse servers/channels/members,
+  search users, rename an account or reset its password, delete a server
 
 ## Architecture
 
@@ -78,13 +86,15 @@ Server/                 ASP.NET Core Web API + SignalR
   Data/                 AppDbContext + migrations
   Services/             PermissionService, PresenceService, VoicePresenceService,
                          LiveKitTokenService, CallSignalingService,
-                         MessageRateLimiter, CallRateLimiter, UserAvatarCache
+                         MessageRateLimiter, CallRateLimiter, UserAvatarCache,
+                         AdminService
   Controllers/          Auth, Servers, Channels, Messages, Invites, Users,
-                         Friends, DirectMessages, Upload, Calls
+                         Friends, DirectMessages, Upload, Calls, Admin
   Hubs/ChatHub.cs        messages, typing, DMs, voice/presence signaling,
                          private call signaling (ring/accept/decline/end)
   Auth/                  JWT token issuing/validation
-  Site/                  Public landing page (served at the app's root URL)
+  Site/                  Public landing page (served at the app's root URL);
+                         admin/ is the developer dashboard (see Features)
 Client/                  WPF desktop app
   Views/                 LoginWindow, RegisterWindow, MainWindow — hosts most
                          secondary UI as in-window pages via a PageHost/
@@ -94,13 +104,16 @@ Client/                  WPF desktop app
                          EditPermissionsPage) instead of separate popup
                          windows. Remaining popups are InvitesWindow,
                          CallWindow (a non-modal call HUD),
-                         ScreenShareViewerWindow, and ToastNotificationWindow.
+                         ScreenShareViewerWindow, ToastNotificationWindow,
+                         and UpdateGateWindow (pre-login update check).
                          Shared controls: AvatarView, VoiceSettingsPanel
   Services/              ApiService (REST), SignalRService (real-time),
                          VoiceService + MicCaptureSource/ScreenCaptureSource/
                          ScreenAudioCaptureSource (LiveKit audio/video,
-                         noise suppression, screen share), E2eeService,
-                         IdleDetector, SelfUpdateService
+                         noise suppression, screen share), NoiseSuppressionProcessor
+                         (RNNoise/NSNet2 + GPU backend + Silero VAD pre-roll
+                         gate), GpuDeviceService, E2eeService, IdleDetector,
+                         SelfUpdateService
   Models/                Client-side DTOs
   installer/             Inno Setup script for the Windows installer
 ```
@@ -138,8 +151,9 @@ Client/                  WPF desktop app
   auth, BCrypt, Serilog (console + Postgres sink)
 - **Client**: WPF (.NET 8), WPF-UI (Fluent Design), NAudio (device/loopback
   capture), LiveKit's .NET client SDK, Windows.Graphics.Capture (screen share)
-- **Voice/video**: self-hosted LiveKit SFU; RNNoise / NSNet2 (ONNX Runtime)
-  for noise suppression
+- **Voice/video**: self-hosted LiveKit SFU; RNNoise / NSNet2 (ONNX Runtime,
+  optionally DirectML GPU-accelerated) for noise suppression, with a
+  Silero VAD (ONNX Runtime) pre-gate
 - **Encryption**: ECDH (P-256) + HKDF + AES-256-GCM, entirely client-side
 - **Deployment**: server on [Railway](https://railway.app/) with a managed
   Postgres add-on; client installer/ZIP hosted as GitHub Releases

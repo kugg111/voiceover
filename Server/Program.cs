@@ -73,19 +73,16 @@ builder.Host.UseSerilog((context, config) => config
 var port = Environment.GetEnvironmentVariable("PORT") ?? "5220";
 builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 
-// DATA_DIR points at a persistent volume in production (uploaded files need
-// to survive redeploys/restarts, unlike the rest of the container
-// filesystem). Falls back to the existing local-dev location when unset.
-// The database itself lives in a separate managed Postgres service (see
-// below), not on this volume.
+// Uploaded files (avatars/icons/attachments) now live in the StoredFiles
+// table, not on disk - see UploadController and StoredFile. DATA_DIR/
+// uploadsDir is kept only to locate whatever's left on the old Railway
+// volume for AdminService's one-time migrate-uploads endpoint to import;
+// once that's run in production this can be deleted along with the volume
+// itself. Falls back to the pre-migration local-dev location when unset.
 var dataDir = Environment.GetEnvironmentVariable("DATA_DIR");
 var uploadsDir = dataDir is not null
     ? Path.Combine(dataDir, "uploads")
     : Path.Combine(builder.Environment.ContentRootPath, "wwwroot", "uploads");
-
-if (dataDir is not null)
-    Directory.CreateDirectory(dataDir);
-Directory.CreateDirectory(uploadsDir);
 
 // Public landing page + client download, bundled with the app (see the
 // app.UseStaticFiles calls below).
@@ -332,27 +329,11 @@ app.UseStaticFiles(new StaticFileOptions { FileProvider = new PhysicalFileProvid
 app.UseAuthentication();
 app.UseAuthorization();
 
-// /uploads (avatars/icons/attachments) previously had no auth at all - now
-// gated to "must be a logged-in app user," not per-file ownership (mapping
-// every upload URL back to a specific message/membership would need new
-// tracking this app doesn't have - a deliberate, narrower fix). Must come
-// after UseAuthentication above so HttpContext.User is populated from
-// either the bearer header or the access_token query param (see the
-// JwtBearerEvents.OnMessageReceived override above).
-app.Use(async (context, next) =>
-{
-    if (context.Request.Path.StartsWithSegments("/uploads") && context.User.Identity?.IsAuthenticated != true)
-    {
-        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-        return;
-    }
-    await next();
-});
-app.UseStaticFiles(new StaticFileOptions
-{
-    FileProvider = new PhysicalFileProvider(uploadsDir),
-    RequestPath = "/uploads"
-});
+// /uploads (avatars/icons/attachments) used to be a PhysicalFileProvider
+// static-file route gated by a manual middleware check here; it's now just
+// UploadController.GetFile, an ordinary [Authorize] MVC action reading from
+// the StoredFiles table - see UploadController for the "must be a logged-in
+// app user, not per-file ownership" reasoning that gate used to document.
 
 // After auth: the "invites" policy partitions by the authenticated user,
 // which needs HttpContext.User already populated by UseAuthentication above.

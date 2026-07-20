@@ -24,6 +24,7 @@ public class AppDbContext : DbContext
     public DbSet<ModerationLogEntry> ModerationLogEntries => Set<ModerationLogEntry>();
     public DbSet<Block> Blocks => Set<Block>();
     public DbSet<AdminAuditLogEntry> AdminAuditLogEntries => Set<AdminAuditLogEntry>();
+    public DbSet<StoredFile> StoredFiles => Set<StoredFile>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -195,5 +196,12 @@ public class AppDbContext : DbContext
         // this log is global, not per-server).
         modelBuilder.Entity<AdminAuditLogEntry>()
             .HasIndex(a => a.CreatedAt);
+
+        // FileName (the GUID+extension UploadController generates) is the
+        // natural key here - every AvatarUrl/IconUrl/AttachmentUrl column
+        // already stores "/uploads/{FileName}", so looking rows up by it
+        // directly avoids needing a separate surrogate id anywhere.
+        modelBuilder.Entity<StoredFile>()
+            .HasKey(f => f.FileName);
     }
 }

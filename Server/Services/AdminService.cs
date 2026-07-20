@@ -18,12 +18,14 @@ public class AdminService
     private readonly AppDbContext _db;
     private readonly ServerDeletionService _serverDeletion;
     private readonly IHubContext<ChatHub> _hub;
+    private readonly UploadsPathOptions _uploadsPath;
 
-    public AdminService(AppDbContext db, ServerDeletionService serverDeletion, IHubContext<ChatHub> hub)
+    public AdminService(AppDbContext db, ServerDeletionService serverDeletion, IHubContext<ChatHub> hub, UploadsPathOptions uploadsPath)
     {
         _db = db;
         _serverDeletion = serverDeletion;
         _hub = hub;
+        _uploadsPath = uploadsPath;
     }
 
     public async Task<bool> IsAdminAsync(int userId) =>
@@ -216,6 +218,42 @@ public class AdminService
         return AdminActionResult.Success;
     }
 
+    // One-time backfill for whatever's still sitting on the old Railway
+    // volume (see Program.cs's uploadsDir/DATA_DIR comment) from before
+    // uploads moved into the StoredFiles table. Safe to call more than
+    // once - already-imported files are skipped by FileName, so re-running
+    // this after the volume is fully migrated (or with no volume at all,
+    // locally) is just a no-op. Not exposed to regular users; triggered
+    // once from the admin dashboard after deploying this change.
+    public async Task<AdminUploadMigrationResult> MigrateUploadsFromDiskAsync()
+    {
+        if (!Directory.Exists(_uploadsPath.Path))
+            return new AdminUploadMigrationResult(0, 0);
+
+        var existingNames = await _db.StoredFiles.Select(f => f.FileName).ToListAsync();
+        var existing = new HashSet<string>(existingNames, StringComparer.OrdinalIgnoreCase);
+
+        int imported = 0, skipped = 0;
+        foreach (var path in Directory.EnumerateFiles(_uploadsPath.Path))
+        {
+            var fileName = Path.GetFileName(path);
+            if (existing.Contains(fileName)) { skipped++; continue; }
+
+            var bytes = await File.ReadAllBytesAsync(path);
+            _db.StoredFiles.Add(new StoredFile
+            {
+                FileName = fileName,
+                ContentType = UploadContentTypes.Resolve(Path.GetExtension(fileName)),
+                Data = bytes,
+                Size = bytes.Length
+            });
+            imported++;
+        }
+
+        await _db.SaveChangesAsync();
+        return new AdminUploadMigrationResult(imported, skipped);
+    }
+
     private void LogAdminAction(int actorId, string actorUsername, string action,
         int? targetId, string? targetUsername, string? details) =>
         _db.AdminAuditLogEntries.Add(new AdminAuditLogEntry
@@ -239,3 +277,4 @@ public record AdminChannelResponse(int Id, string Name, string Type, int Positio
 public record AdminMemberResponse(int UserId, string Username, string Role, DateTime JoinedAt);
 public record AdminServerDetailResponse(AdminServerSummaryResponse Server, List<AdminChannelResponse> Channels, List<AdminMemberResponse> Members);
 public record AdminUserSearchResponse(int Id, string Username, DateTime CreatedAt, bool IsAdmin);
+public record AdminUploadMigrationResult(int Imported, int Skipped);

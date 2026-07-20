@@ -176,7 +176,11 @@
 <div id="dashboard" class="hidden">
   <header>
     <h1>Voiceover Admin</h1>
-    <button class="secondary" id="logout-button">Log Out</button>
+    <div style="display:flex; align-items:center; gap:12px;">
+      <span id="migrate-uploads-status" style="font-size:12px; color:var(--text-muted);"></span>
+      <button class="secondary" id="migrate-uploads-button">Migrate uploads to DB</button>
+      <button class="secondary" id="logout-button">Log Out</button>
+    </div>
   </header>
 
   <nav>
@@ -324,6 +328,28 @@
 
   document.getElementById('logout-button').addEventListener('click', function () {
     showLogin('');
+  });
+
+  // One-time (but safe to click more than once - already-imported files are
+  // skipped) backfill of whatever's left on the old Railway volume into the
+  // StoredFiles table now backing /uploads - see AdminService.
+  // MigrateUploadsFromDiskAsync.
+  document.getElementById('migrate-uploads-button').addEventListener('click', function () {
+    var status = document.getElementById('migrate-uploads-status');
+    var button = document.getElementById('migrate-uploads-button');
+    button.disabled = true;
+    status.textContent = 'Migrating…';
+    adminFetch('/api/admin/migrate-uploads', { method: 'POST' })
+      .then(function (res) { return res.json(); })
+      .then(function (result) {
+        status.textContent = 'Imported ' + result.imported + ', skipped ' + result.skipped + ' (already present).';
+      })
+      .catch(function () {
+        status.textContent = 'Migration failed.';
+      })
+      .finally(function () {
+        button.disabled = false;
+      });
   });
 
   // --- Server list / detail ---

@@ -55,6 +55,17 @@ public class AdminController : ControllerBase
         return result == AdminActionResult.TargetNotFound ? NotFound() : Ok();
     }
 
+    // One-time button on the admin dashboard to backfill whatever's left on
+    // the old Railway volume into StoredFiles - see AdminService.
+    // MigrateUploadsFromDiskAsync for why this is safe to click more than
+    // once.
+    [HttpPost("migrate-uploads")]
+    public async Task<ActionResult<AdminUploadMigrationResult>> MigrateUploads()
+    {
+        if (!await _admin.IsAdminAsync(CurrentUserId)) return Forbid();
+        return Ok(await _admin.MigrateUploadsFromDiskAsync());
+    }
+
     [HttpGet("users/search")]
     public async Task<ActionResult<List<AdminUserSearchResponse>>> GetUsers(string? username = null, int? take = null, int? skip = null)
     {

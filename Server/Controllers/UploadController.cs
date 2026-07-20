@@ -1,6 +1,10 @@
+using Voiceover.Server.Data;
 using Voiceover.Server.Dtos;
+using Voiceover.Server.Models;
+using Voiceover.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace Voiceover.Server.Controllers;
 
@@ -16,8 +20,8 @@ public class UploadController : ControllerBase
 
     private const long MaxFileSizeBytes = 8 * 1024 * 1024; // 8 MB
 
-    private readonly UploadsPathOptions _uploadsPath;
-    public UploadController(UploadsPathOptions uploadsPath) => _uploadsPath = uploadsPath;
+    private readonly AppDbContext _db;
+    public UploadController(AppDbContext db) => _db = db;
 
     [HttpPost]
     [RequestSizeLimit(MaxFileSizeBytes)]
@@ -34,14 +38,41 @@ public class UploadController : ControllerBase
 
         // Random file name to avoid path traversal / collisions / leaking original names.
         var storedName = $"{Guid.NewGuid():N}{ext}";
-        var fullPath = Path.Combine(_uploadsPath.Path, storedName);
 
-        await using (var stream = System.IO.File.Create(fullPath))
+        using var ms = new MemoryStream();
+        await file.CopyToAsync(ms);
+        var bytes = ms.ToArray();
+
+        _db.StoredFiles.Add(new StoredFile
         {
-            await file.CopyToAsync(stream);
-        }
+            FileName = storedName,
+            ContentType = UploadContentTypes.Resolve(ext),
+            Data = bytes,
+            Size = bytes.Length
+        });
+        await _db.SaveChangesAsync();
 
         return Ok(new UploadResponse($"/uploads/{storedName}"));
+    }
+
+    // Serves what UseStaticFiles used to serve directly off the Railway
+    // volume - now backed by the StoredFiles table instead, so the app has
+    // no dependency on persistent local disk at all. Same URL shape
+    // ("/uploads/{fileName}") as before, so every existing AvatarUrl/
+    // IconUrl/AttachmentUrl needed no rewriting. [Authorize] on the class
+    // covers the "must be a logged-in app user" gate the old static-file
+    // middleware enforced separately in Program.cs. Every upload is a
+    // freshly generated GUID name whose bytes never change after insert,
+    // so caching the response aggressively is safe.
+    [HttpGet("/uploads/{fileName}")]
+    public async Task<IActionResult> GetFile(string fileName)
+    {
+        var file = await _db.StoredFiles.AsNoTracking()
+            .FirstOrDefaultAsync(f => f.FileName == fileName);
+        if (file is null) return NotFound();
+
+        Response.Headers.CacheControl = "private, max-age=31536000, immutable";
+        return File(file.Data, file.ContentType);
     }
 
     // Extension allowlisting alone lets someone upload arbitrary bytes under
