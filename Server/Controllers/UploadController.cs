@@ -41,7 +41,7 @@ public class UploadController : ControllerBase
 
         using var ms = new MemoryStream();
         await file.CopyToAsync(ms);
-        var bytes = ms.ToArray();
+        var bytes = ImageResizeService.ResizeIfOversized(ms.ToArray(), ext);
 
         _db.StoredFiles.Add(new StoredFile
         {
@@ -78,13 +78,13 @@ public class UploadController : ControllerBase
     // Extension allowlisting alone lets someone upload arbitrary bytes under
     // a trusted-looking extension (e.g. an HTML/script payload named
     // "x.png") - this checks the file's actual leading bytes match what the
-    // extension claims. Not a full content sniff (no image decode), just
-    // the standard magic-byte signatures - enough to catch "this isn't
-    // really a PNG" without pulling in an image library this otherwise
-    // dependency-light codebase doesn't need. IFormFile is already fully
-    // buffered (in memory or a spooled temp file) by the time model binding
-    // hands it to the action, so OpenReadStream() here and CopyToAsync()
-    // afterward each independently read from the start - no seeking needed.
+    // extension claims. Just the standard magic-byte signatures, not a full
+    // decode - ImageResizeService above does the real decode (via
+    // ImageSharp) afterward, only for extensions that pass this check.
+    // IFormFile is already fully buffered (in memory or a spooled temp
+    // file) by the time model binding hands it to the action, so
+    // OpenReadStream() here and CopyToAsync() afterward each independently
+    // read from the start - no seeking needed.
     private static async Task<bool> MatchesExpectedContentAsync(IFormFile file, string ext)
     {
         await using var stream = file.OpenReadStream();

@@ -50,6 +50,19 @@
          resolves cleanly alongside EF Core's own Npgsql dependency - verify
          this still holds before ever bumping this package. -->
     <PackageReference Include="Serilog.Sinks.Postgresql.Alternative" Version="4.0.0" />
+    <!-- Downscales oversized image uploads before they land in the
+         StoredFiles table (see UploadController/ImageResizeService) - pure
+         managed code, no native deps, so it runs unmodified on Railway's
+         Linux container (unlike System.Drawing). Pinned to the 3.x line,
+         not latest (4.x) - v4 requires a purchased Six Labors license key
+         just to build, even under their small-business free tier; 3.x is
+         still under the older Split License (free under a revenue
+         threshold this self-hosted friends app is nowhere near) with no
+         build-time license check. 3.1.12 specifically to pick up fixes for
+         two known CVEs present in earlier 3.1.x patches. Note: Six Labors
+         Split License, not MIT/Apache like everything else in this
+         project - worth flagging since this repo is public. -->
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
   </ItemGroup>
 
   <ItemGroup>
