@@ -1845,10 +1845,7 @@ public partial class MainWindow : FluentWindow
                 item.Members.Add(new VoiceMemberItem { UserId = _api.CurrentUserId.Value, Username = _api.CurrentUsername, AvatarUrl = _api.CurrentUserAvatarUrl, IsSelf = true });
         }
 
-        LeaveVoiceButton.Visibility = Visibility.Visible;
-        MuteMicButton.Visibility = Visibility.Visible;
-        DeafenButton.Visibility = Visibility.Visible;
-        ScreenShareButton.Visibility = Visibility.Visible;
+        VoiceControlBar.Visibility = Visibility.Visible;
         UpdateMuteButtonVisual();
         UpdateDeafenButtonVisual();
         UpdateScreenShareButtonVisual();
@@ -1873,10 +1870,11 @@ public partial class MainWindow : FluentWindow
     {
         if (_voice is null) return;
 
-        MuteMicButton.Content = _voice.IsMicMuted ? "🔇 Unmute Mic" : "🎤 Mute Mic";
-        MuteMicButton.Foreground = _voice.IsMicMuted
+        MuteMicButton.Content = _voice.IsMicMuted ? "🔇" : "🎤";
+        MuteMicButton.ToolTip = _voice.IsMicMuted ? "Unmute Mic" : "Mute Mic";
+        MuteMicButton.Background = _voice.IsMicMuted
             ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xF2, 0x3F, 0x42))
-            : (System.Windows.Media.Brush)FindResource("TextMuted");
+            : System.Windows.Media.Brushes.Transparent;
     }
 
     private void DeafenButton_Click(object sender, RoutedEventArgs e)
@@ -1894,14 +1892,18 @@ public partial class MainWindow : FluentWindow
     {
         if (_voice is null) return;
 
-        // Icon stays 🎧 in both states (color already signals active/inactive) -
-        // reusing 🔇 here would make it indistinguishable from the Mute Mic
-        // button's own active-state icon, which is a genuinely different
-        // action (can't be heard vs. can't hear anyone).
-        DeafenButton.Content = _voice.IsDeafened ? "🎧 Undeafen" : "🎧 Deafen";
-        DeafenButton.Foreground = _voice.IsDeafened
+        // Icon stays 🎧 in both states - reusing 🔇 here would make it
+        // indistinguishable from the Mute Mic button's own active-state
+        // icon, which is a genuinely different action (can't be heard vs.
+        // can't hear anyone). Active/inactive is instead signaled by the
+        // button's own Background fill (see VoiceControlIconButtonStyle),
+        // since color emoji glyphs render from their own embedded palette
+        // and ignore the Button's Foreground brush.
+        DeafenButton.Content = "🎧";
+        DeafenButton.ToolTip = _voice.IsDeafened ? "Undeafen" : "Deafen";
+        DeafenButton.Background = _voice.IsDeafened
             ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xF2, 0x3F, 0x42))
-            : (System.Windows.Media.Brush)FindResource("TextMuted");
+            : System.Windows.Media.Brushes.Transparent;
     }
 
     private void VoiceMemberVolumeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -2111,10 +2113,7 @@ public partial class MainWindow : FluentWindow
         await _voice.LeaveAllAsync();
         RemoveSelfFromVoiceRoster(_currentVoiceChannelId.Value);
         _currentVoiceChannelId = null;
-        LeaveVoiceButton.Visibility = Visibility.Collapsed;
-        MuteMicButton.Visibility = Visibility.Collapsed;
-        DeafenButton.Visibility = Visibility.Collapsed;
-        ScreenShareButton.Visibility = Visibility.Collapsed;
+        VoiceControlBar.Visibility = Visibility.Collapsed;
     }
 
     // Caller-side-only ring timeout (per the plan: handled client-side
@@ -2255,10 +2254,11 @@ public partial class MainWindow : FluentWindow
     {
         if (_voice is null) return;
 
-        ScreenShareButton.Content = _voice.IsScreenSharing ? "🖥️ Stop Sharing" : "🖥️ Share Screen";
-        ScreenShareButton.Foreground = _voice.IsScreenSharing
+        ScreenShareButton.Content = "🖥️";
+        ScreenShareButton.ToolTip = _voice.IsScreenSharing ? "Stop Sharing" : "Share Screen";
+        ScreenShareButton.Background = _voice.IsScreenSharing
             ? (System.Windows.Media.Brush)FindResource("AccentBlurple")
-            : (System.Windows.Media.Brush)FindResource("TextMuted");
+            : System.Windows.Media.Brushes.Transparent;
     }
 
     private void OnRemoteScreenShareStarted(int userId, RemoteVideoPlayback playback)
@@ -2568,10 +2568,7 @@ public partial class MainWindow : FluentWindow
             await _hub.LeaveVoiceChannelAsync(_currentVoiceChannelId.Value);
             await _voice.LeaveAllAsync();
             _currentVoiceChannelId = null;
-            LeaveVoiceButton.Visibility = Visibility.Collapsed;
-            MuteMicButton.Visibility = Visibility.Collapsed;
-            DeafenButton.Visibility = Visibility.Collapsed;
-            ScreenShareButton.Visibility = Visibility.Collapsed;
+            VoiceControlBar.Visibility = Visibility.Collapsed;
             ConnectionStatusText.Text = "";
         }
 
@@ -2636,10 +2633,7 @@ public partial class MainWindow : FluentWindow
         await _voice.LeaveAllAsync();
         RemoveSelfFromVoiceRoster(_currentVoiceChannelId.Value);
         _currentVoiceChannelId = null;
-        LeaveVoiceButton.Visibility = Visibility.Collapsed;
-        MuteMicButton.Visibility = Visibility.Collapsed;
-        DeafenButton.Visibility = Visibility.Collapsed;
-        ScreenShareButton.Visibility = Visibility.Collapsed;
+        VoiceControlBar.Visibility = Visibility.Collapsed;
         ConnectionStatusText.Text = "";
     }
 
@@ -3246,15 +3240,22 @@ public partial class MainWindow : FluentWindow
         var data = e.SourceDataObject;
         System.Windows.Media.Imaging.BitmapSource? bitmapSource = null;
 
-        if (data.GetDataPresent(DataFormats.Bitmap))
-        {
-            bitmapSource = data.GetData(DataFormats.Bitmap) as System.Windows.Media.Imaging.BitmapSource;
-        }
-        else if (data.GetDataPresent("PNG") && data.GetData("PNG") is System.IO.MemoryStream pngStream)
+        // "PNG" is checked first, deliberately: WPF's DataFormats.Bitmap
+        // advertises itself as present (GetDataPresent returns true) even
+        // for clipboard sources that only really have a "PNG" format, via
+        // WPF's own automatic format-conversion machinery. When that
+        // promised conversion then fails, GetData(DataFormats.Bitmap)
+        // comes back null and the whole paste silently no-ops - checking
+        // the real "PNG" format first avoids ever hitting that path.
+        if (data.GetDataPresent("PNG") && data.GetData("PNG") is System.IO.MemoryStream pngStream)
         {
             bitmapSource = new System.Windows.Media.Imaging.PngBitmapDecoder(
                 pngStream, System.Windows.Media.Imaging.BitmapCreateOptions.PreservePixelFormat,
                 System.Windows.Media.Imaging.BitmapCacheOption.OnLoad).Frames[0];
+        }
+        else if (data.GetDataPresent(DataFormats.Bitmap))
+        {
+            bitmapSource = data.GetData(DataFormats.Bitmap) as System.Windows.Media.Imaging.BitmapSource;
         }
 
         if (bitmapSource is null) return;

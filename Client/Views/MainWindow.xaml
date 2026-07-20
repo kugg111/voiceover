@@ -23,6 +23,39 @@
                    Width="20" Height="20" Stretch="Uniform" SnapsToDevicePixels="True"
                    RenderOptions.BitmapScalingMode="HighQuality"/>
         </DataTemplate>
+        <!-- Compact round icon button used by the Discord-style voice control
+             row (Mute/Deafen/Share/Leave) - a hover overlay is layered on top
+             of (not swapped with) the button's own Background, so an active-
+             state color (e.g. Deafen's red fill) stays visible on hover
+             instead of being replaced by a neutral highlight. -->
+        <Style x:Key="VoiceControlIconButtonStyle" TargetType="Button">
+            <Setter Property="Width" Value="36"/>
+            <Setter Property="Height" Value="36"/>
+            <Setter Property="Margin" Value="3"/>
+            <Setter Property="FontSize" Value="15"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{StaticResource TextNormal}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="18">
+                            <Grid>
+                                <Border x:Name="HoverOverlay" Background="#22FFFFFF" CornerRadius="18" Opacity="0"/>
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                  TextElement.Foreground="{TemplateBinding Foreground}"/>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="HoverOverlay" Property="Opacity" Value="1"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </ui:FluentWindow.Resources>
     <Grid>
         <Grid.RowDefinitions>
@@ -141,35 +174,41 @@
                 <TextBlock DockPanel.Dock="Top" x:Name="ServerNameText" Text="Select a server"
                            FontWeight="Bold" FontSize="15" Foreground="{StaticResource TextNormal}"
                            Padding="14,14,0,10"/>
-                <Button DockPanel.Dock="Bottom" x:Name="LeaveVoiceButton" Content="Leave Voice" Margin="10,0,10,10"
-                        Background="Transparent" Foreground="#F23F42"
-                        BorderThickness="0" HorizontalContentAlignment="Left" Visibility="Collapsed"
-                        Click="LeaveVoiceButton_Click"/>
-                <Button DockPanel.Dock="Bottom" x:Name="DeafenButton" Content="🎧 Deafen" Margin="10,0,10,0"
-                        Background="Transparent" Foreground="{StaticResource TextMuted}"
-                        BorderThickness="0" HorizontalContentAlignment="Left" Visibility="Collapsed"
-                        Click="DeafenButton_Click"/>
-                <Button DockPanel.Dock="Bottom" x:Name="MuteMicButton" Content="🎤 Mute Mic" Margin="10,0,10,0"
-                        Background="Transparent" Foreground="{StaticResource TextMuted}"
-                        BorderThickness="0" HorizontalContentAlignment="Left" Visibility="Collapsed"
-                        Click="MuteMicButton_Click"/>
-                <Button DockPanel.Dock="Bottom" x:Name="ScreenShareButton" Content="🖥️ Share Screen" Margin="10,0,10,0"
-                        Background="Transparent" Foreground="{StaticResource TextMuted}"
-                        BorderThickness="0" HorizontalContentAlignment="Left" Visibility="Collapsed"
-                        Click="ScreenShareButton_Click">
-                    <Button.ContextMenu>
-                        <!-- Resolution+framerate presets from the Phase 2 spike (see the plan) -
-                             480p30/720p60 are the committed tiers, Native/120fps is explicitly
-                             experimental/best-effort. -->
-                        <ContextMenu x:Name="ScreenSharePresetMenu">
-                            <MenuItem Header="480p @ 30 fps (safe)" Click="ScreenShare480p30Fps_Click"/>
-                            <MenuItem Header="720p @ 60 fps (high)" Click="ScreenShare720p60Fps_Click"/>
-                            <MenuItem Header="Native @ 120 fps (experimental)" Click="ScreenShareNative120Fps_Click"/>
-                            <Separator/>
-                            <MenuItem Header="Choose Different Source..." Click="ScreenShareChooseSource_Click"/>
-                        </ContextMenu>
-                    </Button.ContextMenu>
-                </Button>
+                <!-- Compact Discord-style icon row for the mute/deafen/screen-share/
+                     leave controls - a single Border (VoiceControlBar) whose
+                     Visibility is toggled instead of each button's own, since
+                     all four always show/hide together (see MainWindow.xaml.cs). -->
+                <Border DockPanel.Dock="Bottom" x:Name="VoiceControlBar" Visibility="Collapsed"
+                        Background="{StaticResource BgDarker}" Margin="8,0,8,8" CornerRadius="8" Padding="6">
+                    <UniformGrid Columns="4" Rows="1">
+                        <Button x:Name="MuteMicButton" Content="🎤" FontSize="15" ToolTip="Mute Mic"
+                                Style="{StaticResource VoiceControlIconButtonStyle}"
+                                Click="MuteMicButton_Click"/>
+                        <Button x:Name="DeafenButton" Content="🎧" FontSize="15" ToolTip="Deafen"
+                                Style="{StaticResource VoiceControlIconButtonStyle}"
+                                Click="DeafenButton_Click"/>
+                        <Button x:Name="ScreenShareButton" Content="🖥️" FontSize="15" ToolTip="Share Screen"
+                                Style="{StaticResource VoiceControlIconButtonStyle}"
+                                Click="ScreenShareButton_Click">
+                            <Button.ContextMenu>
+                                <!-- Resolution+framerate presets from the Phase 2 spike (see the plan) -
+                                     480p30/720p60 are the committed tiers, Native/120fps is explicitly
+                                     experimental/best-effort. -->
+                                <ContextMenu x:Name="ScreenSharePresetMenu">
+                                    <MenuItem Header="480p @ 30 fps (safe)" Click="ScreenShare480p30Fps_Click"/>
+                                    <MenuItem Header="720p @ 60 fps (high)" Click="ScreenShare720p60Fps_Click"/>
+                                    <MenuItem Header="Native @ 120 fps (experimental)" Click="ScreenShareNative120Fps_Click"/>
+                                    <Separator/>
+                                    <MenuItem Header="Choose Different Source..." Click="ScreenShareChooseSource_Click"/>
+                                </ContextMenu>
+                            </Button.ContextMenu>
+                        </Button>
+                        <Button x:Name="LeaveVoiceButton" Content="📞" FontSize="14" ToolTip="Disconnect"
+                                Style="{StaticResource VoiceControlIconButtonStyle}"
+                                Foreground="White" Background="#F23F42"
+                                Click="LeaveVoiceButton_Click"/>
+                    </UniformGrid>
+                </Border>
 
                 <StackPanel DockPanel.Dock="Top">
                     <TextBlock Text="TEXT CHANNELS" FontSize="11" FontWeight="Bold"
@@ -225,10 +264,6 @@
                                           PreviewMouseLeftButtonDown="ChannelRow_PreviewMouseLeftButtonDown"
                                           PreviewMouseMove="ChannelRow_PreviewMouseMove"
                                           Drop="ChannelRow_Drop">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                        </Grid.ColumnDefinitions>
                                         <Button Content="{Binding DisplayName}" Tag="{Binding Id}"
                                                 Click="VoiceChannelButton_Click" HorizontalContentAlignment="Left"
                                                 Background="Transparent" Foreground="{StaticResource TextMuted}"
@@ -236,14 +271,10 @@
                                             <Button.ContextMenu>
                                                 <ContextMenu>
                                                     <MenuItem Header="Rename Channel" Tag="{Binding Id}" Click="RenameChannelMenuItem_Click"/>
+                                                    <MenuItem Header="Delete Channel" Tag="{Binding Id}" Click="DeleteChannelButton_Click"/>
                                                 </ContextMenu>
                                             </Button.ContextMenu>
                                         </Button>
-                                        <Button Grid.Column="1" Content="✕" Tag="{Binding Id}"
-                                                Click="DeleteChannelButton_Click" ToolTip="Delete channel"
-                                                Width="24" Height="24" Margin="0,0,8,0"
-                                                Background="Transparent" Foreground="{StaticResource TextMuted}"
-                                                BorderThickness="0"/>
                                     </Grid>
                                     <ItemsControl ItemsSource="{Binding Members}" Margin="34,0,8,4" Focusable="False">
                                         <ItemsControl.ItemTemplate>
