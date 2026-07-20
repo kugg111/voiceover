@@ -96,7 +96,15 @@ public class ApiService
         if (result.RequiresTwoFactor)
             return new LoginResult(null, true, result.ChallengeToken);
 
-        ApplyAuthResponse(result.Auth!);
+        // Auth should always be set when RequiresTwoFactor is false, but a
+        // server running an older version (e.g. before this 2FA response
+        // shape shipped) would send the old flat AuthResponse JSON instead -
+        // that deserializes here with every field defaulted/null rather than
+        // throwing, so this guards against the client/server version
+        // mismatch instead of null-derefing in ApplyAuthResponse.
+        if (result.Auth is null) return new LoginResult("Something went wrong. Please try again.", false, null);
+
+        ApplyAuthResponse(result.Auth);
         return new LoginResult(null, false, null);
     }
 
