@@ -31,6 +31,8 @@
          REDEPLOY.txt) - this server never does any media-plane work itself,
          only vouches for who's allowed into which voice room. -->
     <PackageReference Include="Livekit.Server.Sdk.Dotnet" Version="1.2.2" />
+    <PackageReference Include="Otp.NET" Version="1.4.1" />
+    <PackageReference Include="QRCoder" Version="1.8.0" />
     <!-- Structured logging - Console sink writes one compact JSON object per
          log line (CLEF format) instead of plain text, so Railway's log
          viewer/export - or a proper log aggregator like Seq or Better Stack,

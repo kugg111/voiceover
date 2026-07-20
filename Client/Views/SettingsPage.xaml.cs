@@ -37,6 +37,8 @@ public partial class SettingsPage : UserControl
 
         MinimizeToTrayCheck.IsChecked = TraySettingsStorage.MinimizeToTrayEnabled;
 
+        RefreshTwoFactorStatus();
+
         UpdateStatusText.Text = $"You're on version {UpdateChecker.CurrentVersion}" +
             (UpdateChecker.IsInstalled ? " (installed)." : " (portable).");
 
@@ -54,6 +56,62 @@ public partial class SettingsPage : UserControl
 
     private void MinimizeToTrayCheck_Changed(object sender, RoutedEventArgs e) =>
         TraySettingsStorage.MinimizeToTrayEnabled = MinimizeToTrayCheck.IsChecked == true;
+
+    private void RefreshTwoFactorStatus()
+    {
+        var enabled = _api.CurrentUserTwoFactorEnabled;
+        TwoFactorStatusText.Text = enabled
+            ? "Two-factor authentication is enabled."
+            : "Two-factor authentication is disabled. Enabling it requires an authenticator code on top of your password every time you log in.";
+        Enable2FaButton.Visibility = enabled ? Visibility.Collapsed : Visibility.Visible;
+        Disable2FaButton.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    // Enrollment: setup (generates a pending secret) -> QR/code modal ->
+    // confirm (verifies the code, actually turns 2FA on, issues recovery
+    // codes) -> show the codes exactly once. Any step can be backed out of
+    // (setup's pending secret is simply discarded/overwritten next time)
+    // without ever having enabled 2FA.
+    private async void Enable2FaButton_Click(object sender, RoutedEventArgs e)
+    {
+        var setup = await _api.Setup2FaAsync();
+        if (setup is null)
+        {
+            await _mainWindow.AlertAsync("Error", "Could not start 2FA setup.");
+            return;
+        }
+
+        var code = await _mainWindow.ShowTotpSetupAsync(setup.Secret, setup.QrCodePngBase64);
+        if (code is null) return; // cancelled
+
+        var (recoveryCodes, error) = await _api.Confirm2FaAsync(code);
+        if (recoveryCodes is null)
+        {
+            await _mainWindow.AlertAsync("Error", error ?? "Invalid code.");
+            return;
+        }
+
+        _api.CurrentUserTwoFactorEnabled = true;
+        await _mainWindow.ShowRecoveryCodesAsync(recoveryCodes);
+        RefreshTwoFactorStatus();
+    }
+
+    private async void Disable2FaButton_Click(object sender, RoutedEventArgs e)
+    {
+        var password = await _mainWindow.PromptPasswordAsync("Disable Two-Factor Authentication",
+            "Enter your password to confirm - this removes the extra login step and your saved recovery codes.");
+        if (string.IsNullOrEmpty(password)) return;
+
+        var (success, error) = await _api.Disable2FaAsync(password);
+        if (!success)
+        {
+            await _mainWindow.AlertAsync("Error", error ?? "Could not disable 2FA.");
+            return;
+        }
+
+        _api.CurrentUserTwoFactorEnabled = false;
+        RefreshTwoFactorStatus();
+    }
 
     private async Task LoadBlockedUsersAsync()
     {

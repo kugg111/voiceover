@@ -59,6 +59,19 @@
 
                     <Border Height="1" Background="{StaticResource BgSidebar}" Margin="0,24,0,20"/>
 
+                    <TextBlock Text="TWO-FACTOR AUTHENTICATION" FontSize="11" FontWeight="Bold"
+                               Foreground="{StaticResource TextMuted}" Margin="0,0,0,8"/>
+                    <TextBlock x:Name="TwoFactorStatusText" FontSize="12" TextWrapping="Wrap"
+                               Foreground="{StaticResource TextNormal}" Margin="0,0,0,10"/>
+                    <Button x:Name="Enable2FaButton" Content="Enable 2FA" Height="40" Width="160"
+                            HorizontalAlignment="Left" Click="Enable2FaButton_Click"
+                            Background="{StaticResource AccentBlurple}" Foreground="White" BorderThickness="0"/>
+                    <Button x:Name="Disable2FaButton" Content="Disable 2FA" Height="40" Width="160"
+                            HorizontalAlignment="Left" Click="Disable2FaButton_Click" Visibility="Collapsed"
+                            Background="#F23F42" Foreground="White" BorderThickness="0"/>
+
+                    <Border Height="1" Background="{StaticResource BgSidebar}" Margin="0,24,0,20"/>
+
                     <TextBlock Text="BLOCKED USERS" FontSize="11" FontWeight="Bold"
                                Foreground="{StaticResource TextMuted}" Margin="0,0,0,8"/>
                     <TextBlock x:Name="BlockedEmptyText" Text="You haven't blocked anyone."

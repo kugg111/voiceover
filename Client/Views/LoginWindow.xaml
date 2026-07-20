@@ -19,7 +19,7 @@
         <ui:TitleBar Title="Voiceover" Grid.Row="0" ShowMaximize="False"/>
 
         <Grid Grid.Row="1" Margin="32">
-        <StackPanel VerticalAlignment="Center">
+        <StackPanel x:Name="LoginPanel" VerticalAlignment="Center">
             <TextBlock Text="Welcome back!" FontSize="22" FontWeight="Bold"
                        Foreground="{StaticResource TextNormal}" Margin="0,0,0,4"/>
             <TextBlock Text="We're so excited to see you again." FontSize="13"
@@ -53,6 +53,42 @@
                     HorizontalAlignment="Center" HorizontalContentAlignment="Center"
                     Background="Transparent" Foreground="{StaticResource TextMuted}"
                     BorderThickness="0" Cursor="Hand" Click="RegisterButton_Click"/>
+        </StackPanel>
+
+        <!-- Shown instead of LoginPanel when the account has 2FA enabled
+             (see ShowTotpPanel/TryLoginAsync) - LoginWindow/RegisterWindow
+             have no modal-overlay system to borrow (that only exists once
+             MainWindow is up), so this is a plain panel swap. -->
+        <StackPanel x:Name="TotpPanel" VerticalAlignment="Center" Visibility="Collapsed">
+            <TextBlock Text="Two-Factor Authentication" FontSize="22" FontWeight="Bold"
+                       Foreground="{StaticResource TextNormal}" Margin="0,0,0,4"/>
+            <TextBlock Text="Enter the 6-digit code from your authenticator app." FontSize="13"
+                       Foreground="{StaticResource TextMuted}" Margin="0,0,0,20"/>
+
+            <TextBlock x:Name="TotpLabel" Text="CODE" FontSize="11" FontWeight="Bold"
+                       Foreground="{StaticResource TextMuted}" Margin="0,0,0,4"/>
+            <TextBox x:Name="TotpCodeBox" Height="36" Padding="8,6"
+                     Background="{StaticResource BgDarker}" Foreground="{StaticResource TextNormal}"
+                     BorderThickness="0" Margin="0,0,0,14" KeyDown="TotpCodeBox_KeyDown"/>
+
+            <TextBlock x:Name="TotpStatusText" Foreground="#F23F42" FontSize="12"
+                       Margin="0,0,0,10" TextWrapping="Wrap" Visibility="Collapsed"/>
+
+            <Button x:Name="TotpVerifyButton" Content="Verify" Height="40" Width="200"
+                    HorizontalAlignment="Center" HorizontalContentAlignment="Center"
+                    Background="{StaticResource AccentBlurple}" Foreground="White"
+                    BorderThickness="0" FontWeight="Bold" Cursor="Hand"
+                    Click="TotpVerifyButton_Click" Margin="0,0,0,8"/>
+
+            <Button x:Name="TotpUseRecoveryCodeButton" Content="Use a recovery code instead" Height="30" Width="200"
+                    HorizontalAlignment="Center" HorizontalContentAlignment="Center"
+                    Background="Transparent" Foreground="{StaticResource TextMuted}"
+                    BorderThickness="0" Cursor="Hand" Click="TotpUseRecoveryCodeButton_Click"/>
+
+            <Button x:Name="TotpBackButton" Content="Back" Height="30" Width="200"
+                    HorizontalAlignment="Center" HorizontalContentAlignment="Center"
+                    Background="Transparent" Foreground="{StaticResource TextMuted}"
+                    BorderThickness="0" Cursor="Hand" Click="TotpBackButton_Click"/>
         </StackPanel>
         </Grid>
     </Grid>

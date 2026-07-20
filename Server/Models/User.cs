@@ -31,6 +31,17 @@ public class User
     public string? WrappedPrivateKey { get; set; }
     public string? PrivateKeySalt { get; set; }
 
+    // TOTP 2FA (see TwoFactorService/AuthController). TotpSecret is
+    // base32, plaintext - the server needs the raw value back on every
+    // login to compute the current code, so unlike PasswordHash it can't
+    // be hashed; same trust boundary as this app's other account secrets
+    // (WrappedPrivateKey), no separate KMS/envelope encryption layer.
+    // TwoFactorEnabled is kept separate from "TotpSecret is set" so an
+    // abandoned/mistyped enrollment (secret generated, confirm code never
+    // entered) can't lock anyone out - only Confirm2fa flips this to true.
+    public string? TotpSecret { get; set; }
+    public bool TwoFactorEnabled { get; set; }
+
     public List<Membership> Memberships { get; set; } = new();
     public List<Message> Messages { get; set; } = new();
 }

@@ -1,6 +1,12 @@
 namespace Voiceover.Client.Models;
 
-public record AuthResponse(string Token, DateTime ExpiresAtUtc, string RefreshToken, int UserId, string Username, string? AvatarUrl = null, string? CustomStatus = null);
+public record AuthResponse(string Token, DateTime ExpiresAtUtc, string RefreshToken, int UserId, string Username, string? AvatarUrl = null, string? CustomStatus = null, bool TwoFactorEnabled = false);
+public record LoginResponse(bool RequiresTwoFactor, string? ChallengeToken, AuthResponse? Auth);
+public record TotpLoginRequest(string ChallengeToken, string? Code, string? RecoveryCode);
+public record TotpSetupResponse(string Secret, string QrCodePngBase64);
+public record TotpConfirmRequest(string Code);
+public record TotpConfirmResponse(List<string> RecoveryCodes);
+public record TotpDisableRequest(string Password);
 public record GuildServerResponse(int Id, string Name, string? IconUrl, int OwnerId, bool IsPublic = false, string? Description = null);
 public record DiscoverServerResponse(int Id, string Name, string? IconUrl, string? Description, int MemberCount);
 public record SetDiscoverableRequest(bool IsPublic, string? Description);

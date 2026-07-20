@@ -2,9 +2,21 @@ namespace Voiceover.Server.Dtos;
 
 public record RegisterRequest(string Username, string Password);
 public record LoginRequest(string Username, string Password);
-public record AuthResponse(string Token, DateTime ExpiresAtUtc, string RefreshToken, int UserId, string Username, string? AvatarUrl = null, string? CustomStatus = null, bool IsAdmin = false);
+public record AuthResponse(string Token, DateTime ExpiresAtUtc, string RefreshToken, int UserId, string Username, string? AvatarUrl = null, string? CustomStatus = null, bool IsAdmin = false, bool TwoFactorEnabled = false);
 public record RefreshRequest(string RefreshToken);
 public record LogoutRequest(string RefreshToken);
+
+// Login's actual response shape - either a completed login (Auth set,
+// RequiresTwoFactor false) or a 2FA challenge to complete via
+// POST /api/auth/login/totp (ChallengeToken set, Auth null). Register
+// always returns a plain AuthResponse - a brand-new account can't have
+// 2FA enabled yet.
+public record LoginResponse(bool RequiresTwoFactor, string? ChallengeToken, AuthResponse? Auth);
+public record TotpLoginRequest(string ChallengeToken, string? Code, string? RecoveryCode);
+public record TotpSetupResponse(string Secret, string QrCodePngBase64);
+public record TotpConfirmRequest(string Code);
+public record TotpConfirmResponse(List<string> RecoveryCodes);
+public record TotpDisableRequest(string Password);
 
 // Account profile + membership/friend metadata only - never message
 // content, since the server only ever holds E2EE ciphertext for messages

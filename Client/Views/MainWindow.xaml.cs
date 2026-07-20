@@ -1111,6 +1111,180 @@ public partial class MainWindow : FluentWindow
         return result;
     }
 
+    // Same shape as PromptAsync, but with a masked PasswordBox instead of a
+    // plain TextBox - used wherever re-entering the account password is the
+    // "prove you're still you" gate for a security-sensitive action (e.g.
+    // Disable2FaButton_Click), which deserves not being shown in plaintext
+    // on screen the way a server description or username would be.
+    public async Task<string?> PromptPasswordAsync(string title, string label)
+    {
+        ModalTitleText.Text = title;
+        ModalStandardPanel.Visibility = Visibility.Visible;
+        ModalCreateOrJoinPanel.Visibility = Visibility.Collapsed;
+        ModalMessageText.Text = label;
+        ModalMessageText.Visibility = Visibility.Visible;
+        ModalInputBox.Visibility = Visibility.Collapsed;
+
+        ModalCustomContent.Children.Clear();
+        var passwordBox = new System.Windows.Controls.PasswordBox
+        {
+            Padding = new Thickness(8, 6, 8, 6),
+            Background = (Brush)FindResource("BgDarker"),
+            Foreground = (Brush)FindResource("TextNormal"),
+            BorderThickness = new Thickness(0)
+        };
+        passwordBox.KeyDown += (_, e) => { if (e.Key == Key.Enter) CompleteModal(passwordBox.Password); };
+        ModalCustomContent.Children.Add(passwordBox);
+        ModalCustomContentScroll.Visibility = Visibility.Visible;
+
+        ModalButtonsPanel.Children.Clear();
+        ModalButtonsPanel.Children.Add(BuildModalButton("Cancel", ModalButtonStyle.Plain, () => CompleteModal(null)));
+        ModalButtonsPanel.Children.Add(BuildModalButton("Confirm", ModalButtonStyle.Primary, () => CompleteModal(passwordBox.Password)));
+
+        var task = ShowModal();
+        _ = Dispatcher.BeginInvoke(() => passwordBox.Focus());
+        var result = await task as string;
+        ModalCustomContent.Children.Clear();
+        ModalCustomContentScroll.Visibility = Visibility.Collapsed;
+        return result;
+    }
+
+    // Enrollment step 1+2 combined (Settings > My Account > Two-Factor
+    // Authentication) - shows the QR code (decoded from the PNG bytes
+    // AuthController.Setup2fa returned) plus the raw secret for manual
+    // entry, and collects the confirm code in one modal. Null return means
+    // cancelled.
+    public async Task<string?> ShowTotpSetupAsync(string secret, string qrCodePngBase64)
+    {
+        ModalTitleText.Text = "Enable Two-Factor Authentication";
+        ModalStandardPanel.Visibility = Visibility.Visible;
+        ModalCreateOrJoinPanel.Visibility = Visibility.Collapsed;
+        ModalMessageText.Text = "Scan this with Microsoft Authenticator, Google Authenticator, or any other TOTP app, then enter the 6-digit code it shows.";
+        ModalMessageText.Visibility = Visibility.Visible;
+        ModalInputBox.Visibility = Visibility.Collapsed;
+
+        ModalCustomContent.Children.Clear();
+
+        var qrBitmap = new System.Windows.Media.Imaging.BitmapImage();
+        using (var stream = new System.IO.MemoryStream(Convert.FromBase64String(qrCodePngBase64)))
+        {
+            qrBitmap.BeginInit();
+            qrBitmap.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+            qrBitmap.StreamSource = stream;
+            qrBitmap.EndInit();
+        }
+        qrBitmap.Freeze();
+
+        var qrImage = new System.Windows.Controls.Image
+        {
+            Source = qrBitmap,
+            Width = 200,
+            Height = 200,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 0, 0, 12)
+        };
+        var secretLabel = new System.Windows.Controls.TextBlock
+        {
+            Text = "Can't scan? Enter this key manually:",
+            Foreground = (Brush)FindResource("TextMuted"),
+            FontSize = 11,
+            Margin = new Thickness(0, 0, 0, 4)
+        };
+        var secretBox = new System.Windows.Controls.TextBox
+        {
+            Text = secret,
+            IsReadOnly = true,
+            FontFamily = new FontFamily("Consolas"),
+            Padding = new Thickness(8, 6, 8, 6),
+            Background = (Brush)FindResource("BgDarker"),
+            Foreground = (Brush)FindResource("TextNormal"),
+            BorderThickness = new Thickness(0),
+            Margin = new Thickness(0, 0, 0, 12)
+        };
+        var codeLabel = new System.Windows.Controls.TextBlock
+        {
+            Text = "6-digit code",
+            Foreground = (Brush)FindResource("TextMuted"),
+            FontSize = 11,
+            Margin = new Thickness(0, 0, 0, 4)
+        };
+        var codeBox = new System.Windows.Controls.TextBox
+        {
+            MaxLength = 6,
+            Padding = new Thickness(8, 6, 8, 6),
+            Background = (Brush)FindResource("BgDarker"),
+            Foreground = (Brush)FindResource("TextNormal"),
+            BorderThickness = new Thickness(0)
+        };
+
+        ModalCustomContent.Children.Add(qrImage);
+        ModalCustomContent.Children.Add(secretLabel);
+        ModalCustomContent.Children.Add(secretBox);
+        ModalCustomContent.Children.Add(codeLabel);
+        ModalCustomContent.Children.Add(codeBox);
+        ModalCustomContentScroll.Visibility = Visibility.Visible;
+
+        ModalButtonsPanel.Children.Clear();
+        ModalButtonsPanel.Children.Add(BuildModalButton("Cancel", ModalButtonStyle.Plain, () => CompleteModal(null)));
+        ModalButtonsPanel.Children.Add(BuildModalButton("Confirm", ModalButtonStyle.Primary, () => CompleteModal(codeBox.Text)));
+
+        var result = await ShowModal() as string;
+        ModalCustomContent.Children.Clear();
+        ModalCustomContentScroll.Visibility = Visibility.Collapsed;
+        return result;
+    }
+
+    // Shown exactly once, right after Confirm2fa succeeds - these codes are
+    // never retrievable again afterward (only their BCrypt hashes are kept
+    // server-side), so the checkbox-gated Continue button (no Cancel - the
+    // codes were already generated and saved server-side by this point,
+    // there's nothing left to cancel) makes sure this isn't dismissed by
+    // an accidental click.
+    public async Task<bool> ShowRecoveryCodesAsync(List<string> codes)
+    {
+        ModalTitleText.Text = "Save Your Recovery Codes";
+        ModalStandardPanel.Visibility = Visibility.Visible;
+        ModalCreateOrJoinPanel.Visibility = Visibility.Collapsed;
+        ModalMessageText.Text = "Each code works once to sign in if you lose access to your authenticator app. Save them somewhere safe - they won't be shown again.";
+        ModalMessageText.Visibility = Visibility.Visible;
+        ModalInputBox.Visibility = Visibility.Collapsed;
+
+        ModalCustomContent.Children.Clear();
+        var codesText = new System.Windows.Controls.TextBox
+        {
+            Text = string.Join(Environment.NewLine, codes),
+            IsReadOnly = true,
+            FontFamily = new FontFamily("Consolas"),
+            TextWrapping = TextWrapping.Wrap,
+            Height = 160,
+            Padding = new Thickness(8, 6, 8, 6),
+            Background = (Brush)FindResource("BgDarker"),
+            Foreground = (Brush)FindResource("TextNormal"),
+            BorderThickness = new Thickness(0),
+            Margin = new Thickness(0, 0, 0, 12)
+        };
+        var confirmCheck = new System.Windows.Controls.CheckBox
+        {
+            Content = "I've saved these codes somewhere safe",
+            Foreground = (Brush)FindResource("TextNormal")
+        };
+        ModalCustomContent.Children.Add(codesText);
+        ModalCustomContent.Children.Add(confirmCheck);
+        ModalCustomContentScroll.Visibility = Visibility.Visible;
+
+        ModalButtonsPanel.Children.Clear();
+        var continueButton = BuildModalButton("Continue", ModalButtonStyle.Primary, () => CompleteModal(true));
+        continueButton.IsEnabled = false;
+        confirmCheck.Checked += (_, _) => continueButton.IsEnabled = true;
+        confirmCheck.Unchecked += (_, _) => continueButton.IsEnabled = false;
+        ModalButtonsPanel.Children.Add(continueButton);
+
+        var result = await ShowModal() as bool?;
+        ModalCustomContent.Children.Clear();
+        ModalCustomContentScroll.Visibility = Visibility.Collapsed;
+        return result == true;
+    }
+
     private void ModalInputBox_KeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.Enter) CompleteModal(ModalInputBox.Text);

@@ -28,6 +28,10 @@ public class ApiService
     public string? CurrentUsername { get; private set; }
     public string? CurrentUserAvatarUrl { get; set; }
     public string? CurrentUserCustomStatus { get; set; }
+    // Set from login/register, then kept up to date locally by
+    // Confirm2FaAsync/Disable2FaAsync - both already know the outcome the
+    // moment they succeed, no need for a fresh login just to refresh this.
+    public bool CurrentUserTwoFactorEnabled { get; set; }
 
     // Owns this session's E2EE keypair/derived-key cache once unlocked (see
     // AuthFlow.TryAuthenticateAsync and App.xaml.cs's "remember me" restore
@@ -49,21 +53,14 @@ public class ApiService
         E2ee = new E2eeService(this);
     }
 
+    // Register never returns a 2FA challenge (a brand-new account can't
+    // have 2FA enabled yet) - a plain AuthResponse on success, same
+    // "null = success, else the server's own error message" convention as
+    // everywhere else in this class (e.g. "Password must be at least 8
+    // characters." vs "Username already taken.").
     public async Task<string?> RegisterAsync(string username, string password)
-        => await AuthenticateAsync("api/auth/register", username, password);
-
-    public async Task<string?> LoginAsync(string username, string password)
-        => await AuthenticateAsync("api/auth/login", username, password);
-
-    // Returns null on success, or the server's own error message on failure
-    // (e.g. "Password must be at least 8 characters." vs "Username already
-    // taken.") - the caller used to just get a bool and had to guess which
-    // of several possible reasons a failure was, which meant showing a wrong
-    // error message (e.g. "username taken" for what was actually a
-    // password-length rejection).
-    private async Task<string?> AuthenticateAsync(string endpoint, string username, string password)
     {
-        var response = await _authHttp.PostAsJsonAsync(endpoint, new { Username = username, Password = password });
+        var response = await _authHttp.PostAsJsonAsync("api/auth/register", new { Username = username, Password = password });
         if (!response.IsSuccessStatusCode)
         {
             var body = await response.Content.ReadAsStringAsync();
@@ -77,6 +74,79 @@ public class ApiService
         return null;
     }
 
+    // Login's response is no longer always a completed login - if the
+    // account has 2FA enabled, the server returns a challenge token instead
+    // of real tokens (see AuthController.Login), and the caller needs to
+    // walk the user through CompleteTotpLoginAsync below before a session
+    // actually exists.
+    public record LoginResult(string? Error, bool RequiresTwoFactor, string? ChallengeToken);
+
+    public async Task<LoginResult> LoginAsync(string username, string password)
+    {
+        var response = await _authHttp.PostAsJsonAsync("api/auth/login", new { Username = username, Password = password });
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync();
+            return new LoginResult(string.IsNullOrWhiteSpace(body) ? "Something went wrong. Please try again." : body, false, null);
+        }
+
+        var result = await response.Content.ReadFromJsonAsync<LoginResponse>();
+        if (result is null) return new LoginResult("Something went wrong. Please try again.", false, null);
+
+        if (result.RequiresTwoFactor)
+            return new LoginResult(null, true, result.ChallengeToken);
+
+        ApplyAuthResponse(result.Auth!);
+        return new LoginResult(null, false, null);
+    }
+
+    // Second step of a 2FA login - either code or recoveryCode should be
+    // set, not both (see LoginWindow's "use a recovery code instead" toggle).
+    public async Task<string?> CompleteTotpLoginAsync(string challengeToken, string? code, string? recoveryCode)
+    {
+        var response = await _authHttp.PostAsJsonAsync("api/auth/login/totp", new TotpLoginRequest(challengeToken, code, recoveryCode));
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync();
+            return string.IsNullOrWhiteSpace(body) ? "Invalid code." : body;
+        }
+
+        var auth = await response.Content.ReadFromJsonAsync<AuthResponse>();
+        if (auth is null) return "Something went wrong. Please try again.";
+
+        ApplyAuthResponse(auth);
+        return null;
+    }
+
+    // --- TOTP 2FA enrollment (Settings > My Account) ---
+
+    public async Task<TotpSetupResponse?> Setup2FaAsync()
+    {
+        var response = await _http.PostAsync("api/auth/2fa/setup", null);
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<TotpSetupResponse>() : null;
+    }
+
+    public async Task<(List<string>? RecoveryCodes, string? Error)> Confirm2FaAsync(string code)
+    {
+        var response = await _http.PostAsJsonAsync("api/auth/2fa/confirm", new TotpConfirmRequest(code));
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync();
+            return (null, string.IsNullOrWhiteSpace(body) ? "Invalid code." : body);
+        }
+
+        var result = await response.Content.ReadFromJsonAsync<TotpConfirmResponse>();
+        return (result?.RecoveryCodes, null);
+    }
+
+    public async Task<(bool Success, string? Error)> Disable2FaAsync(string password)
+    {
+        var response = await _http.PostAsJsonAsync("api/auth/2fa/disable", new TotpDisableRequest(password));
+        if (response.IsSuccessStatusCode) return (true, null);
+        var body = await response.Content.ReadAsStringAsync();
+        return (false, string.IsNullOrWhiteSpace(body) ? "Could not disable 2FA." : body);
+    }
+
     private void ApplyAuthResponse(AuthResponse auth)
     {
         Token = auth.Token;
@@ -86,6 +156,7 @@ public class ApiService
         CurrentUsername = auth.Username;
         CurrentUserAvatarUrl = App.ResolveUploadUrl(auth.AvatarUrl);
         CurrentUserCustomStatus = auth.CustomStatus;
+        CurrentUserTwoFactorEnabled = auth.TwoFactorEnabled;
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token);
     }
 

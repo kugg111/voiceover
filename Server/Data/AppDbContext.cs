@@ -25,6 +25,7 @@ public class AppDbContext : DbContext
     public DbSet<Block> Blocks => Set<Block>();
     public DbSet<AdminAuditLogEntry> AdminAuditLogEntries => Set<AdminAuditLogEntry>();
     public DbSet<StoredFile> StoredFiles => Set<StoredFile>();
+    public DbSet<TotpRecoveryCode> TotpRecoveryCodes => Set<TotpRecoveryCode>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -215,5 +216,15 @@ public class AppDbContext : DbContext
             .HasIndex(s => s.Name, "IX_GuildServers_Name_Trgm")
             .HasMethod("gin")
             .HasOperators("gin_trgm_ops");
+
+        // Real FK + cascade (same pattern as RefreshToken above) - account-
+        // owned security data with no reason to outlive the account.
+        modelBuilder.Entity<TotpRecoveryCode>()
+            .HasOne(c => c.User)
+            .WithMany()
+            .HasForeignKey(c => c.UserId);
+
+        modelBuilder.Entity<TotpRecoveryCode>()
+            .HasIndex(c => c.UserId);
     }
 }

@@ -32,10 +32,13 @@ public partial class RegisterWindow : FluentWindow
         SetLoading(true);
         try
         {
-            var error = await AuthFlow.TryAuthenticateAsync(_api, isRegister: true, UsernameBox.Text, PasswordBox.Password);
-            if (error is not null)
+            // Register can only ever come back Success or Failed - a
+            // brand-new account can't have 2FA enabled yet, so there's no
+            // TwoFactorRequired branch to handle here (unlike LoginWindow).
+            var result = await AuthFlow.TryAuthenticateAsync(_api, isRegister: true, UsernameBox.Text, PasswordBox.Password);
+            if (result.Outcome == AuthOutcome.Failed)
             {
-                ShowError(error);
+                ShowError(result.ErrorMessage!);
                 return;
             }
 

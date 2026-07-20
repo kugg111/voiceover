@@ -116,6 +116,7 @@ builder.Services.AddScoped<PermissionService>();
 builder.Services.AddScoped<ModerationLogService>();
 builder.Services.AddScoped<ServerDeletionService>();
 builder.Services.AddScoped<AdminService>();
+builder.Services.AddScoped<TwoFactorService>();
 // SendMessage/SendDirectMessage anti-spam - see MessageRateLimiter for why
 // this can't just be the HTTP rate limiter below (SignalR hub calls don't
 // go through the HTTP middleware pipeline at all).
