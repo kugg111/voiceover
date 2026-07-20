@@ -15,7 +15,13 @@ public class UploadController : ControllerBase
 {
     private static readonly HashSet<string> AllowedExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".pdf", ".txt", ".zip"
+        // .wav isn't a type users would otherwise attach - it's reserved for
+        // voice messages recorded in the message composer (see
+        // VoiceMessageRecorder client-side), which is what lets the client
+        // tell a voice-message attachment apart from a regular file/image
+        // one purely from its extension, no separate attachment-type column
+        // needed on Message.
+        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".pdf", ".txt", ".zip", ".wav"
     };
 
     private const long MaxFileSizeBytes = 8 * 1024 * 1024; // 8 MB
@@ -101,6 +107,11 @@ public class UploadController : ControllerBase
                                    && header[8] == 'W' && header[9] == 'E' && header[10] == 'B' && header[11] == 'P',
             ".pdf" => read >= 5 && header[0] == '%' && header[1] == 'P' && header[2] == 'D' && header[3] == 'F' && header[4] == '-',
             ".zip" => read >= 4 && header[0] == 0x50 && header[1] == 0x4B && header[2] == 0x03 && header[3] == 0x04,
+            // RIFF....WAVE - same 12-byte-header style as the WEBP check
+            // above (RIFF is a generic container; bytes 8-11 name the
+            // specific format inside it).
+            ".wav" => read >= 12 && header[0] == 'R' && header[1] == 'I' && header[2] == 'F' && header[3] == 'F'
+                                  && header[8] == 'W' && header[9] == 'A' && header[10] == 'V' && header[11] == 'E',
             // No reliable magic bytes for plain text - reject an obvious
             // binary payload instead (a NUL byte never appears in valid
             // UTF-8/ASCII text).

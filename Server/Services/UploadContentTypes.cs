@@ -15,6 +15,7 @@ public static class UploadContentTypes
         ".pdf" => "application/pdf",
         ".txt" => "text/plain",
         ".zip" => "application/zip",
+        ".wav" => "audio/wav",
         _ => "application/octet-stream",
     };
 }

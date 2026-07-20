@@ -378,6 +378,13 @@ public class MessageListItem : INotifyPropertyChanged
     private bool IsImageAttachment => AttachmentUrl is not null &&
         ImageExtensions.Contains(System.IO.Path.GetExtension(AttachmentUrl));
 
+    // .wav is reserved for voice messages recorded in the composer (see
+    // VoiceMessageRecorder/UploadController.AllowedExtensions) - not a type
+    // a regular file attachment would otherwise use, so the extension alone
+    // is an unambiguous signal, no separate attachment-type column needed.
+    private bool IsVoiceAttachment => AttachmentUrl is not null &&
+        string.Equals(System.IO.Path.GetExtension(AttachmentUrl), ".wav", StringComparison.OrdinalIgnoreCase);
+
     // AttachmentUrl is the server-relative /uploads/... path returned by
     // UploadController - needs the API base prepended before it's a real
     // downloadable/renderable URL, same as AttachmentLink_MouseLeftButtonUp
@@ -386,10 +393,12 @@ public class MessageListItem : INotifyPropertyChanged
 
     public string AttachmentDisplay => AttachmentUrl is null ? "" : $"📎 {System.IO.Path.GetFileName(AttachmentUrl)}";
     public Visibility ContentVisibility => !IsEditing && !string.IsNullOrEmpty(Content) ? Visibility.Visible : Visibility.Collapsed;
-    // Image attachments render inline instead of as a click-through link -
-    // the file-link row only shows for non-image attachments (pdf/txt/zip).
-    public Visibility FileAttachmentVisibility => AttachmentUrl is not null && !IsImageAttachment ? Visibility.Visible : Visibility.Collapsed;
+    // Image attachments render inline instead of as a click-through link,
+    // and voice messages get their own player control - the file-link row
+    // only shows for everything else (pdf/txt/zip).
+    public Visibility FileAttachmentVisibility => AttachmentUrl is not null && !IsImageAttachment && !IsVoiceAttachment ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ImageAttachmentVisibility => AttachmentUrl is not null && IsImageAttachment ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility VoiceAttachmentVisibility => AttachmentUrl is not null && IsVoiceAttachment ? Visibility.Visible : Visibility.Collapsed;
     public Visibility EditedTagVisibility => IsEdited ? Visibility.Visible : Visibility.Collapsed;
     public Visibility EditBoxVisibility => IsEditing ? Visibility.Visible : Visibility.Collapsed;
 
@@ -610,6 +619,12 @@ public partial class MainWindow : FluentWindow
     // MainWindow_Closing redirects a plain close to hide-to-tray instead.
     private bool _reallyExit;
 
+    // Non-null only while a voice message is actively being recorded (see
+    // RecordVoiceMessageButton_Click) - a short-lived capture instance,
+    // unrelated to the always-open MicCaptureSource used during an active
+    // voice channel session.
+    private VoiceMessageRecorder? _voiceMessageRecorder;
+
     private int? _currentServerId;
     private int? _currentChannelId;
     private int? _currentVoiceChannelId;
@@ -700,7 +715,8 @@ public partial class MainWindow : FluentWindow
         // MyAvatarView.ImageUrl just a few lines down would otherwise race
         // this if it were done any later (e.g. in MainWindow_Loaded,
         // alongside SignalRService.ConnectAsync's own accessTokenProvider).
-        AvatarImageCache.AccessTokenProvider = AttachmentImageCache.AccessTokenProvider = _api.GetFreshAccessTokenAsync;
+        AvatarImageCache.AccessTokenProvider = AttachmentImageCache.AccessTokenProvider =
+            AttachmentAudioCache.AccessTokenProvider = _api.GetFreshAccessTokenAsync;
 
         MyAvatarView.DisplayName = _api.CurrentUsername ?? "?";
         MyAvatarView.ImageUrl = _api.CurrentUserAvatarUrl;
@@ -2882,6 +2898,85 @@ public partial class MainWindow : FluentWindow
         if (dialog.ShowDialog() != true) return;
 
         await SendAttachmentAsync(dialog.FileName);
+    }
+
+    // Click-to-start/click-to-stop (not hold-to-record) - matches the
+    // composer's other buttons, which are all click-once. This app's only
+    // "hold" interaction (push-to-talk) is a hotkey for hands-free use
+    // during an active call, a different context from holding a mouse
+    // button down for up to two minutes.
+    private async void RecordVoiceMessageButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_voiceMessageRecorder is { IsRecording: true })
+        {
+            await StopAndSendVoiceMessageAsync();
+            return;
+        }
+
+        if (_dmActiveUserId.HasValue)
+        {
+            await AlertAsync("Not Supported", "Voice messages aren't supported in direct messages yet.");
+            return;
+        }
+
+        if (_currentChannelId is null)
+        {
+            await AlertAsync("No Channel Selected", "Select a channel first.");
+            return;
+        }
+
+        var recorder = new VoiceMessageRecorder();
+        recorder.OnElapsedTick += elapsed =>
+            VoiceMessageRecordingText.Text = $"Recording... {(int)elapsed.TotalMinutes}:{elapsed.Seconds:D2}";
+        recorder.OnMaxDurationReached += () =>
+        {
+            VoiceMessageRecordingText.Text = "Stopped - max length reached";
+            _ = StopAndSendVoiceMessageAsync();
+        };
+
+        try
+        {
+            recorder.Start();
+        }
+        catch (InvalidOperationException ex)
+        {
+            await AlertAsync("Error", ex.Message);
+            recorder.Dispose();
+            return;
+        }
+
+        _voiceMessageRecorder = recorder;
+        RecordVoiceMessageButton.Content = "⏹";
+        VoiceMessageRecordingBanner.Visibility = Visibility.Visible;
+        VoiceMessageRecordingText.Text = "Recording... 0:00";
+    }
+
+    // Shared by RecordVoiceMessageButton_Click's stop-click path and the
+    // recorder's own max-duration auto-stop.
+    private async Task StopAndSendVoiceMessageAsync()
+    {
+        var recorder = _voiceMessageRecorder;
+        if (recorder is null) return;
+        _voiceMessageRecorder = null;
+
+        var tempFile = recorder.Stop();
+        recorder.Dispose();
+
+        RecordVoiceMessageButton.Content = "🎤";
+        VoiceMessageRecordingBanner.Visibility = Visibility.Collapsed;
+
+        // Reuses the exact same upload+send path AttachButton_Click/
+        // MessageInput_Pasting already use for any other file - a voice
+        // message is just an attachment whose extension (.wav) happens to
+        // signal the player-control rendering client-side.
+        try
+        {
+            await SendAttachmentAsync(tempFile);
+        }
+        finally
+        {
+            try { System.IO.File.Delete(tempFile); } catch { /* best-effort cleanup */ }
+        }
     }
 
     private void MessageInputArea_DragOver(object sender, DragEventArgs e)

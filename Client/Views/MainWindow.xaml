@@ -770,6 +770,9 @@
                                             </ContextMenu>
                                         </Image.ContextMenu>
                                     </Image>
+                                    <local:VoiceMessagePlayer Url="{Binding AttachmentFullUrl}"
+                                                              Visibility="{Binding VoiceAttachmentVisibility}"
+                                                              Margin="0,4,0,0"/>
                                     <TextBlock Text="✓ Read" FontSize="10" Foreground="{StaticResource TextMuted}"
                                                Visibility="{Binding ReadReceiptVisibility}"/>
                                     <ItemsControl ItemsSource="{Binding Reactions}" Margin="0,4,0,0">
@@ -830,8 +833,14 @@
                                 BorderThickness="0" Cursor="Hand"/>
                     </Grid>
                 </Border>
+                <Border x:Name="VoiceMessageRecordingBanner" Background="{StaticResource BgSidebar}" CornerRadius="4"
+                        Padding="10,6" Margin="0,0,0,6" Visibility="Collapsed">
+                    <TextBlock x:Name="VoiceMessageRecordingText" Text="Recording... 0:00" FontSize="12"
+                               Foreground="#F23F42" FontWeight="Bold"/>
+                </Border>
                 <Grid AllowDrop="True" DragOver="MessageInputArea_DragOver" Drop="MessageInputArea_Drop">
                     <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
@@ -839,11 +848,14 @@
                     <Button Grid.Column="0" Content="📎" Width="40" Height="40" Margin="0,0,8,0"
                             Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
                             BorderThickness="0" Click="AttachButton_Click" ToolTip="Attach a file"/>
-                    <TextBox Grid.Column="1" x:Name="MessageInput" Height="40" Padding="10,10" VerticalContentAlignment="Center"
+                    <Button Grid.Column="1" x:Name="RecordVoiceMessageButton" Content="🎤" Width="40" Height="40" Margin="0,0,8,0"
+                            Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
+                            BorderThickness="0" Click="RecordVoiceMessageButton_Click" ToolTip="Record a voice message"/>
+                    <TextBox Grid.Column="2" x:Name="MessageInput" Height="40" Padding="10,10" VerticalContentAlignment="Center"
                              Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
                              BorderThickness="0" KeyDown="MessageInput_KeyDown" TextChanged="MessageInput_TextChanged"
                              DataObject.Pasting="MessageInput_Pasting"/>
-                    <Button Grid.Column="2" Content="Send" Width="80" Height="40" Margin="8,0,0,0"
+                    <Button Grid.Column="3" Content="Send" Width="80" Height="40" Margin="8,0,0,0"
                             Background="{StaticResource AccentBlurple}" Foreground="White"
                             BorderThickness="0" Click="SendButton_Click"/>
                 </Grid>
