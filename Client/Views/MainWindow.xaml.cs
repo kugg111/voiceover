@@ -27,6 +27,11 @@ public class ServerListItem
     // sense for the owner.
     public bool IsOwner { get; set; }
     public Visibility OwnerMenuItemVisibility => IsOwner ? Visibility.Visible : Visibility.Collapsed;
+
+    // Current discoverability state - only read from when opening the
+    // Discoverability modal (ShowDiscoverabilitySettingsAsync) to prefill it.
+    public bool IsPublic { get; set; }
+    public string? Description { get; set; }
 }
 
 public class VoiceMemberItem : INotifyPropertyChanged
@@ -1034,6 +1039,62 @@ public partial class MainWindow : FluentWindow
         return result;
     }
 
+    // Owner-only (see DiscoverabilityMenuItem_Click / ServerListItem.
+    // OwnerMenuItemVisibility) - same custom-content modal shape as
+    // PickOwnershipTransfersAsync above (a checkbox + description textbox
+    // instead of per-server ComboBoxes). Null return means cancelled.
+    public async Task<SetDiscoverableRequest?> ShowDiscoverabilitySettingsAsync(bool currentIsPublic, string? currentDescription)
+    {
+        ModalTitleText.Text = "Discoverability";
+        ModalStandardPanel.Visibility = Visibility.Visible;
+        ModalCreateOrJoinPanel.Visibility = Visibility.Collapsed;
+        ModalMessageText.Text = "Let anyone browse and join this server from Discover Servers, without needing an invite.";
+        ModalMessageText.Visibility = Visibility.Visible;
+        ModalInputBox.Visibility = Visibility.Collapsed;
+
+        ModalCustomContent.Children.Clear();
+        var isPublicCheck = new System.Windows.Controls.CheckBox
+        {
+            Content = "List this server in the public directory",
+            IsChecked = currentIsPublic,
+            Foreground = (Brush)FindResource("TextNormal"),
+            Margin = new Thickness(0, 0, 0, 12)
+        };
+        var descriptionLabel = new System.Windows.Controls.TextBlock
+        {
+            Text = "Description (optional, shown in the directory)",
+            Foreground = (Brush)FindResource("TextMuted"),
+            FontSize = 11,
+            Margin = new Thickness(0, 0, 0, 4)
+        };
+        var descriptionBox = new System.Windows.Controls.TextBox
+        {
+            Text = currentDescription ?? "",
+            MaxLength = 300,
+            TextWrapping = TextWrapping.Wrap,
+            AcceptsReturn = true,
+            Height = 70,
+            Padding = new Thickness(8, 6, 8, 6),
+            Background = (Brush)FindResource("BgDarker"),
+            Foreground = (Brush)FindResource("TextNormal"),
+            BorderThickness = new Thickness(0)
+        };
+        ModalCustomContent.Children.Add(isPublicCheck);
+        ModalCustomContent.Children.Add(descriptionLabel);
+        ModalCustomContent.Children.Add(descriptionBox);
+        ModalCustomContentScroll.Visibility = Visibility.Visible;
+
+        ModalButtonsPanel.Children.Clear();
+        ModalButtonsPanel.Children.Add(BuildModalButton("Cancel", ModalButtonStyle.Plain, () => CompleteModal(null)));
+        ModalButtonsPanel.Children.Add(BuildModalButton("Save", ModalButtonStyle.Primary, () =>
+            CompleteModal(new SetDiscoverableRequest(isPublicCheck.IsChecked == true, descriptionBox.Text))));
+
+        var result = await ShowModal() as SetDiscoverableRequest;
+        ModalCustomContent.Children.Clear();
+        ModalCustomContentScroll.Visibility = Visibility.Collapsed;
+        return result;
+    }
+
     private void ModalInputBox_KeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.Enter) CompleteModal(ModalInputBox.Text);
@@ -1213,7 +1274,9 @@ public partial class MainWindow : FluentWindow
             Name = s.Name,
             IconUrl = App.ResolveUploadUrl(s.IconUrl),
             OwnerId = s.OwnerId,
-            IsOwner = s.OwnerId == _api.CurrentUserId
+            IsOwner = s.OwnerId == _api.CurrentUserId,
+            IsPublic = s.IsPublic,
+            Description = s.Description
         }));
         OnboardingNudgePopup.IsOpen = _servers.Count == 0;
 
@@ -2198,6 +2261,27 @@ public partial class MainWindow : FluentWindow
         await RefreshServerNameLocallyAsync(serverId);
     }
 
+    // Owner-only, same gating as RenameServerMenuItem_Click above.
+    private async void DiscoverabilityMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.MenuItem { Tag: int serverId }) return;
+
+        var current = _servers.FirstOrDefault(s => s.Id == serverId);
+        if (current is null) return;
+
+        var req = await ShowDiscoverabilitySettingsAsync(current.IsPublic, current.Description);
+        if (req is null) return;
+
+        var (success, error) = await _api.SetDiscoverableAsync(serverId, req.IsPublic, req.Description);
+        if (!success)
+        {
+            await AlertAsync("Error", error ?? "Could not update discoverability settings.");
+            return;
+        }
+
+        await LoadServersAsync();
+    }
+
     // Sets the "Mute Notifications"/"Unmute Notifications" label to match
     // this server's current state right before the menu actually opens -
     // items[2] is the mute entry's fixed position in the ContextMenu below
@@ -2433,6 +2517,11 @@ public partial class MainWindow : FluentWindow
     // directly), so refresh MainWindow's own bound copy once the page closes.
     public void RefreshMyAvatarView() => MyAvatarView.ImageUrl = _api.CurrentUserAvatarUrl;
 
+    // Called by DiscoverServersPage after successfully joining a public
+    // server, so it shows up in the rail immediately instead of waiting for
+    // the next login/reconnect.
+    public async Task ReloadServersAsync() => await LoadServersAsync();
+
     private void MyAvatarBorder_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
         NavigateTo(new SettingsPage(this, _api, _voice), "Settings");
@@ -2476,6 +2565,9 @@ public partial class MainWindow : FluentWindow
     {
         NavigateTo(new CallHistoryPage(_api), "Recent Calls");
     }
+
+    private void DiscoverServersButton_Click(object sender, RoutedEventArgs e) =>
+        NavigateTo(new DiscoverServersPage(this, _api), "Discover Servers");
 
     private async void FriendsButton_Click(object sender, RoutedEventArgs e)
     {

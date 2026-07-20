@@ -27,7 +27,7 @@ public record OwnershipTransfer(int ServerId, int NewOwnerUserId);
 public record DeleteAccountRequest(List<OwnershipTransfer>? Transfers);
 
 public record CreateServerRequest(string Name);
-public record GuildServerResponse(int Id, string Name, string? IconUrl, int OwnerId);
+public record GuildServerResponse(int Id, string Name, string? IconUrl, int OwnerId, bool IsPublic = false, string? Description = null);
 public record SetIconRequest(string Url);
 public record RenameServerRequest(string Name);
 

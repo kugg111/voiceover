@@ -203,5 +203,17 @@ public class AppDbContext : DbContext
         // directly avoids needing a separate surrogate id anywhere.
         modelBuilder.Entity<StoredFile>()
             .HasKey(f => f.FileName);
+
+        // ServersController.Discover filters on this directly.
+        modelBuilder.Entity<GuildServer>()
+            .HasIndex(s => s.IsPublic);
+
+        // Same trigram substring-search precedent as User.Username above -
+        // lets Discover's optional "q" filter use an index instead of a
+        // full scan of every public server's name.
+        modelBuilder.Entity<GuildServer>()
+            .HasIndex(s => s.Name, "IX_GuildServers_Name_Trgm")
+            .HasMethod("gin")
+            .HasOperators("gin_trgm_ops");
     }
 }

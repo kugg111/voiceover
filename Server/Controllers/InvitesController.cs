@@ -128,6 +128,6 @@ public class InviteJoinController : ControllerBase
         }
 
         var server = invite.GuildServer;
-        return Ok(new GuildServerResponse(server.Id, server.Name, server.IconUrl, server.OwnerId));
+        return Ok(new GuildServerResponse(server.Id, server.Name, server.IconUrl, server.OwnerId, server.IsPublic, server.Description));
     }
 }

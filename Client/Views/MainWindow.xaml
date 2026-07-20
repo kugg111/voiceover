@@ -99,6 +99,9 @@
                 <Button DockPanel.Dock="Top" x:Name="FriendsButton" Content="👥" FontSize="18" Height="48" Width="48"
                         Margin="12,0,12,8" Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
                         BorderThickness="0" Click="FriendsButton_Click" ToolTip="Friends"/>
+                <Button DockPanel.Dock="Top" x:Name="DiscoverServersButton" Content="🧭" FontSize="18" Height="48" Width="48"
+                        Margin="12,0,12,8" Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
+                        BorderThickness="0" Click="DiscoverServersButton_Click" ToolTip="Discover Servers"/>
                 <Border DockPanel.Dock="Top" Height="1" Background="{StaticResource BgSidebar}" Margin="16,0,16,8"/>
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <ItemsControl x:Name="ServerList">
@@ -117,6 +120,8 @@
                                             <MenuItem x:Name="ServerMuteMenuItem" Header="Mute Notifications" Tag="{Binding Id}" Click="ToggleServerMuteMenuItem_Click"/>
                                             <MenuItem Header="Leave Server" Tag="{Binding Id}" Click="LeaveServerMenuItem_Click"/>
                                             <MenuItem Header="Rename Server" Tag="{Binding Id}" Click="RenameServerMenuItem_Click"
+                                                      Visibility="{Binding OwnerMenuItemVisibility}"/>
+                                            <MenuItem Header="Discoverability..." Tag="{Binding Id}" Click="DiscoverabilityMenuItem_Click"
                                                       Visibility="{Binding OwnerMenuItemVisibility}"/>
                                             <MenuItem Header="Delete Server" Tag="{Binding Id}" Click="DeleteServerMenuItem_Click"
                                                       Visibility="{Binding OwnerMenuItemVisibility}"/>

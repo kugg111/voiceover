@@ -1,7 +1,9 @@
 namespace Voiceover.Client.Models;
 
 public record AuthResponse(string Token, DateTime ExpiresAtUtc, string RefreshToken, int UserId, string Username, string? AvatarUrl = null, string? CustomStatus = null);
-public record GuildServerResponse(int Id, string Name, string? IconUrl, int OwnerId);
+public record GuildServerResponse(int Id, string Name, string? IconUrl, int OwnerId, bool IsPublic = false, string? Description = null);
+public record DiscoverServerResponse(int Id, string Name, string? IconUrl, string? Description, int MemberCount);
+public record SetDiscoverableRequest(bool IsPublic, string? Description);
 public record SetIconRequest(string Url);
 public record RenameServerRequest(string Name);
 public record ChannelResponse(int Id, string Name, string Type, int GuildServerId, int Position, int SlowModeSeconds = 0);

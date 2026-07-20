@@ -17,6 +17,8 @@ public record SetPermissionsRequest(int Permissions); // ServerPermission bitmas
 public record BanRequest(string? Reason);
 public record BannedUserResponse(int UserId, string Username, string? Reason, DateTime CreatedAt, int BannedByUserId, string BannedByUsername);
 public record ModerationLogEntryResponse(int Id, string ActorUsername, string Action, string? TargetUsername, string? Details, DateTime CreatedAt);
+public record DiscoverServerResponse(int Id, string Name, string? IconUrl, string? Description, int MemberCount);
+public record SetDiscoverableRequest(bool IsPublic, string? Description);
 
 [ApiController]
 [Authorize]
@@ -56,7 +58,28 @@ public class ServersController : ControllerBase
 
         var servers = await query
             .Select(m => m.GuildServer!)
-            .Select(s => new GuildServerResponse(s.Id, s.Name, s.IconUrl, s.OwnerId))
+            .Select(s => new GuildServerResponse(s.Id, s.Name, s.IconUrl, s.OwnerId, s.IsPublic, s.Description))
+            .ToListAsync();
+
+        return Ok(servers);
+    }
+
+    // GET /api/servers/discover -> servers anyone can browse and join
+    // without an invite (IsPublic == true, owner opt-in via
+    // SetDiscoverable below). No membership check, unlike every other
+    // per-server endpoint here - [Authorize] on the class still requires a
+    // logged-in app user, just not a member of the specific server.
+    [HttpGet("discover")]
+    public async Task<ActionResult<List<DiscoverServerResponse>>> Discover(string? q, int? take = null, int? skip = null)
+    {
+        var query = _db.GuildServers.Where(s => s.IsPublic);
+        if (!string.IsNullOrWhiteSpace(q)) query = query.Where(s => s.Name.Contains(q));
+
+        query = query.OrderBy(s => s.Id).Skip(skip ?? 0);
+        if (PaginationLimits.Clamp(take) is { } clampedTake) query = query.Take(clampedTake);
+
+        var servers = await query
+            .Select(s => new DiscoverServerResponse(s.Id, s.Name, s.IconUrl, s.Description, s.Memberships.Count))
             .ToListAsync();
 
         return Ok(servers);
@@ -81,16 +104,20 @@ public class ServersController : ControllerBase
 
         await _db.SaveChangesAsync();
 
-        return Ok(new GuildServerResponse(server.Id, server.Name, server.IconUrl, server.OwnerId));
+        return Ok(new GuildServerResponse(server.Id, server.Name, server.IconUrl, server.OwnerId, server.IsPublic, server.Description));
     }
 
-    // Direct join by server id is kept for convenience/dev use; in practice
-    // most people will join via POST /api/invites/{code}/join instead.
+    // Direct join by server id - only for servers listed in Discover above
+    // (IsPublic == true). A private server can only be joined via its own
+    // invite code (POST /api/invites/{code}/join) - without this check,
+    // any authenticated user could join any server just by guessing/
+    // incrementing ids, invite or not.
     [HttpPost("{serverId}/join")]
     public async Task<ActionResult> Join(int serverId)
     {
-        var exists = await _db.GuildServers.AnyAsync(s => s.Id == serverId);
-        if (!exists) return NotFound();
+        var server = await _db.GuildServers.FirstOrDefaultAsync(s => s.Id == serverId);
+        if (server is null) return NotFound();
+        if (!server.IsPublic) return Forbid();
 
         if (await _db.BannedUsers.AnyAsync(b => b.GuildServerId == serverId && b.UserId == CurrentUserId))
             return Forbid();
@@ -336,7 +363,7 @@ public class ServersController : ControllerBase
 
         server.IconUrl = req.Url;
         await _db.SaveChangesAsync();
-        return Ok(new GuildServerResponse(server.Id, server.Name, server.IconUrl, server.OwnerId));
+        return Ok(new GuildServerResponse(server.Id, server.Name, server.IconUrl, server.OwnerId, server.IsPublic, server.Description));
     }
 
     // Owner-only, same gate as SetIcon above.
@@ -355,7 +382,26 @@ public class ServersController : ControllerBase
         await _db.SaveChangesAsync();
 
         await _hub.Clients.Group(HubGroups.ServerPresence(serverId)).SendAsync("ServerRenamed", serverId);
-        return Ok(new GuildServerResponse(server.Id, server.Name, server.IconUrl, server.OwnerId));
+        return Ok(new GuildServerResponse(server.Id, server.Name, server.IconUrl, server.OwnerId, server.IsPublic, server.Description));
+    }
+
+    // Owner-only, same gate as SetIcon/Rename above - controls whether this
+    // server shows up in Discover and can be joined without an invite.
+    [HttpPut("{serverId}/discoverable")]
+    public async Task<ActionResult<GuildServerResponse>> SetDiscoverable(int serverId, SetDiscoverableRequest req)
+    {
+        if (!await _permissions.IsOwnerAsync(CurrentUserId, serverId))
+            return Forbid();
+
+        if (req.Description?.Length > 300) return BadRequest("Description must be 300 characters or fewer.");
+
+        var server = await _db.GuildServers.FirstOrDefaultAsync(s => s.Id == serverId);
+        if (server is null) return NotFound();
+
+        server.IsPublic = req.IsPublic;
+        server.Description = req.Description;
+        await _db.SaveChangesAsync();
+        return Ok(new GuildServerResponse(server.Id, server.Name, server.IconUrl, server.OwnerId, server.IsPublic, server.Description));
     }
 
     [HttpPut("{serverId}/members/{userId}/role")]

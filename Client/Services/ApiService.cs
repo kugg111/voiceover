@@ -192,6 +192,34 @@ public class ApiService
     public async Task<List<GuildServerResponse>> GetMyServersAsync()
         => await _http.GetFromJsonAsync<List<GuildServerResponse>>("api/servers") ?? new();
 
+    // --- Server discovery (see ServersController.Discover) ---
+
+    public async Task<List<DiscoverServerResponse>> DiscoverServersAsync(string? query = null, int? take = null, int? skip = null)
+    {
+        var url = $"api/servers/discover?take={take}&skip={skip}";
+        if (!string.IsNullOrWhiteSpace(query)) url += $"&q={Uri.EscapeDataString(query)}";
+        return await _http.GetFromJsonAsync<List<DiscoverServerResponse>>(url) ?? new();
+    }
+
+    // Only ever succeeds against a server returned by DiscoverServersAsync
+    // above (server-side, ServersController.Join rejects anything not
+    // IsPublic) - joining an invite-only server goes through
+    // JoinByInviteAsync instead.
+    public async Task<(bool Success, string? Error)> JoinPublicServerAsync(int serverId)
+    {
+        var response = await _http.PostAsync($"api/servers/{serverId}/join", null);
+        if (response.IsSuccessStatusCode) return (true, null);
+        return (false, await response.Content.ReadAsStringAsync());
+    }
+
+    // Owner-only server-side (see ServersController.SetDiscoverable).
+    public async Task<(bool Success, string? Error)> SetDiscoverableAsync(int serverId, bool isPublic, string? description)
+    {
+        var response = await _http.PutAsJsonAsync($"api/servers/{serverId}/discoverable", new SetDiscoverableRequest(isPublic, description));
+        if (response.IsSuccessStatusCode) return (true, null);
+        return (false, await response.Content.ReadAsStringAsync());
+    }
+
     // --- Account (Settings > Danger Zone) ---
     public async Task<UserDataExportResponse?> ExportMyDataAsync()
         => await _http.GetFromJsonAsync<UserDataExportResponse>("api/users/me/export");
