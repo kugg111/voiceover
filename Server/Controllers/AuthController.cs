@@ -73,10 +73,12 @@ public class AuthController : ControllerBase
         if (user.TwoFactorEnabled)
         {
             var challengeToken = _jwt.CreateTotpChallengeToken(user.Id);
-            return Ok(new LoginResponse(true, challengeToken, null));
+            return Ok(new LoginResponse(true, challengeToken));
         }
 
-        return Ok(new LoginResponse(false, null, await IssueTokensAsync(user)));
+        var auth = await IssueTokensAsync(user);
+        return Ok(new LoginResponse(false, null, auth.Token, auth.ExpiresAtUtc, auth.RefreshToken,
+            auth.UserId, auth.Username, auth.AvatarUrl, auth.CustomStatus, auth.IsAdmin, auth.TwoFactorEnabled));
     }
 
     // Second step of a 2FA login - takes the challenge token Login just

@@ -6,12 +6,33 @@ public record AuthResponse(string Token, DateTime ExpiresAtUtc, string RefreshTo
 public record RefreshRequest(string RefreshToken);
 public record LogoutRequest(string RefreshToken);
 
-// Login's actual response shape - either a completed login (Auth set,
-// RequiresTwoFactor false) or a 2FA challenge to complete via
-// POST /api/auth/login/totp (ChallengeToken set, Auth null). Register
-// always returns a plain AuthResponse - a brand-new account can't have
-// 2FA enabled yet.
-public record LoginResponse(bool RequiresTwoFactor, string? ChallengeToken, AuthResponse? Auth);
+// Login's actual response shape - either a completed login (the
+// AuthResponse-shaped fields below are set, RequiresTwoFactor false) or a
+// 2FA challenge to complete via POST /api/auth/login/totp (ChallengeToken
+// set, those fields null). Register always returns a plain AuthResponse -
+// a brand-new account can't have 2FA enabled yet.
+//
+// Deliberately flat (not AuthResponse nested under its own property) -
+// this shape shipped as a nested { requiresTwoFactor, challengeToken, auth }
+// object at first, which broke every client built before 2FA existed:
+// they deserialize this response directly as AuthResponse and only ever
+// looked at top-level fields, so Token/RefreshToken/etc came back null and
+// every subsequent authenticated call 401'd. Flat keeps those fields at
+// the top level, so an old client keeps working exactly as before,
+// silently ignoring the two RequiresTwoFactor/ChallengeToken fields it
+// doesn't know about.
+public record LoginResponse(
+    bool RequiresTwoFactor,
+    string? ChallengeToken,
+    string? Token = null,
+    DateTime? ExpiresAtUtc = null,
+    string? RefreshToken = null,
+    int? UserId = null,
+    string? Username = null,
+    string? AvatarUrl = null,
+    string? CustomStatus = null,
+    bool IsAdmin = false,
+    bool TwoFactorEnabled = false);
 public record TotpLoginRequest(string ChallengeToken, string? Code, string? RecoveryCode);
 public record TotpSetupResponse(string Secret, string QrCodePngBase64);
 public record TotpConfirmRequest(string Code);

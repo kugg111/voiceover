@@ -1,7 +1,22 @@
 namespace Voiceover.Client.Models;
 
 public record AuthResponse(string Token, DateTime ExpiresAtUtc, string RefreshToken, int UserId, string Username, string? AvatarUrl = null, string? CustomStatus = null, bool TwoFactorEnabled = false);
-public record LoginResponse(bool RequiresTwoFactor, string? ChallengeToken, AuthResponse? Auth);
+// Flat, not nested under Auth - matches the server's LoginResponse shape
+// (see Server/Dtos/Dtos.cs) so a client built before 2FA existed keeps
+// working against a current server too, and vice versa if this client
+// ever talks to an older server (it'll just see RequiresTwoFactor=false
+// and the token fields already populated at the top level either way).
+public record LoginResponse(
+    bool RequiresTwoFactor,
+    string? ChallengeToken,
+    string? Token = null,
+    DateTime? ExpiresAtUtc = null,
+    string? RefreshToken = null,
+    int? UserId = null,
+    string? Username = null,
+    string? AvatarUrl = null,
+    string? CustomStatus = null,
+    bool TwoFactorEnabled = false);
 public record TotpLoginRequest(string ChallengeToken, string? Code, string? RecoveryCode);
 public record TotpSetupResponse(string Secret, string QrCodePngBase64);
 public record TotpConfirmRequest(string Code);

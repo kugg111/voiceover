@@ -51,8 +51,8 @@ public class AuthControllerTests
         var response = Assert.IsType<LoginResponse>(ok.Value);
         Assert.False(response.RequiresTwoFactor);
         Assert.Null(response.ChallengeToken);
-        Assert.NotNull(response.Auth);
-        Assert.Equal(user.Id, response.Auth!.UserId);
+        Assert.NotNull(response.Token);
+        Assert.Equal(user.Id, response.UserId);
     }
 
     [Fact]
@@ -89,7 +89,7 @@ public class AuthControllerTests
         var response = Assert.IsType<LoginResponse>(ok.Value);
         Assert.True(response.RequiresTwoFactor);
         Assert.NotNull(response.ChallengeToken);
-        Assert.Null(response.Auth);
+        Assert.Null(response.Token);
     }
 
     [Fact]
