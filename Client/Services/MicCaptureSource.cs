@@ -25,6 +25,10 @@ public class MicCaptureSource : IDisposable
     public bool NoiseSuppressionEnabled { get => _processor.Enabled; set => _processor.Enabled = value; }
     public NoiseSuppressionBackend NoiseSuppressionBackend { get => _processor.Backend; set => _processor.Backend = value; }
     public float SuppressionMix { get => _processor.SuppressionMix; set => _processor.SuppressionMix = value; }
+    public bool UseGpuForNsnet2 { get => _processor.UseGpuForNsnet2; set => _processor.UseGpuForNsnet2 = value; }
+    public int GpuDeviceId { get => _processor.GpuDeviceId; set => _processor.GpuDeviceId = value; }
+    public bool? Nsnet2UsingGpu => _processor.Nsnet2UsingGpu;
+    public bool VadGateEnabled { get => _processor.VadGateEnabled; set => _processor.VadGateEnabled = value; }
 
     // Fires with the fully processed frame (post noise-suppression, post-
     // gain) right before it's handed to LiveKit - used for the local

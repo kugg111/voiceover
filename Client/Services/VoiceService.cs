@@ -182,6 +182,53 @@ public class VoiceService : IAsyncDisposable
         }
     }
 
+    // Only NSNet2 is ONNX-based (RNNoise is a native library with no GPU
+    // path of its own), and NSNet2's model is small enough that GPU
+    // dispatch overhead can easily outweigh what it saves on compute - see
+    // Nsnet2Processor's own header. Off by default; offered for whatever
+    // hardware it happens to help on.
+    private bool _useGpuForNsnet2;
+    public bool UseGpuForNsnet2
+    {
+        get => _useGpuForNsnet2;
+        set
+        {
+            _useGpuForNsnet2 = value;
+            if (_micCapture is not null) _micCapture.UseGpuForNsnet2 = value;
+            SaveSettings();
+        }
+    }
+
+    public bool? Nsnet2UsingGpu => _micCapture?.Nsnet2UsingGpu;
+
+    // Which installed GPU DirectML targets when UseGpuForNsnet2 is on -
+    // see GpuDeviceService.cs for how the picker's index maps onto this.
+    private int _gpuDeviceId;
+    public int GpuDeviceId
+    {
+        get => _gpuDeviceId;
+        set
+        {
+            _gpuDeviceId = value;
+            if (_micCapture is not null) _micCapture.GpuDeviceId = value;
+            SaveSettings();
+        }
+    }
+
+    // Silero VAD pre-gate (see NoiseSuppressionProcessor.ApplyVadPreRollGate)
+    // - off by default, newest/least-proven piece of the pipeline.
+    private bool _vadGateEnabled;
+    public bool VadGateEnabled
+    {
+        get => _vadGateEnabled;
+        set
+        {
+            _vadGateEnabled = value;
+            if (_micCapture is not null) _micCapture.VadGateEnabled = value;
+            SaveSettings();
+        }
+    }
+
     // How long an outgoing private call rings before auto-cancelling (see
     // MainWindow.StartRingTimeout) - a local-machine preference like the
     // rest of this class's settings, not something worth a server round trip.
@@ -260,7 +307,7 @@ public class VoiceService : IAsyncDisposable
     private void SaveSettings() =>
         VoiceSettingsStorage.Save(new SavedVoiceSettings(
             InputDeviceIndex, OutputDeviceIndex, NoiseSuppressionEnabled, _inputMode, PushToTalkKey, PushToTalkMouseButton,
-            _noiseSuppressionBackend, _ringTimeoutSeconds, _suppressionMix));
+            _noiseSuppressionBackend, _ringTimeoutSeconds, _suppressionMix, _useGpuForNsnet2, _gpuDeviceId, _vadGateEnabled));
 
     private void LoadSettings()
     {
@@ -273,6 +320,9 @@ public class VoiceService : IAsyncDisposable
         _noiseSuppressionBackend = saved.NoiseSuppressionBackend;
         _ringTimeoutSeconds = saved.RingTimeoutSeconds;
         _suppressionMix = saved.SuppressionMix;
+        _useGpuForNsnet2 = saved.Nsnet2UseGpu;
+        _gpuDeviceId = saved.Nsnet2GpuDeviceId;
+        _vadGateEnabled = saved.VadGateEnabled;
 
         // Mouse button takes priority if somehow both are set in the saved
         // file (shouldn't happen given the mutual-exclusivity setters, but
@@ -412,7 +462,16 @@ public class VoiceService : IAsyncDisposable
             MicMuted = IsMicMuted,
             NoiseSuppressionEnabled = NoiseSuppressionEnabled,
             NoiseSuppressionBackend = NoiseSuppressionBackend,
-            SuppressionMix = SuppressionMix
+            SuppressionMix = SuppressionMix,
+            // GpuDeviceId before UseGpuForNsnet2 - both setters rebuild
+            // the NSNet2 ONNX session when they take effect, and setting
+            // the device id while GPU use is still off just updates a
+            // field (no rebuild yet), so this order builds the session
+            // once with the right device instead of once with the default
+            // device 0 and then immediately again with the real one.
+            GpuDeviceId = GpuDeviceId,
+            UseGpuForNsnet2 = UseGpuForNsnet2,
+            VadGateEnabled = VadGateEnabled
         };
         // Local speaking-indicator detection, straight off the fully
         // processed PCM MicCaptureSource already produces (post noise-

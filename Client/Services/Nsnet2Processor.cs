@@ -92,18 +92,62 @@ internal class Nsnet2Processor : IDisposable
     private readonly float[] _windowedScratch = new float[WinLen];
     private readonly Complex[] _estimatedSpectrumScratch = new Complex[FftBins];
 
-    public Nsnet2Processor(string modelPath)
+    // True if this instance actually ended up running on the GPU - the
+    // caller may have asked for it, but AppendExecutionProvider_DML can
+    // fail (no DX12-capable GPU, driver too old) and that must fall back
+    // to CPU rather than take noise suppression down entirely. Surfaced so
+    // the UI can tell "you asked for GPU and got it" apart from "you asked
+    // for GPU but it silently didn't happen".
+    public bool UsingGpu { get; }
+
+    public Nsnet2Processor(string modelPath, bool useGpu = false, int gpuDeviceId = 0)
     {
-        // See the class header's cost trap #2 - this model's per-call
-        // workload is far too small to benefit from ONNX Runtime's default
-        // one-thread-per-physical-core pool, so force single-threaded,
-        // no-separate-thread-pool execution instead.
-        var options = new SessionOptions
+        if (useGpu)
         {
-            IntraOpNumThreads = 1,
-            InterOpNumThreads = 1
-        };
-        _session = new InferenceSession(modelPath, options);
+            try
+            {
+                // DirectML rides DirectX 12, so this covers NVIDIA/AMD/
+                // Intel/Qualcomm alike, unlike CUDA which would be NVIDIA-
+                // only. deviceId indexes DXGI adapter enumeration order -
+                // see GpuDeviceService.cs for how the picker maps names to
+                // that index (best-effort, not a guaranteed 1:1 mapping).
+                // Note this is a genuinely small model (see the class
+                // header) - GPU dispatch overhead can easily exceed what
+                // it saves on compute, so this is offered as an opt-in for
+                // whatever hardware it happens to help on, not turned on
+                // by default. IntraOpNumThreads/InterOpNumThreads are
+                // deliberately left at their defaults here - those tune
+                // the CPU execution provider's thread pool, which
+                // DirectML doesn't use.
+                var gpuOptions = new SessionOptions();
+                gpuOptions.AppendExecutionProvider_DML(gpuDeviceId);
+                _session = new InferenceSession(modelPath, gpuOptions);
+                UsingGpu = true;
+            }
+            catch
+            {
+                // No DX12-capable GPU, driver too old, etc. - fall through
+                // to the same CPU session used when GPU isn't requested at
+                // all, rather than losing noise suppression entirely over
+                // an optional enhancement. _session is still null here, so
+                // the code below runs unconditionally.
+            }
+        }
+
+        if (_session is null)
+        {
+            // See the class header's cost trap #2 - this model's per-call
+            // workload is far too small to benefit from ONNX Runtime's
+            // default one-thread-per-physical-core pool, so force single-
+            // threaded, no-separate-thread-pool execution instead.
+            var cpuOptions = new SessionOptions
+            {
+                IntraOpNumThreads = 1,
+                InterOpNumThreads = 1
+            };
+            _session = new InferenceSession(modelPath, cpuOptions);
+        }
+
         _inputName = _session.InputMetadata.Keys.First();
         _analysisWindow = BuildPeriodicSqrtHann(WinLen);
         _synthesisWindow = BuildSynthesisWindow(_analysisWindow, Hop);

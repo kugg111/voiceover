@@ -14,7 +14,10 @@ public record SavedVoiceSettings(
     MouseButton? PushToTalkMouseButton = null,
     NoiseSuppressionBackend NoiseSuppressionBackend = NoiseSuppressionBackend.RNNoise,
     int RingTimeoutSeconds = 40,
-    float SuppressionMix = 1f);
+    float SuppressionMix = 1f,
+    bool Nsnet2UseGpu = false,
+    int Nsnet2GpuDeviceId = 0,
+    bool VadGateEnabled = false);
 
 // Persists voice preferences (devices, noise suppression, input mode, PTT/
 // push-to-mute hotkey) locally so they survive a log out/in - these are

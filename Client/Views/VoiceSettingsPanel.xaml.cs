@@ -56,6 +56,14 @@ public partial class VoiceSettingsPanel : UserControl
         UpdateSuppressionMixDisplay();
         UpdateSuppressionMixAvailability();
 
+        var gpus = GpuDeviceService.GetGpus();
+        GpuDeviceCombo.ItemsSource = gpus;
+        GpuDeviceCombo.SelectedItem = gpus.FirstOrDefault(g => g.Index == _voice.GpuDeviceId) ?? gpus.FirstOrDefault();
+        Nsnet2GpuCheck.IsChecked = _voice.UseGpuForNsnet2;
+        UpdateNsnet2GpuAvailability();
+
+        VadGateCheck.IsChecked = _voice.VadGateEnabled;
+
         HotkeyRecordButton.Content = FormatTriggerName();
 
         switch (_voice.InputMode)
@@ -128,6 +136,39 @@ public partial class VoiceSettingsPanel : UserControl
             ? NoiseSuppressionBackend.Nsnet2
             : NoiseSuppressionBackend.RNNoise;
         UpdateSuppressionMixAvailability();
+        UpdateNsnet2GpuAvailability();
+    }
+
+    // RNNoise is a native library with no GPU path of its own, so this only
+    // ever does anything for NSNet2 - grey it out (rather than hide it
+    // outright) when RNNoise is selected, so the setting's still visible
+    // and its saved value doesn't feel like it silently vanished. The
+    // device picker is further gated on the GPU checkbox itself - picking
+    // a specific card is meaningless until "use GPU" is actually on.
+    private void UpdateNsnet2GpuAvailability()
+    {
+        var nsnet2Selected = Nsnet2Radio.IsChecked == true;
+        Nsnet2GpuCheck.IsEnabled = nsnet2Selected;
+        GpuDeviceCombo.IsEnabled = nsnet2Selected && Nsnet2GpuCheck.IsChecked == true;
+    }
+
+    private void Nsnet2GpuCheck_Changed(object sender, RoutedEventArgs e)
+    {
+        UpdateNsnet2GpuAvailability();
+        if (!_loaded) return;
+        _voice!.UseGpuForNsnet2 = Nsnet2GpuCheck.IsChecked == true;
+    }
+
+    private void GpuDeviceCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_loaded) return;
+        if (GpuDeviceCombo.SelectedItem is GpuDevice device) _voice!.GpuDeviceId = device.Index;
+    }
+
+    private void VadGateCheck_Changed(object sender, RoutedEventArgs e)
+    {
+        if (!_loaded) return;
+        _voice!.VadGateEnabled = VadGateCheck.IsChecked == true;
     }
 
     // Stored/displayed as 0-100% in the UI - VoiceService.SuppressionMix
@@ -187,7 +228,13 @@ public partial class VoiceSettingsPanel : UserControl
             {
                 Enabled = _voice.NoiseSuppressionEnabled,
                 Backend = _voice.NoiseSuppressionBackend,
-                SuppressionMix = _voice.SuppressionMix
+                SuppressionMix = _voice.SuppressionMix,
+                // GpuDeviceId before UseGpuForNsnet2 - see the matching
+                // comment on VoiceService's own MicCaptureSource
+                // construction for why the order matters here.
+                GpuDeviceId = _voice.GpuDeviceId,
+                UseGpuForNsnet2 = _voice.UseGpuForNsnet2,
+                VadGateEnabled = _voice.VadGateEnabled
             };
 
             // Same 20ms/960-sample frame size MicCaptureSource's live

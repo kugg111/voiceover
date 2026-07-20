@@ -26,7 +26,17 @@
                          Foreground="{StaticResource TextNormal}" Margin="0,0,0,4"
                          Checked="NoiseSuppressionBackendRadio_Changed"/>
             <TextBlock Text="RNNoise is a lightweight neural denoiser - lighter on CPU, sometimes more aggressive on background noise. NSNet2 is a heavier ML denoiser that re-analyzes a short rolling window on every frame rather than carrying state forward, so it costs more CPU than RNNoise. Try both and pick whichever sounds better on your mic."
-                       FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}" Margin="0,0,0,12"/>
+                       FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}" Margin="0,0,0,8"/>
+
+            <CheckBox x:Name="Nsnet2GpuCheck" Content="Run NSNet2 on GPU" Margin="20,0,0,4"
+                      Foreground="{StaticResource TextNormal}"
+                      Checked="Nsnet2GpuCheck_Changed" Unchecked="Nsnet2GpuCheck_Changed"/>
+            <TextBlock x:Name="Nsnet2GpuHelpText" FontSize="11" TextWrapping="Wrap" Margin="20,0,0,8"
+                       Foreground="{StaticResource TextMuted}"
+                       Text="Uses any DirectX 12 GPU (NVIDIA/AMD/Intel), not just NVIDIA. NSNet2's model is small, so this often doesn't help - worth trying, but don't be surprised if CPU is just as fast or faster on your hardware. Falls back to CPU automatically if no compatible GPU is found."/>
+
+            <ComboBox x:Name="GpuDeviceCombo" Width="260" HorizontalAlignment="Left" Margin="20,0,0,12"
+                      DisplayMemberPath="Name" SelectionChanged="GpuDeviceCombo_SelectionChanged"/>
 
             <TextBlock Text="Suppression Mix" FontWeight="Bold"
                        Foreground="{StaticResource TextNormal}" Margin="0,12,0,4"/>
@@ -38,6 +48,13 @@
             </StackPanel>
             <TextBlock x:Name="SuppressionMixHelpText" FontSize="11" TextWrapping="Wrap"
                        Foreground="{StaticResource TextMuted}" Margin="0,0,0,12"/>
+
+            <CheckBox x:Name="VadGateCheck" Content="Voice activity gate (experimental)" Margin="0,0,0,4"
+                      Foreground="{StaticResource TextNormal}"
+                      Checked="VadGateCheck_Changed" Unchecked="VadGateCheck_Changed"/>
+            <TextBlock FontSize="11" TextWrapping="Wrap" Margin="0,0,0,12"
+                       Foreground="{StaticResource TextMuted}"
+                       Text="Mutes confirmed-silence stretches after suppression runs, catching residual noise (fan hum, breathing) a suppressor alone lets through. Adds a small fixed delay (~140ms) to your mic while enabled, and holds a brief buffer before deciding to release audio so it doesn't clip the start of a word. Off by default - newest, least-tested part of this pipeline."/>
 
             <Button x:Name="TestMicButton" Content="Test Mic" Height="36" Width="160" HorizontalAlignment="Left"
                     Click="TestMicButton_Click"
