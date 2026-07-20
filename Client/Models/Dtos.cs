@@ -54,4 +54,9 @@ public record FriendResponse(int UserId, string Username, string? AvatarUrl = nu
 public record FriendRequestResponse(int Id, int UserId, string Username, string Direction, string? AvatarUrl = null);
 public record BlockedUserResponse(int UserId, string Username, string? AvatarUrl = null);
 public record LiveKitJoinResponse(string Token, string ServerUrl);
-public record VersionInfo(string Version, string InstallerUrl, string PortableUrl);
+// Mandatory is the developer's manual "force everyone off older builds"
+// switch - flipped by hand in Server/Site/downloads/version.json per
+// release (see DEPLOYMENT.txt / this repo's release workflow), never set
+// automatically. Defaults false so older cached responses or a
+// hand-edited file that omits the field never accidentally block login.
+public record VersionInfo(string Version, string InstallerUrl, string PortableUrl, bool Mandatory = false);

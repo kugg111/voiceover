@@ -36,6 +36,28 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        // WPF's default ShutdownMode (OnLastWindowClose) tears the whole
+        // app down the instant the update gate window closes, if that
+        // happens to be the only open window at that exact moment - which
+        // it always is here, since the gate window closes before
+        // LoginWindow/MainWindow gets created a few lines below (that
+        // continuation resumes via the dispatcher queue, so there's a real
+        // gap with zero windows open). Suppress that until a real window
+        // is up, then restore normal behavior so closing Login/MainWindow
+        // still quits the app exactly as before.
+        ShutdownMode = ShutdownMode.OnExplicitShutdown;
+
+        // Always runs first, before either startup path below - checks for
+        // an update and, if one exists, blocks here until the user updates
+        // or skips (skip is unavailable for an update the developer marked
+        // Mandatory). Returns false if it already handled everything else
+        // (mid-update relaunch, or the user quit instead of updating).
+        if (!await UpdateGateWindow.CheckAndShowIfNeededAsync())
+        {
+            Shutdown();
+            return;
+        }
+
         var session = SessionStorage.Load();
         if (session is not null)
         {
@@ -47,7 +69,8 @@ public partial class App : Application
             // (expired past its 30-day life, or revoked via /logout-all) -
             // RestoreSessionAsync already cleared it, so just fall back to
             // a normal login same as if there'd been no saved session.
-            if (await api.RestoreSessionAsync(session.RefreshToken, session.UserId, session.Username, session.AvatarUrl))
+            var restored = await api.RestoreSessionAsync(session.RefreshToken, session.UserId, session.Username, session.AvatarUrl);
+            if (restored)
             {
                 // No password was entered this launch, so E2EE can only be
                 // unlocked from the wrapping key cached alongside the
@@ -59,11 +82,13 @@ public partial class App : Application
                     await api.E2ee.UnlockWithCachedKeyAsync(Convert.FromBase64String(session.E2eeWrappingKey));
 
                 new MainWindow(api).Show();
+                ShutdownMode = ShutdownMode.OnLastWindowClose;
                 return;
             }
         }
 
         new LoginWindow().Show();
+        ShutdownMode = ShutdownMode.OnLastWindowClose;
     }
 
     private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
