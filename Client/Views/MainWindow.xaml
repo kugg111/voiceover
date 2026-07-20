@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
         xmlns:local="clr-namespace:Voiceover.Client.Views"
+        xmlns:tb="clr-namespace:H.NotifyIcon;assembly=H.NotifyIcon.Wpf"
         Title="Voiceover" Height="700" Width="1100"
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource BgDark}"
@@ -10,6 +11,7 @@
         ExtendsContentIntoTitleBar="True"
         WindowBackdropType="Mica"
         WindowCornerPreference="Round"
+        Closing="MainWindow_Closing"
         PreviewKeyDown="MainWindow_PreviewKeyDown">
     <ui:FluentWindow.Resources>
         <local:EmojiToImageConverter x:Key="EmojiToImageConverter"/>
@@ -27,6 +29,23 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
+
+        <!-- Non-visual - registers the tray icon with the OS on Loaded.
+             Left in a closed-not-exited state by MainWindow_Closing (see
+             TraySettingsStorage), so notifications keep firing while the
+             window is hidden. -->
+        <tb:TaskbarIcon x:Name="TrayIcon"
+                        IconSource="/Assets/AppIcon.ico"
+                        ToolTipText="Voiceover"
+                        TrayLeftMouseDoubleClick="TrayIcon_DoubleClick">
+            <tb:TaskbarIcon.ContextMenu>
+                <ContextMenu>
+                    <MenuItem Header="Open Voiceover" Click="TrayOpenMenuItem_Click"/>
+                    <Separator/>
+                    <MenuItem Header="Exit" Click="TrayExitMenuItem_Click"/>
+                </ContextMenu>
+            </tb:TaskbarIcon.ContextMenu>
+        </tb:TaskbarIcon>
 
         <ui:TitleBar Title="Voiceover" Grid.Row="0">
             <ui:TitleBar.Icon>

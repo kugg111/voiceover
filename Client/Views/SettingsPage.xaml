@@ -51,6 +51,12 @@
                     <TextBlock x:Name="AccountStatusText" FontSize="11" TextWrapping="Wrap"
                                Foreground="{StaticResource TextMuted}" Margin="0,8,0,0"/>
 
+                    <CheckBox x:Name="MinimizeToTrayCheck" Content="Minimize to tray instead of closing"
+                              Foreground="{StaticResource TextNormal}" FontWeight="Bold" Margin="0,20,0,4"
+                              Checked="MinimizeToTrayCheck_Changed" Unchecked="MinimizeToTrayCheck_Changed"/>
+                    <TextBlock Text="When enabled, closing the window hides Voiceover to the system tray instead of exiting - notifications keep coming in while it's running in the background. Right-click the tray icon to exit for real."
+                               FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}" Margin="0,0,0,0"/>
+
                     <Border Height="1" Background="{StaticResource BgSidebar}" Margin="0,24,0,20"/>
 
                     <TextBlock Text="BLOCKED USERS" FontSize="11" FontWeight="Bold"

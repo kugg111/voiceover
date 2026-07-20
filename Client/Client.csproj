@@ -60,6 +60,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- System tray icon for minimize-to-tray (see MainWindow's Closing
+         handler / TraySettingsStorage) - lets notifications keep firing
+         while the window is hidden instead of exiting the whole app.
+         Continuation of the unmaintained hardcodet/wpf-notifyicon project,
+         actively maintained and XAML-first, unlike a raw
+         System.Windows.Forms.NotifyIcon interop. -->
+    <PackageReference Include="H.NotifyIcon.Wpf" Version="2.4.1" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="8.0.10" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
     <!-- Voice chat: connects to the self-hosted LiveKit SFU (see

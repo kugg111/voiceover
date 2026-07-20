@@ -600,6 +600,11 @@ public partial class MainWindow : FluentWindow
     private VoiceService? _voice;
     private readonly IdleDetector _idleDetector = new();
 
+    // Set right before any Close() call that should really tear the app
+    // down (tray Exit, log out, session expiry) - otherwise
+    // MainWindow_Closing redirects a plain close to hide-to-tray instead.
+    private bool _reallyExit;
+
     private int? _currentServerId;
     private int? _currentChannelId;
     private int? _currentVoiceChannelId;
@@ -1048,6 +1053,40 @@ public partial class MainWindow : FluentWindow
 
     private void ModalCreateButton_Click(object sender, RoutedEventArgs e) => CompleteModal(true);
     private void ModalJoinButton_Click(object sender, RoutedEventArgs e) => CompleteModal(false);
+
+    // Hooked via XAML (Closing="MainWindow_Closing"), same as
+    // PreviewKeyDown - runs before MainWindow_Closed below, which only ever
+    // fires for a real close now (tray Exit, log out, session expiry, or
+    // the tray setting turned off).
+    private void MainWindow_Closing(object? sender, CancelEventArgs e)
+    {
+        if (_reallyExit || !TraySettingsStorage.MinimizeToTrayEnabled) return;
+
+        e.Cancel = true;
+        Hide();
+
+        if (!TraySettingsStorage.HasShownTrayBalloon)
+        {
+            TrayIcon.ShowNotification("Voiceover", "Still running in the background - right-click the tray icon to exit.");
+            TraySettingsStorage.HasShownTrayBalloon = true;
+        }
+    }
+
+    private void TrayIcon_DoubleClick(object sender, RoutedEventArgs e) => RestoreFromTray();
+    private void TrayOpenMenuItem_Click(object sender, RoutedEventArgs e) => RestoreFromTray();
+
+    private void RestoreFromTray()
+    {
+        Show();
+        WindowState = WindowState.Normal;
+        Activate();
+    }
+
+    private void TrayExitMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        _reallyExit = true;
+        Close();
+    }
 
     private async void MainWindow_Closed(object? sender, EventArgs e)
     {
@@ -2361,6 +2400,7 @@ public partial class MainWindow : FluentWindow
         SessionStorage.Clear();
         await AlertAsync("Signed Out", "Your session has expired. Please log in again.");
         new LoginWindow().Show();
+        _reallyExit = true;
         Close();
     }
 
@@ -2379,6 +2419,7 @@ public partial class MainWindow : FluentWindow
     {
         var login = new LoginWindow();
         login.Show();
+        _reallyExit = true;
         Close();
     }
 

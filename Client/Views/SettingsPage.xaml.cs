@@ -35,6 +35,8 @@ public partial class SettingsPage : UserControl
         CustomStatusBox.Text = _api.CurrentUserCustomStatus ?? "";
         UpdateCustomStatusCounter();
 
+        MinimizeToTrayCheck.IsChecked = TraySettingsStorage.MinimizeToTrayEnabled;
+
         UpdateStatusText.Text = $"You're on version {UpdateChecker.CurrentVersion}" +
             (UpdateChecker.IsInstalled ? " (installed)." : " (portable).");
 
@@ -49,6 +51,9 @@ public partial class SettingsPage : UserControl
 
         Loaded += async (_, _) => await LoadBlockedUsersAsync();
     }
+
+    private void MinimizeToTrayCheck_Changed(object sender, RoutedEventArgs e) =>
+        TraySettingsStorage.MinimizeToTrayEnabled = MinimizeToTrayCheck.IsChecked == true;
 
     private async Task LoadBlockedUsersAsync()
     {
