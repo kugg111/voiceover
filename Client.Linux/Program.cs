@@ -1,7 +1,7 @@
 ﻿using Avalonia;
 using System;
 
-namespace Client.Linux;
+namespace Voiceover.Client.Linux;
 
 class Program
 {

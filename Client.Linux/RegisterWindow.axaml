@@ -1,0 +1,44 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Voiceover.Client.Linux.RegisterWindow"
+        Title="Voiceover - Register" Height="450" Width="360"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource BgDark}"
+        CanResize="False">
+    <Grid Margin="32">
+        <StackPanel VerticalAlignment="Center">
+            <TextBlock Text="Create an account" FontSize="22" FontWeight="Bold"
+                       Foreground="{StaticResource TextNormal}" Margin="0,0,0,4"/>
+            <TextBlock Text="Join Voiceover in just a few clicks." FontSize="13"
+                       Foreground="{StaticResource TextMuted}" Margin="0,0,0,20"/>
+
+            <TextBlock Text="USERNAME" FontSize="11" FontWeight="Bold"
+                       Foreground="{StaticResource TextMuted}" Margin="0,0,0,4"/>
+            <TextBox x:Name="UsernameBox" Height="36" Padding="8,6"
+                     Background="{StaticResource BgDarker}" Foreground="{StaticResource TextNormal}"
+                     BorderThickness="0" Margin="0,0,0,14" KeyDown="UsernameOrPasswordBox_KeyDown"/>
+
+            <TextBlock Text="PASSWORD" FontSize="11" FontWeight="Bold"
+                       Foreground="{StaticResource TextMuted}" Margin="0,0,0,4"/>
+            <TextBox x:Name="PasswordBox" Height="36" Padding="8,6" PasswordChar="*"
+                     Background="{StaticResource BgDarker}" Foreground="{StaticResource TextNormal}"
+                     BorderThickness="0" Margin="0,0,0,14" KeyDown="UsernameOrPasswordBox_KeyDown"/>
+
+            <!-- No "Remember me" yet - see LoginWindow.axaml's comment. -->
+
+            <TextBlock x:Name="StatusText" Foreground="{StaticResource DangerRed}" FontSize="12"
+                       Margin="0,0,0,10" TextWrapping="Wrap" IsVisible="False"/>
+
+            <Button x:Name="RegisterSubmitButton" Content="Register" Height="40" Width="200"
+                    HorizontalAlignment="Center" HorizontalContentAlignment="Center"
+                    Background="{StaticResource AccentBlurple}" Foreground="White"
+                    BorderThickness="0" FontWeight="Bold" Cursor="Hand"
+                    Click="RegisterSubmitButton_Click" Margin="0,0,0,8"/>
+
+            <Button x:Name="BackToLoginButton" Content="Already have an account? Log In" Height="36"
+                    HorizontalAlignment="Center" HorizontalContentAlignment="Center" Padding="12,0"
+                    Background="Transparent" Foreground="{StaticResource TextMuted}"
+                    BorderThickness="0" Cursor="Hand" Click="BackToLoginButton_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

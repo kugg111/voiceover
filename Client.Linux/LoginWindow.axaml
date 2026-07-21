@@ -1,0 +1,85 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Voiceover.Client.Linux.LoginWindow"
+        Title="Voiceover - Login" Height="450" Width="360"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource BgDark}"
+        CanResize="False">
+    <Grid Margin="32">
+        <StackPanel x:Name="LoginPanel" VerticalAlignment="Center">
+            <TextBlock Text="Welcome back!" FontSize="22" FontWeight="Bold"
+                       Foreground="{StaticResource TextNormal}" Margin="0,0,0,4"/>
+            <TextBlock Text="We're so excited to see you again." FontSize="13"
+                       Foreground="{StaticResource TextMuted}" Margin="0,0,0,20"/>
+
+            <TextBlock Text="USERNAME" FontSize="11" FontWeight="Bold"
+                       Foreground="{StaticResource TextMuted}" Margin="0,0,0,4"/>
+            <TextBox x:Name="UsernameBox" Height="36" Padding="8,6"
+                     Background="{StaticResource BgDarker}" Foreground="{StaticResource TextNormal}"
+                     BorderThickness="0" Margin="0,0,0,14" KeyDown="UsernameOrPasswordBox_KeyDown"/>
+
+            <TextBlock Text="PASSWORD" FontSize="11" FontWeight="Bold"
+                       Foreground="{StaticResource TextMuted}" Margin="0,0,0,4"/>
+            <TextBox x:Name="PasswordBox" Height="36" Padding="8,6" PasswordChar="*"
+                     Background="{StaticResource BgDarker}" Foreground="{StaticResource TextNormal}"
+                     BorderThickness="0" Margin="0,0,0,14" KeyDown="UsernameOrPasswordBox_KeyDown"/>
+
+            <!-- No "Remember me" yet - the WPF client's version relies on
+                 DPAPI (Windows-only) to encrypt the saved refresh token at
+                 rest, and there's no Linux equivalent wired up yet (see the
+                 Linux client plan's deferred-items list). Shipping a
+                 checkbox that silently doesn't persist anything would be
+                 worse than not having the feature - every login here is a
+                 fresh one for now. -->
+
+            <TextBlock x:Name="StatusText" Foreground="{StaticResource DangerRed}" FontSize="12"
+                       Margin="0,0,0,10" TextWrapping="Wrap" IsVisible="False"/>
+
+            <Button x:Name="LoginButton" Content="Log In" Height="40" Width="200"
+                    HorizontalAlignment="Center" HorizontalContentAlignment="Center"
+                    Background="{StaticResource AccentBlurple}" Foreground="White"
+                    BorderThickness="0" FontWeight="Bold" Cursor="Hand"
+                    Click="LoginButton_Click" Margin="0,0,0,8"/>
+
+            <Button x:Name="RegisterButton" Content="Register New Account" Height="36" Width="200"
+                    HorizontalAlignment="Center" HorizontalContentAlignment="Center"
+                    Background="Transparent" Foreground="{StaticResource TextMuted}"
+                    BorderThickness="0" Cursor="Hand" Click="RegisterButton_Click"/>
+        </StackPanel>
+
+        <!-- Shown instead of LoginPanel when the account has 2FA enabled -
+             mirrors the WPF client's LoginWindow exactly (see that file's
+             own comment for why this is a plain panel swap, not a modal). -->
+        <StackPanel x:Name="TotpPanel" VerticalAlignment="Center" IsVisible="False">
+            <TextBlock Text="Two-Factor Authentication" FontSize="22" FontWeight="Bold"
+                       Foreground="{StaticResource TextNormal}" Margin="0,0,0,4"/>
+            <TextBlock Text="Enter the 6-digit code from your authenticator app." FontSize="13"
+                       Foreground="{StaticResource TextMuted}" Margin="0,0,0,20"/>
+
+            <TextBlock x:Name="TotpLabel" Text="CODE" FontSize="11" FontWeight="Bold"
+                       Foreground="{StaticResource TextMuted}" Margin="0,0,0,4"/>
+            <TextBox x:Name="TotpCodeBox" Height="36" Padding="8,6"
+                     Background="{StaticResource BgDarker}" Foreground="{StaticResource TextNormal}"
+                     BorderThickness="0" Margin="0,0,0,14" KeyDown="TotpCodeBox_KeyDown"/>
+
+            <TextBlock x:Name="TotpStatusText" Foreground="{StaticResource DangerRed}" FontSize="12"
+                       Margin="0,0,0,10" TextWrapping="Wrap" IsVisible="False"/>
+
+            <Button x:Name="TotpVerifyButton" Content="Verify" Height="40" Width="200"
+                    HorizontalAlignment="Center" HorizontalContentAlignment="Center"
+                    Background="{StaticResource AccentBlurple}" Foreground="White"
+                    BorderThickness="0" FontWeight="Bold" Cursor="Hand"
+                    Click="TotpVerifyButton_Click" Margin="0,0,0,8"/>
+
+            <Button x:Name="TotpUseRecoveryCodeButton" Content="Use a recovery code instead" Height="30" Width="200"
+                    HorizontalAlignment="Center" HorizontalContentAlignment="Center"
+                    Background="Transparent" Foreground="{StaticResource TextMuted}"
+                    BorderThickness="0" Cursor="Hand" Click="TotpUseRecoveryCodeButton_Click"/>
+
+            <Button x:Name="TotpBackButton" Content="Back" Height="30" Width="200"
+                    HorizontalAlignment="Center" HorizontalContentAlignment="Center"
+                    Background="Transparent" Foreground="{StaticResource TextMuted}"
+                    BorderThickness="0" Cursor="Hand" Click="TotpBackButton_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

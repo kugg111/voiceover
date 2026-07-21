@@ -1,9 +1,28 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
-        x:Class="Client.Linux.MainWindow"
-        Title="Client.Linux">
-    Welcome to Avalonia!
+        x:Class="Voiceover.Client.Linux.MainWindow"
+        Title="Voiceover" Width="1100" Height="700"
+        Background="{StaticResource BgDark}">
+    <!-- Placeholder shell - Phase 1's server rail/channel list/message
+         view come next (see the Linux client plan). This much proves the
+         end-to-end slice works: log in (or register), land here knowing
+         who's logged in, log out back to the login screen. -->
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" VerticalAlignment="Center" HorizontalAlignment="Center">
+            <TextBlock x:Name="WelcomeText" FontSize="20" FontWeight="Bold"
+                       Foreground="{StaticResource TextNormal}" HorizontalAlignment="Center"/>
+            <TextBlock Text="The rest of the client (servers, channels, messages, voice) isn't built yet."
+                       FontSize="13" Foreground="{StaticResource TextMuted}"
+                       HorizontalAlignment="Center" Margin="0,8,0,0"/>
+        </StackPanel>
+
+        <Button Grid.Row="1" x:Name="LogOutButton" Content="Log out" HorizontalAlignment="Right"
+                Background="Transparent" Foreground="{StaticResource TextMuted}"
+                BorderThickness="0" Cursor="Hand" Click="LogOutButton_Click"/>
+    </Grid>
 </Window>
