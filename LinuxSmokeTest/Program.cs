@@ -15,6 +15,11 @@ using LiveKit.Rtc;
 // by attempting - and expecting to cleanly fail - a connect with a
 // placeholder token.
 
+// GitHub Actions substitutes an unset secret as an empty string, not a
+// missing env var - IsNullOrEmpty, not a plain null check, or this reads
+// as "credentials are set" even when they're blank (learned the hard way:
+// the first CI run crashed building a token from "", before ever
+// reaching the actual native-library question this test exists to answer).
 var url = Environment.GetEnvironmentVariable("LIVEKIT_URL");
 var apiKey = Environment.GetEnvironmentVariable("LIVEKIT_API_KEY");
 var apiSecret = Environment.GetEnvironmentVariable("LIVEKIT_API_SECRET");
@@ -24,7 +29,7 @@ Console.WriteLine($"Runtime: {System.Runtime.InteropServices.RuntimeInformation.
 
 string token;
 string connectUrl;
-if (url is not null && apiKey is not null && apiSecret is not null)
+if (!string.IsNullOrEmpty(url) && !string.IsNullOrEmpty(apiKey) && !string.IsNullOrEmpty(apiSecret))
 {
     Console.WriteLine("LIVEKIT_URL/LIVEKIT_API_KEY/LIVEKIT_API_SECRET are set - attempting a real connect.");
     connectUrl = url;
@@ -75,3 +80,12 @@ catch (Exception ex)
     Console.WriteLine("SMOKE TEST PASSED (partial): native library loaded and attempted a connection; " +
         "the connection itself failed as expected without real credentials/network.");
 }
+
+Console.WriteLine();
+Console.WriteLine("Cross-platform E2EE crypto vector check:");
+if (!E2eeVectorCheck.Run())
+{
+    Console.WriteLine("E2EE VECTOR CHECK FAILED - see above.");
+    Environment.Exit(1);
+}
+Console.WriteLine("E2EE VECTOR CHECK PASSED.");
