@@ -1,0 +1,29 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Voiceover.Client.Linux"
+        x:Class="Voiceover.Client.Linux.MembersWindow"
+        Title="Members" Width="360" Height="480"
+        Background="{StaticResource BgDark}">
+    <DockPanel Margin="16">
+        <TextBlock DockPanel.Dock="Top" Text="Members" FontSize="18" FontWeight="Bold"
+                   Foreground="{StaticResource TextNormal}" Margin="0,0,0,12"/>
+        <ScrollViewer>
+            <ItemsControl x:Name="MemberList">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="local:MemberItem">
+                        <Grid Margin="0,4,0,4" ColumnDefinitions="*,Auto">
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="{Binding Username}" Foreground="{StaticResource TextNormal}" FontWeight="Bold"/>
+                                <TextBlock Text="{Binding Role}" Foreground="{StaticResource TextMuted}" FontSize="11"/>
+                            </StackPanel>
+                            <Button Grid.Column="1" Content="Kick" Tag="{Binding UserId}" Click="KickButton_Click"
+                                    IsVisible="{Binding CanKick}"
+                                    Background="{StaticResource DangerRed}" Foreground="White"
+                                    BorderThickness="0" Padding="8,4" Cursor="Hand"/>
+                        </Grid>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

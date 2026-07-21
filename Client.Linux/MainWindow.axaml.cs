@@ -43,6 +43,28 @@ public class ChannelListItem : INotifyPropertyChanged
     public bool HasUnread => UnreadCount > 0;
     public string UnreadCountDisplay => UnreadCount > 99 ? "99+" : UnreadCount.ToString();
 
+    // Only populated/shown for voice channels - who's currently connected.
+    // A fixed collection reference (see MessageListItem.Reactions for why).
+    public ObservableCollection<VoiceRosterItem> Members { get; } = new();
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+    private void OnPropertyChanged(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+}
+
+public class VoiceRosterItem : INotifyPropertyChanged
+{
+    public int UserId { get; set; }
+    public string Username { get; set; } = string.Empty;
+
+    private bool _isMuted;
+    public bool IsMuted { get => _isMuted; set { if (_isMuted == value) return; _isMuted = value; OnPropertyChanged(nameof(IsMuted)); } }
+
+    private bool _isDeafened;
+    public bool IsDeafened { get => _isDeafened; set { if (_isDeafened == value) return; _isDeafened = value; OnPropertyChanged(nameof(IsDeafened)); } }
+
+    private bool _isSpeaking;
+    public bool IsSpeaking { get => _isSpeaking; set { if (_isSpeaking == value) return; _isSpeaking = value; OnPropertyChanged(nameof(IsSpeaking)); } }
+
     public event PropertyChangedEventHandler? PropertyChanged;
     private void OnPropertyChanged(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }
@@ -129,6 +151,7 @@ public partial class MainWindow : Window
     // runtime (see its own comment).
     private readonly ApiService _api = null!;
     private readonly SignalRService _hub = new();
+    private VoiceServiceLinux? _voice;
 
     private readonly ObservableCollection<ServerListItem> _servers = new();
     private readonly ObservableCollection<ChannelListItem> _textChannels = new();
@@ -155,6 +178,7 @@ public partial class MainWindow : Window
 
     private int? _currentServerId;
     private int? _currentChannelId;
+    private int? _currentVoiceChannelId;
 
     // Exactly one of _currentChannelId/_dmActiveUserId is non-null whenever
     // the messaging UI is showing - SendMessageAsync/OnMessageReceived/
@@ -200,6 +224,13 @@ public partial class MainWindow : Window
         _hub.DirectMessageReactionToggled += (messageId, emoji, userId, added) => Dispatcher.UIThread.Post(() => ApplyReactionToggle(messageId, emoji, userId, added));
         _hub.ServerKeyRequested += OnServerKeyRequested;
         _hub.ServerKeyProvisioned += OnServerKeyProvisioned;
+        _hub.VoiceUserJoined += (userId, username, channelId, _) => Dispatcher.UIThread.Post(() => OnVoiceUserJoined(userId, username, channelId));
+        _hub.VoiceUserLeft += (userId, _, channelId) => Dispatcher.UIThread.Post(() => OnVoiceUserLeft(userId, channelId));
+        _hub.UserSpeaking += (userId, channelId, isSpeaking) => Dispatcher.UIThread.Post(() => SetVoiceMemberState(userId, channelId, m => m.IsSpeaking = isSpeaking));
+        _hub.UserMuted += (userId, channelId, isMuted) => Dispatcher.UIThread.Post(() => SetVoiceMemberState(userId, channelId, m => m.IsMuted = isMuted));
+        _hub.UserDeafened += (userId, channelId, isDeafened) => Dispatcher.UIThread.Post(() => SetVoiceMemberState(userId, channelId, m => m.IsDeafened = isDeafened));
+
+        Closed += (_, _) => { _ = _voice?.DisposeAsync().AsTask(); };
 
         _ = InitializeAsync();
     }
@@ -207,6 +238,7 @@ public partial class MainWindow : Window
     private async Task InitializeAsync()
     {
         await _hub.ConnectAsync(App.HubUrl, _api.GetFreshAccessTokenAsync);
+        _voice = new VoiceServiceLinux(_hub, _api.CurrentUserId!.Value);
         await LoadServersAsync();
     }
 
@@ -249,6 +281,22 @@ public partial class MainWindow : Window
             if (c.Type == "Text" && _joinedChannelIds.Add(c.Id))
                 await _hub.JoinChannelAsync(c.Id);
         }
+
+        await LoadVoiceRostersAsync(serverId);
+    }
+
+    private async Task LoadVoiceRostersAsync(int serverId)
+    {
+        var rosters = await _hub.GetVoiceRostersForServerAsync(serverId);
+        foreach (var roster in rosters)
+        {
+            var channel = _voiceChannels.FirstOrDefault(c => c.Id == roster.ChannelId);
+            if (channel is null) continue;
+
+            channel.Members.Clear();
+            foreach (var m in roster.Members)
+                channel.Members.Add(new VoiceRosterItem { UserId = m.UserId, Username = m.Username });
+        }
     }
 
     private void SwitchToServerView()
@@ -288,11 +336,8 @@ public partial class MainWindow : Window
 
         if (channel.Type != "Text")
         {
-            // Voice channels aren't wired up yet (see plan Phase 2) - showing
-            // an inert "join" UI here would be a fake feature, so this just
-            // says so instead of pretending to support it.
             _currentChannelId = null;
-            ShowWelcome(channel.DisplayName, subtext: "Voice channels aren't supported in this build yet.");
+            await JoinVoiceChannelAsync(channel);
             return;
         }
 
@@ -337,6 +382,112 @@ public partial class MainWindow : Window
         foreach (var r in reactions ?? new())
             item.Reactions.Add(new ReactionItem { MessageId = id, Emoji = r.Emoji, Count = r.Count, ReactedByMe = r.ReactedByMe });
         return item;
+    }
+
+    // --- Voice ---
+
+    private async Task JoinVoiceChannelAsync(ChannelListItem channel)
+    {
+        if (_currentVoiceChannelId == channel.Id)
+        {
+            ShowWelcome(channel.DisplayName, subtext: "You're connected to this voice channel.");
+            return;
+        }
+
+        if (_currentVoiceChannelId is { } previousChannelId)
+            await LeaveVoiceChannelAsync(previousChannelId);
+
+        ShowWelcome(channel.DisplayName, subtext: "Connecting...");
+
+        try
+        {
+            var roster = await _hub.JoinVoiceChannelAsync(channel.Id);
+            channel.Members.Clear();
+            foreach (var p in roster)
+                channel.Members.Add(new VoiceRosterItem { UserId = p.UserId, Username = p.Username });
+
+            await _voice!.JoinChannelAsync(channel.Id);
+            _currentVoiceChannelId = channel.Id;
+
+            MuteMicButton.Content = "🎤";
+            DeafenButton.Content = "🎧";
+            VoiceControlBar.IsVisible = true;
+
+            ShowWelcome(channel.DisplayName, subtext: "You're connected to this voice channel.");
+        }
+        catch (Exception ex)
+        {
+            ShowWelcome(channel.DisplayName, subtext: $"Couldn't join voice: {ex.Message}");
+        }
+    }
+
+    private async Task LeaveVoiceChannelAsync(int channelId)
+    {
+        if (_voice is not null) await _voice.LeaveAllAsync();
+        try { await _hub.LeaveVoiceChannelAsync(channelId); } catch { /* best-effort */ }
+
+        // Best-effort local reset - a VoiceUserLeft broadcast for this
+        // device (if it arrives) removes it from the roster too; this just
+        // avoids showing a stale "still connected" entry for ourselves in
+        // the meantime.
+        var channel = _voiceChannels.FirstOrDefault(c => c.Id == channelId);
+        if (channel is not null && _api.CurrentUserId is { } selfId)
+        {
+            var selfEntry = channel.Members.FirstOrDefault(m => m.UserId == selfId);
+            if (selfEntry is not null) channel.Members.Remove(selfEntry);
+        }
+
+        _currentVoiceChannelId = null;
+        VoiceControlBar.IsVisible = false;
+    }
+
+    private async void LeaveVoiceButton_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_currentVoiceChannelId is { } channelId) await LeaveVoiceChannelAsync(channelId);
+        ShowWelcome("Select a channel", subtext: null);
+    }
+
+    private void MuteMicButton_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_voice is null || _currentVoiceChannelId is not { } channelId) return;
+
+        _voice.IsMicMuted = !_voice.IsMicMuted;
+        MuteMicButton.Content = _voice.IsMicMuted ? "🔇" : "🎤";
+        _ = _hub.SendMutedAsync(channelId, _voice.IsMicMuted);
+    }
+
+    private void DeafenButton_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_voice is null || _currentVoiceChannelId is not { } channelId) return;
+
+        _voice.IsDeafened = !_voice.IsDeafened;
+        DeafenButton.Content = _voice.IsDeafened ? "🔇" : "🎧";
+        MuteMicButton.Content = _voice.IsMicMuted ? "🔇" : "🎤";
+        _ = _hub.SendDeafenedAsync(channelId, _voice.IsDeafened);
+        _ = _hub.SendMutedAsync(channelId, _voice.IsMicMuted);
+    }
+
+    private void OnVoiceUserJoined(int userId, string username, int channelId)
+    {
+        var channel = _voiceChannels.FirstOrDefault(c => c.Id == channelId);
+        if (channel is null) return;
+        if (channel.Members.Any(m => m.UserId == userId)) return;
+
+        channel.Members.Add(new VoiceRosterItem { UserId = userId, Username = username });
+    }
+
+    private void OnVoiceUserLeft(int userId, int channelId)
+    {
+        var channel = _voiceChannels.FirstOrDefault(c => c.Id == channelId);
+        var member = channel?.Members.FirstOrDefault(m => m.UserId == userId);
+        if (member is not null) channel!.Members.Remove(member);
+    }
+
+    private void SetVoiceMemberState(int userId, int channelId, Action<VoiceRosterItem> apply)
+    {
+        var channel = _voiceChannels.FirstOrDefault(c => c.Id == channelId);
+        var member = channel?.Members.FirstOrDefault(m => m.UserId == userId);
+        if (member is not null) apply(member);
     }
 
     // --- Direct messages ---
@@ -867,9 +1018,22 @@ public partial class MainWindow : Window
 
     private void LogOutButton_Click(object? sender, RoutedEventArgs e)
     {
+        _ = _voice?.DisposeAsync().AsTask();
         _ = _api.LogoutAsync();
         SessionStorage.Clear();
         new LoginWindow().Show();
         Close();
+    }
+
+    private void SettingsButton_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_voice is null) return;
+        new SettingsWindow(_voice).Show();
+    }
+
+    private void MembersButton_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_currentServerId is not { } serverId) return;
+        new MembersWindow(_api, serverId).Show();
     }
 }

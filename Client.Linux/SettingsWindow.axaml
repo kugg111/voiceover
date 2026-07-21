@@ -1,0 +1,36 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Voiceover.Client.Linux.SettingsWindow"
+        Title="Voice Settings" Width="420" Height="460"
+        Background="{StaticResource BgDark}">
+    <StackPanel Margin="24" Spacing="16">
+        <TextBlock Text="Voice Settings" FontSize="18" FontWeight="Bold" Foreground="{StaticResource TextNormal}"/>
+
+        <StackPanel Spacing="4">
+            <TextBlock Text="Input device (microphone)" FontSize="12" Foreground="{StaticResource TextMuted}"/>
+            <ComboBox x:Name="InputDeviceCombo" HorizontalAlignment="Stretch" SelectionChanged="InputDeviceCombo_SelectionChanged"/>
+        </StackPanel>
+
+        <StackPanel Spacing="4">
+            <TextBlock Text="Output device (speaker)" FontSize="12" Foreground="{StaticResource TextMuted}"/>
+            <ComboBox x:Name="OutputDeviceCombo" HorizontalAlignment="Stretch" SelectionChanged="OutputDeviceCombo_SelectionChanged"/>
+        </StackPanel>
+
+        <CheckBox x:Name="NoiseSuppressionCheckBox" Content="Noise suppression (NSNet2)"
+                  Foreground="{StaticResource TextNormal}" Click="NoiseSuppressionCheckBox_Click"/>
+
+        <StackPanel Spacing="4">
+            <TextBlock Text="Suppression mix" FontSize="12" Foreground="{StaticResource TextMuted}"/>
+            <Slider x:Name="SuppressionMixSlider" Minimum="0" Maximum="100" ValueChanged="SuppressionMixSlider_ValueChanged"/>
+        </StackPanel>
+
+        <StackPanel Spacing="4">
+            <TextBlock Text="Mic gain" FontSize="12" Foreground="{StaticResource TextMuted}"/>
+            <Slider x:Name="MicGainSlider" Minimum="1" Maximum="10" ValueChanged="MicGainSlider_ValueChanged"/>
+        </StackPanel>
+
+        <Button Content="Close" HorizontalAlignment="Right" Click="CloseButton_Click"
+                Background="{StaticResource AccentBlurple}" Foreground="White"
+                BorderThickness="0" Padding="14,8" Cursor="Hand"/>
+    </StackPanel>
+</Window>
