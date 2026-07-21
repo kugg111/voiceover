@@ -1,22 +1,22 @@
 using System.Net.Http;
+using System.Windows;
+using Voiceover.Client.Services;
 
-namespace Voiceover.Client.Services;
+namespace Voiceover.Client.Views;
 
-public enum AuthOutcome { Success, Failed, TwoFactorRequired }
+internal enum AuthOutcome { Success, Failed, TwoFactorRequired }
 
 // ChallengeToken is only set when Outcome == TwoFactorRequired - the caller
-// carries it forward into CompleteTotpLoginAsync below. ErrorMessage is
-// only set when Outcome == Failed.
-public record AuthAttemptResult(AuthOutcome Outcome, string? ErrorMessage, string? ChallengeToken);
+// (LoginWindow) carries it forward into CompleteTotpLoginAsync below.
+// ErrorMessage is only set when Outcome == Failed.
+internal record AuthAttemptResult(AuthOutcome Outcome, string? ErrorMessage, string? ChallengeToken);
 
-// Shared between every platform's login/register screens - both forms
-// submit through the same validate -> call API -> handle network-error
-// path. Platform-agnostic (no WPF/Avalonia dependency) - what happens
-// after a successful outcome (persisting a remembered session, opening
-// the main window) is a client-platform concern and lives in each
-// project's own thin completion helper instead (see Client/Views/
-// LoginCompletion.cs for the WPF one) - see the Linux client plan.
-public static class AuthFlow
+// Shared between LoginWindow and RegisterWindow - both forms submit through
+// the same validate -> call API -> handle network-error path, and both
+// finish a successful auth the same way (save/clear the remembered session,
+// launch MainWindow) - kept in one place instead of duplicated across the
+// two windows.
+internal static class AuthFlow
 {
     public static async Task<AuthAttemptResult> TryAuthenticateAsync(ApiService api, bool isRegister, string username, string password)
     {
@@ -62,7 +62,7 @@ public static class AuthFlow
     // either code or recoveryCode should be set, not both. password is
     // needed again here (not saved from the first attempt) purely to
     // unlock E2EE below, same as a normal login - it's never sent anywhere
-    // in this call, the caller just still has it in the password field.
+    // in this call, LoginWindow just still has it in the password box.
     public static async Task<AuthAttemptResult> CompleteTotpLoginAsync(ApiService api, string challengeToken, string? code, string? recoveryCode, string password)
     {
         try
@@ -93,4 +93,19 @@ public static class AuthFlow
     // next successful unlock.
     private static async Task UnlockE2eeBestEffortAsync(ApiService api, string password) =>
         await api.E2ee.UnlockAsync(password);
+
+    public static void CompleteLogin(ApiService api, bool rememberMe, Window currentWindow)
+    {
+        if (rememberMe)
+        {
+            SessionStorage.Save(api.RefreshToken!, api.CurrentUserId!.Value, api.CurrentUsername!, api.CurrentUserAvatarUrl, api.E2ee.CurrentWrappingKeyBase64);
+        }
+        else
+        {
+            SessionStorage.Clear();
+        }
+
+        new MainWindow(api).Show();
+        currentWindow.Close();
+    }
 }

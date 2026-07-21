@@ -14,12 +14,6 @@ public partial class LoginWindow : FluentWindow
     public LoginWindow()
     {
         InitializeComponent();
-        // This same ApiService instance becomes MainWindow's long-lived one
-        // after a successful login (see LoginCompletion.CompleteLogin), so
-        // it needs the "remember me" persistence wiring from the start -
-        // see ApiService.SessionCleared/RefreshTokenRotated.
-        _api.SessionCleared += SessionStorage.Clear;
-        _api.RefreshTokenRotated += SessionStorage.UpdateRefreshToken;
     }
 
     private async void LoginButton_Click(object sender, RoutedEventArgs e) => await TryLoginAsync();
@@ -51,7 +45,7 @@ public partial class LoginWindow : FluentWindow
                     ShowTotpPanel();
                     break;
                 case AuthOutcome.Success:
-                    LoginCompletion.CompleteLogin(_api, RememberMeBox.IsChecked == true, this);
+                    AuthFlow.CompleteLogin(_api, RememberMeBox.IsChecked == true, this);
                     break;
             }
         }
@@ -111,7 +105,7 @@ public partial class LoginWindow : FluentWindow
                 return;
             }
 
-            LoginCompletion.CompleteLogin(_api, RememberMeBox.IsChecked == true, this);
+            AuthFlow.CompleteLogin(_api, RememberMeBox.IsChecked == true, this);
         }
         finally
         {

@@ -62,8 +62,6 @@ public partial class App : Application
         if (session is not null)
         {
             var api = new ApiService(ApiBaseUrl);
-            api.SessionCleared += SessionStorage.Clear;
-            api.RefreshTokenRotated += SessionStorage.UpdateRefreshToken;
             // Exchanges the saved refresh token for a fresh access token -
             // "remember me" sessions can be days old, so there's no point
             // trying to reuse a short-lived access token from last time.

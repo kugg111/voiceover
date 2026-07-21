@@ -135,11 +135,4 @@
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
   </ItemGroup>
 
-  <ItemGroup>
-    <!-- ApiService, SignalRService, E2eeService, Models/Dtos.cs live here -
-         plain net8.0, no Windows/WPF dependency, so a future non-Windows
-         client can reference it too. See the Linux client plan. -->
-    <ProjectReference Include="..\Client.Core\Client.Core.csproj" />
-  </ItemGroup>
-
 </Project>
