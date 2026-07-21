@@ -4,6 +4,15 @@
         x:Class="Voiceover.Client.Linux.MainWindow"
         Title="Voiceover" Width="1100" Height="700"
         Background="{StaticResource BgDark}">
+    <Window.Styles>
+        <!-- Applied via Classes.reacted="{Binding ReactedByMe}" on each
+             reaction pill (see the message DataTemplate below) - avoids
+             needing a bool-to-brush converter just for this one highlight. -->
+        <Style Selector="Button.reacted">
+            <Setter Property="Background" Value="{StaticResource AccentBlurple}"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+    </Window.Styles>
     <Grid>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="72"/>   <!-- server rail -->
@@ -15,13 +24,25 @@
         <Border Grid.Column="0" Background="{StaticResource BgDarker}">
             <DockPanel>
                 <Button DockPanel.Dock="Bottom" x:Name="LogOutButton" Content="⎋" FontSize="18" Height="32" Width="48"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                         Margin="12,0,12,12" Background="Transparent" Foreground="{StaticResource TextMuted}"
                         BorderThickness="0" Cursor="Hand" Click="LogOutButton_Click" ToolTip.Tip="Log out"/>
 
-                <Button DockPanel.Dock="Top" x:Name="MessagesButton" Content="💬" FontSize="18" Height="48" Width="48"
-                        Margin="12,12,12,4" Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
-                        BorderThickness="0" Cursor="Hand" Click="MessagesButton_Click" ToolTip.Tip="Messages"/>
+                <Grid DockPanel.Dock="Top" Margin="12,12,12,4">
+                    <Button x:Name="MessagesButton" Content="💬" FontSize="18" Height="48" Width="48"
+                            HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                            Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
+                            BorderThickness="0" Cursor="Hand" Click="MessagesButton_Click" ToolTip.Tip="Messages"/>
+                    <Border x:Name="MessagesUnreadBadge" MinWidth="16" Height="16" CornerRadius="8"
+                            Background="{StaticResource AccentBlurple}" Padding="4,0"
+                            HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-4,-4,0"
+                            IsVisible="False" IsHitTestVisible="False">
+                        <TextBlock x:Name="MessagesUnreadBadgeText" Text="0" FontSize="10" FontWeight="Bold"
+                                   Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                </Grid>
                 <Button DockPanel.Dock="Top" x:Name="FriendsButton" Content="👥" FontSize="18" Height="48" Width="48"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                         Margin="12,0,12,8" Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
                         BorderThickness="0" Cursor="Hand" Click="FriendsButton_Click" ToolTip.Tip="Friends"/>
                 <Border DockPanel.Dock="Top" Height="1" Background="{StaticResource BgSidebar}" Margin="16,0,16,8"/>
@@ -31,6 +52,7 @@
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="local:ServerListItem">
                                 <Button Height="48" Width="48" Margin="12,8,12,0" Padding="0"
+                                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                                         Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
                                         BorderThickness="0" CornerRadius="24" Cursor="Hand"
                                         Click="ServerButton_Click" Tag="{Binding Id}" ToolTip.Tip="{Binding Name}">
@@ -59,11 +81,23 @@
                             <ItemsControl x:Name="TextChannelList">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="local:ChannelListItem">
-                                        <Button Content="{Binding DisplayName}" Tag="{Binding Id}"
-                                                Click="ChannelButton_Click" HorizontalContentAlignment="Left"
-                                                HorizontalAlignment="Stretch"
-                                                Background="Transparent" Foreground="{StaticResource TextMuted}"
-                                                BorderThickness="0" Padding="14,6" Height="32" Cursor="Hand"/>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Button Grid.Column="0" Content="{Binding DisplayName}" Tag="{Binding Id}"
+                                                    Click="ChannelButton_Click" HorizontalContentAlignment="Left"
+                                                    HorizontalAlignment="Stretch"
+                                                    Background="Transparent" Foreground="{StaticResource TextMuted}"
+                                                    BorderThickness="0" Padding="14,6" Height="32" Cursor="Hand"/>
+                                            <Border Grid.Column="1" MinWidth="16" Height="16" CornerRadius="8" Margin="0,0,8,0"
+                                                    Background="{StaticResource AccentBlurple}" Padding="4,0"
+                                                    VerticalAlignment="Center" IsVisible="{Binding HasUnread}" IsHitTestVisible="False">
+                                                <TextBlock Text="{Binding UnreadCountDisplay}" FontSize="10" FontWeight="Bold"
+                                                           Foreground="White" HorizontalAlignment="Center"/>
+                                            </Border>
+                                        </Grid>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
@@ -111,20 +145,31 @@
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="local:DmConversationItem">
                                     <Button Click="DmConversation_Click" Tag="{Binding OtherUserId}"
-                                            HorizontalContentAlignment="Left" HorizontalAlignment="Stretch"
+                                            HorizontalContentAlignment="Stretch" HorizontalAlignment="Stretch"
                                             Background="Transparent" BorderThickness="0" Padding="14,8" Cursor="Hand">
-                                        <StackPanel Orientation="Horizontal">
-                                            <Border Width="28" Height="28" CornerRadius="14" Margin="0,0,8,0"
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Border Grid.Column="0" Width="28" Height="28" CornerRadius="14" Margin="0,0,8,0"
                                                     Background="{StaticResource BgDarker}">
                                                 <TextBlock Text="{Binding Initial}" FontSize="12" FontWeight="Bold"
                                                            Foreground="{StaticResource TextNormal}"
                                                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                             </Border>
-                                            <StackPanel>
+                                            <StackPanel Grid.Column="1">
                                                 <TextBlock Text="{Binding OtherUsername}" FontWeight="Bold" Foreground="{StaticResource TextNormal}"/>
                                                 <TextBlock Text="{Binding PreviewText}" FontSize="11" Foreground="{StaticResource TextMuted}"/>
                                             </StackPanel>
-                                        </StackPanel>
+                                            <Border Grid.Column="2" MinWidth="16" Height="16" CornerRadius="8" Margin="8,0,0,0"
+                                                    Background="{StaticResource AccentBlurple}" Padding="4,0"
+                                                    VerticalAlignment="Center" IsVisible="{Binding HasUnread}" IsHitTestVisible="False">
+                                                <TextBlock Text="{Binding UnreadCountDisplay}" FontSize="10" FontWeight="Bold"
+                                                           Foreground="White" HorizontalAlignment="Center"/>
+                                            </Border>
+                                        </Grid>
                                     </Button>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
@@ -237,6 +282,21 @@
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="local:MessageListItem">
                                 <StackPanel Margin="0,6,0,6">
+                                    <StackPanel.ContextMenu>
+                                        <ContextMenu>
+                                            <MenuItem Header="👍" Click="ReactionMenuItem_Click"/>
+                                            <MenuItem Header="👎" Click="ReactionMenuItem_Click"/>
+                                            <MenuItem Header="❤️" Click="ReactionMenuItem_Click"/>
+                                            <MenuItem Header="😂" Click="ReactionMenuItem_Click"/>
+                                            <MenuItem Header="😮" Click="ReactionMenuItem_Click"/>
+                                            <MenuItem Header="😢" Click="ReactionMenuItem_Click"/>
+                                            <MenuItem Header="🎉" Click="ReactionMenuItem_Click"/>
+                                            <MenuItem Header="🔥" Click="ReactionMenuItem_Click"/>
+                                            <Separator/>
+                                            <MenuItem Header="Edit Message" Click="EditMessageMenuItem_Click" IsVisible="{Binding IsOwnMessage}"/>
+                                            <MenuItem Header="Delete Message" Click="DeleteMessageMenuItem_Click" IsVisible="{Binding IsOwnMessage}"/>
+                                        </ContextMenu>
+                                    </StackPanel.ContextMenu>
                                     <StackPanel Orientation="Horizontal">
                                         <TextBlock Text="{Binding AuthorUsername}" FontWeight="Bold"
                                                    Foreground="{StaticResource AccentBlurple}" Margin="0,0,8,0"/>
@@ -244,6 +304,21 @@
                                                    Foreground="{StaticResource TextMuted}" VerticalAlignment="Center"/>
                                     </StackPanel>
                                     <TextBlock Text="{Binding Content}" Foreground="{StaticResource TextNormal}" TextWrapping="Wrap"/>
+                                    <ItemsControl ItemsSource="{Binding Reactions}" Margin="0,4,0,0">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <WrapPanel/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="local:ReactionItem">
+                                                <Button Content="{Binding DisplayText}" Classes.reacted="{Binding ReactedByMe}"
+                                                        Click="ReactionPill_Click" Margin="0,0,4,4" Padding="6,2" FontSize="11"
+                                                        Cursor="Hand" BorderThickness="0"
+                                                        Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"/>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
                                 </StackPanel>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
@@ -251,18 +326,35 @@
                 </ScrollViewer>
             </Grid>
 
-            <Grid Grid.Row="2" x:Name="MessageInputRow" IsVisible="False" Margin="16,0,16,16">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <TextBox Grid.Column="0" x:Name="MessageInputBox" PlaceholderText="Message..."
-                         Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
-                         BorderThickness="0" Padding="10,8" KeyDown="MessageInputBox_KeyDown"/>
-                <Button Grid.Column="1" Content="Send" Margin="8,0,0,0" Padding="14,8"
-                        Background="{StaticResource AccentBlurple}" Foreground="White"
-                        BorderThickness="0" Cursor="Hand" Click="SendButton_Click"/>
-            </Grid>
+            <StackPanel Grid.Row="2" x:Name="MessageInputRow" IsVisible="False" Margin="16,0,16,16">
+                <TextBlock x:Name="SendStatusText" IsVisible="False" FontSize="12" Foreground="{StaticResource DangerRed}"
+                           TextWrapping="Wrap" Margin="0,0,0,6"/>
+                <Border x:Name="EditBanner" IsVisible="False" Background="{StaticResource BgSidebar}"
+                        CornerRadius="4" Padding="10,6" Margin="0,0,0,6">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Editing message" FontSize="12" Foreground="{StaticResource TextMuted}" VerticalAlignment="Center"/>
+                        <Button Grid.Column="1" Content="Cancel" Click="CancelEditButton_Click"
+                                Background="Transparent" Foreground="{StaticResource TextMuted}"
+                                BorderThickness="0" Padding="6,0" Cursor="Hand"/>
+                    </Grid>
+                </Border>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBox Grid.Column="0" x:Name="MessageInputBox" PlaceholderText="Message..."
+                             Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
+                             BorderThickness="0" Padding="10,8" KeyDown="MessageInputBox_KeyDown"/>
+                    <Button Grid.Column="1" Content="Send" Margin="8,0,0,0" Padding="14,8"
+                            Background="{StaticResource AccentBlurple}" Foreground="White"
+                            BorderThickness="0" Cursor="Hand" Click="SendButton_Click"/>
+                </Grid>
+            </StackPanel>
         </Grid>
     </Grid>
 </Window>
