@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- Throwaway project - Linux client plan Phase 0's first task: prove
+         Livekit.Rtc.Dotnet's native FFI layer actually loads and
+         initializes on linux-x64 before investing in the shared-library
+         extraction or any UI work. Not part of the solution's shipped
+         product - deleted or promoted into the real Linux client project
+         once this question is answered. See the Linux client plan. -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Livekit.Rtc.Dotnet" Version="0.1.3" />
+    <!-- Only for building a real join token when LIVEKIT_* env vars are
+         set - same package/version Server/Server.csproj already uses. -->
+    <PackageReference Include="Livekit.Server.Sdk.Dotnet" Version="1.2.2" />
+  </ItemGroup>
+
+</Project>
