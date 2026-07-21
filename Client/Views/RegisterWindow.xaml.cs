@@ -13,8 +13,8 @@ public partial class RegisterWindow : FluentWindow
     {
         InitializeComponent();
         // This same ApiService instance becomes MainWindow's long-lived one
-        // after a successful registration (see AuthFlow.CompleteLogin), so
-        // it needs the "remember me" persistence wiring from the start -
+        // after a successful registration (see LoginCompletion.CompleteLogin),
+        // so it needs the "remember me" persistence wiring from the start -
         // see ApiService.SessionCleared/RefreshTokenRotated.
         _api.SessionCleared += SessionStorage.Clear;
         _api.RefreshTokenRotated += SessionStorage.UpdateRefreshToken;
@@ -48,7 +48,7 @@ public partial class RegisterWindow : FluentWindow
                 return;
             }
 
-            AuthFlow.CompleteLogin(_api, RememberMeBox.IsChecked == true, this);
+            LoginCompletion.CompleteLogin(_api, RememberMeBox.IsChecked == true, this);
         }
         finally
         {
