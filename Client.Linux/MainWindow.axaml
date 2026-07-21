@@ -18,6 +18,14 @@
                         Margin="12,0,12,12" Background="Transparent" Foreground="{StaticResource TextMuted}"
                         BorderThickness="0" Cursor="Hand" Click="LogOutButton_Click" ToolTip.Tip="Log out"/>
 
+                <Button DockPanel.Dock="Top" x:Name="MessagesButton" Content="💬" FontSize="18" Height="48" Width="48"
+                        Margin="12,12,12,4" Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
+                        BorderThickness="0" Cursor="Hand" Click="MessagesButton_Click" ToolTip.Tip="Messages"/>
+                <Button DockPanel.Dock="Top" x:Name="FriendsButton" Content="👥" FontSize="18" Height="48" Width="48"
+                        Margin="12,0,12,8" Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
+                        BorderThickness="0" Cursor="Hand" Click="FriendsButton_Click" ToolTip.Tip="Friends"/>
+                <Border DockPanel.Dock="Top" Height="1" Background="{StaticResource BgSidebar}" Margin="16,0,16,8"/>
+
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <ItemsControl x:Name="ServerList">
                         <ItemsControl.ItemTemplate>
@@ -36,45 +44,169 @@
             </DockPanel>
         </Border>
 
-        <!-- CHANNEL SIDEBAR -->
+        <!-- CHANNEL / DM / FRIENDS SIDEBAR -->
         <Border Grid.Column="1" Background="{StaticResource BgSidebar}">
-            <DockPanel>
-                <TextBlock DockPanel.Dock="Top" x:Name="ServerNameText" Text="Select a server"
-                           FontWeight="Bold" FontSize="15" Foreground="{StaticResource TextNormal}"
-                           Padding="14,14,0,10"/>
+            <Grid>
+                <DockPanel x:Name="ServerSidebarPanel">
+                    <TextBlock DockPanel.Dock="Top" x:Name="ServerNameText" Text="Select a server"
+                               FontWeight="Bold" FontSize="15" Foreground="{StaticResource TextNormal}"
+                               Padding="14,14,0,10"/>
 
-                <ScrollViewer>
-                    <StackPanel>
-                        <TextBlock Text="TEXT CHANNELS" FontSize="11" FontWeight="Bold"
-                                   Foreground="{StaticResource TextMuted}" Margin="14,6,0,4"/>
-                        <ItemsControl x:Name="TextChannelList">
+                    <ScrollViewer>
+                        <StackPanel>
+                            <TextBlock Text="TEXT CHANNELS" FontSize="11" FontWeight="Bold"
+                                       Foreground="{StaticResource TextMuted}" Margin="14,6,0,4"/>
+                            <ItemsControl x:Name="TextChannelList">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="local:ChannelListItem">
+                                        <Button Content="{Binding DisplayName}" Tag="{Binding Id}"
+                                                Click="ChannelButton_Click" HorizontalContentAlignment="Left"
+                                                HorizontalAlignment="Stretch"
+                                                Background="Transparent" Foreground="{StaticResource TextMuted}"
+                                                BorderThickness="0" Padding="14,6" Height="32" Cursor="Hand"/>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <TextBlock Text="VOICE CHANNELS" FontSize="11" FontWeight="Bold"
+                                       Foreground="{StaticResource TextMuted}" Margin="14,14,0,4"/>
+                            <ItemsControl x:Name="VoiceChannelList">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="local:ChannelListItem">
+                                        <Button Content="{Binding DisplayName}" Tag="{Binding Id}"
+                                                Click="ChannelButton_Click" HorizontalContentAlignment="Left"
+                                                HorizontalAlignment="Stretch"
+                                                Background="Transparent" Foreground="{StaticResource TextMuted}"
+                                                BorderThickness="0" Padding="14,6" Height="32" Cursor="Hand"/>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </ScrollViewer>
+                </DockPanel>
+
+                <!-- DIRECT MESSAGES -->
+                <DockPanel x:Name="MessagesSidebarPanel" IsVisible="False">
+                    <TextBlock DockPanel.Dock="Top" Text="Direct Messages"
+                               FontWeight="Bold" FontSize="15" Foreground="{StaticResource TextNormal}"
+                               Padding="14,14,0,10"/>
+                    <TextBox DockPanel.Dock="Top" x:Name="DmSearchBox" Height="34" Margin="10,0,10,8" Padding="8,6"
+                             Background="{StaticResource BgDarker}" Foreground="{StaticResource TextNormal}"
+                             BorderThickness="0" TextChanged="DmSearchBox_TextChanged"/>
+                    <ItemsControl DockPanel.Dock="Top" x:Name="DmSearchResultsList">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="local:UserSearchResultItem">
+                                <Button Tag="{Binding Id}" Click="DmSearchResult_Click"
+                                        HorizontalContentAlignment="Left" HorizontalAlignment="Stretch"
+                                        Background="Transparent" Foreground="{StaticResource TextNormal}"
+                                        BorderThickness="0" Padding="14,8" Cursor="Hand">
+                                    <TextBlock Text="{Binding Username}"/>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <ScrollViewer>
+                        <ItemsControl x:Name="DmConversationList">
                             <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="local:ChannelListItem">
-                                    <Button Content="{Binding DisplayName}" Tag="{Binding Id}"
-                                            Click="ChannelButton_Click" HorizontalContentAlignment="Left"
-                                            HorizontalAlignment="Stretch"
-                                            Background="Transparent" Foreground="{StaticResource TextMuted}"
-                                            BorderThickness="0" Padding="14,6" Height="32" Cursor="Hand"/>
+                                <DataTemplate x:DataType="local:DmConversationItem">
+                                    <Button Click="DmConversation_Click" Tag="{Binding OtherUserId}"
+                                            HorizontalContentAlignment="Left" HorizontalAlignment="Stretch"
+                                            Background="Transparent" BorderThickness="0" Padding="14,8" Cursor="Hand">
+                                        <StackPanel Orientation="Horizontal">
+                                            <Border Width="28" Height="28" CornerRadius="14" Margin="0,0,8,0"
+                                                    Background="{StaticResource BgDarker}">
+                                                <TextBlock Text="{Binding Initial}" FontSize="12" FontWeight="Bold"
+                                                           Foreground="{StaticResource TextNormal}"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Border>
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding OtherUsername}" FontWeight="Bold" Foreground="{StaticResource TextNormal}"/>
+                                                <TextBlock Text="{Binding PreviewText}" FontSize="11" Foreground="{StaticResource TextMuted}"/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Button>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
+                    </ScrollViewer>
+                </DockPanel>
 
-                        <TextBlock Text="VOICE CHANNELS" FontSize="11" FontWeight="Bold"
-                                   Foreground="{StaticResource TextMuted}" Margin="14,14,0,4"/>
-                        <ItemsControl x:Name="VoiceChannelList">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="local:ChannelListItem">
-                                    <Button Content="{Binding DisplayName}" Tag="{Binding Id}"
-                                            Click="ChannelButton_Click" HorizontalContentAlignment="Left"
-                                            HorizontalAlignment="Stretch"
-                                            Background="Transparent" Foreground="{StaticResource TextMuted}"
-                                            BorderThickness="0" Padding="14,6" Height="32" Cursor="Hand"/>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </StackPanel>
-                </ScrollViewer>
-            </DockPanel>
+                <!-- FRIENDS -->
+                <DockPanel x:Name="FriendsSidebarPanel" IsVisible="False">
+                    <TextBlock DockPanel.Dock="Top" Text="Friends"
+                               FontWeight="Bold" FontSize="15" Foreground="{StaticResource TextNormal}"
+                               Padding="14,14,0,10"/>
+                    <TextBox DockPanel.Dock="Top" x:Name="FriendSearchBox" Height="34" Margin="10,0,10,8" Padding="8,6"
+                             Background="{StaticResource BgDarker}" Foreground="{StaticResource TextNormal}"
+                             BorderThickness="0" TextChanged="FriendSearchBox_TextChanged"/>
+                    <ItemsControl DockPanel.Dock="Top" x:Name="FriendSearchResultsList" Margin="0,0,0,4">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="local:UserSearchResultItem">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="{Binding Username}" Foreground="{StaticResource TextNormal}"
+                                               VerticalAlignment="Center" Padding="14,8"/>
+                                    <Button Grid.Column="1" Content="Add" Tag="{Binding Id}" Click="AddFriendButton_Click"
+                                            Background="{StaticResource AccentBlurple}" Foreground="White"
+                                            BorderThickness="0" Padding="8,2" Margin="0,0,10,0" Cursor="Hand"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <ScrollViewer>
+                        <StackPanel>
+                            <TextBlock Text="PENDING REQUESTS" FontSize="11" FontWeight="Bold"
+                                       Foreground="{StaticResource TextMuted}" Margin="14,10,0,4"/>
+                            <ItemsControl x:Name="FriendRequestList">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="local:FriendRequestItem">
+                                        <Grid Margin="0,2,0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="{Binding Username}" Foreground="{StaticResource TextNormal}"
+                                                       VerticalAlignment="Center" Padding="14,6"/>
+                                            <Button Grid.Column="1" Content="Accept" Tag="{Binding Id}" Click="FriendRequestAcceptButton_Click"
+                                                    IsVisible="{Binding IsIncoming}"
+                                                    Background="{StaticResource AccentBlurple}" Foreground="White"
+                                                    BorderThickness="0" Padding="8,2" Margin="0,0,4,0" Cursor="Hand"/>
+                                            <Button Grid.Column="2" Content="{Binding SecondaryActionLabel}" Tag="{Binding Id}" Click="FriendRequestRemoveButton_Click"
+                                                    Background="{StaticResource BgDarker}" Foreground="{StaticResource TextMuted}"
+                                                    BorderThickness="0" Padding="8,2" Margin="0,0,10,0" Cursor="Hand"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <TextBlock Text="ALL FRIENDS" FontSize="11" FontWeight="Bold"
+                                       Foreground="{StaticResource TextMuted}" Margin="14,14,0,4"/>
+                            <ItemsControl x:Name="FriendList">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="local:FriendItem">
+                                        <Button Tag="{Binding UserId}" Click="FriendListItem_Click"
+                                                HorizontalContentAlignment="Left" HorizontalAlignment="Stretch"
+                                                Background="Transparent" Foreground="{StaticResource TextNormal}"
+                                                BorderThickness="0" Padding="14,8" Cursor="Hand">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="{Binding Username}" VerticalAlignment="Center"/>
+                                                <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
+                                                         Fill="#3BA55D" IsVisible="{Binding IsOnline}" ToolTip.Tip="Online"/>
+                                            </StackPanel>
+                                        </Button>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </ScrollViewer>
+                </DockPanel>
+            </Grid>
         </Border>
 
         <!-- CONTENT AREA -->
