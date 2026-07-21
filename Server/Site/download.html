@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Download Voiceover for Windows</title>
+<meta name="description" content="Download Voiceover for Windows: an installer (recommended) or a portable ZIP, no install required.">
+<link rel="canonical" href="https://www.voiceover-app.hu/download.html">
+<meta name="robots" content="index, follow">
+
+<link rel="icon" type="image/x-icon" href="/images/favicon.ico">
+<link rel="icon" type="image/png" href="/images/favicon.png">
+<style>
+  :root {
+    --bg-dark: #2B2D31;
+    --bg-darker: #1E1F22;
+    --bg-sidebar: #232428;
+    --accent: #5865F2;
+    --accent-hover: #4752C4;
+    --text-normal: #DBDEE1;
+    --text-muted: #949BA4;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+    background:
+      radial-gradient(ellipse 900px 500px at 50% -10%, rgba(88, 101, 242, 0.20), transparent 60%),
+      var(--bg-darker);
+    color: var(--text-normal);
+    min-height: 100vh;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 6vw;
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 700;
+    font-size: 20px;
+    color: var(--text-normal);
+    text-decoration: none;
+  }
+
+  .logo-mark {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    display: block;
+  }
+
+  header a.gh {
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 14px;
+  }
+  header a.gh:hover { color: var(--text-normal); }
+
+  main {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 40px 6vw 80px;
+    text-align: center;
+  }
+
+  h1 {
+    font-size: clamp(28px, 4vw, 40px);
+    font-weight: 800;
+    margin: 0 0 12px;
+    letter-spacing: -0.02em;
+  }
+
+  .subhead {
+    color: var(--text-muted);
+    font-size: 16px;
+    margin: 0 0 40px;
+  }
+
+  .options {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 20px;
+  }
+
+  .option-card {
+    flex: 1 1 260px;
+    max-width: 300px;
+    background: var(--bg-dark);
+    border: 1px solid var(--bg-sidebar);
+    border-radius: 14px;
+    padding: 28px 24px;
+    text-align: left;
+  }
+
+  .option-card h2 {
+    font-size: 18px;
+    margin: 0 0 8px;
+  }
+
+  .option-card p {
+    color: var(--text-muted);
+    font-size: 13.5px;
+    line-height: 1.5;
+    margin: 0 0 20px;
+  }
+
+  .download-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    background: var(--accent);
+    color: #fff;
+    font-weight: 700;
+    font-size: 15px;
+    padding: 12px 20px;
+    border-radius: 8px;
+    text-decoration: none;
+    box-shadow: 0 4px 14px rgba(88, 101, 242, 0.35);
+    transition: background 0.15s ease, transform 0.1s ease;
+  }
+  .download-btn:hover { background: var(--accent-hover); transform: translateY(-1px); }
+  .download-btn:active { transform: translateY(0); }
+
+  .option-card.secondary .download-btn {
+    background: var(--bg-sidebar);
+    box-shadow: none;
+  }
+  .option-card.secondary .download-btn:hover { background: #2f3136; }
+
+  .back-link {
+    display: inline-block;
+    margin-top: 40px;
+    color: var(--text-muted);
+    font-size: 13.5px;
+    text-decoration: none;
+  }
+  .back-link:hover { color: var(--text-normal); }
+
+  .note {
+    margin-top: 32px;
+    font-size: 12.5px;
+    color: var(--text-muted);
+    line-height: 1.6;
+  }
+
+  footer {
+    max-width: 1100px;
+    margin: 40px auto 0;
+    padding: 28px 6vw 40px;
+    border-top: 1px solid var(--bg-sidebar);
+    color: var(--text-muted);
+    font-size: 13px;
+    text-align: center;
+    line-height: 1.6;
+  }
+  footer a { color: var(--text-muted); }
+  footer a:hover { color: var(--text-normal); }
+</style>
+</head>
+<body>
+
+<header>
+  <a class="logo" href="/">
+    <img class="logo-mark" src="/images/favicon.png" alt="">
+    Voiceover
+  </a>
+  <a class="gh" href="https://github.com/kugg111/voiceover" target="_blank" rel="noopener">GitHub</a>
+</header>
+
+<main>
+  <h1>Download Voiceover</h1>
+  <p class="subhead">Windows 10/11 · Pick whichever you'd rather run.</p>
+
+  <div class="options">
+    <div class="option-card">
+      <h2>Installer</h2>
+      <p>Installs to your user folder, no admin rights needed. Adds a Start Menu shortcut and a working uninstaller.</p>
+      <a class="download-btn" href="https://github.com/kugg111/voiceover/releases/latest/download/Voiceover-Setup.exe">⬇ Voiceover-Setup.exe</a>
+    </div>
+    <div class="option-card secondary">
+      <h2>Portable ZIP</h2>
+      <p>No installer — unzip it anywhere and run Client.exe directly.</p>
+      <a class="download-btn" href="https://github.com/kugg111/voiceover/releases/latest/download/Voiceover-Client.zip">⬇ Voiceover-Client.zip</a>
+    </div>
+  </div>
+
+  <p class="note">Voiceover is an unsigned Windows app, so you may see a SmartScreen warning on first launch — choose "More info" → "Run anyway".</p>
+
+  <a class="back-link" href="/">← Back to voiceover-app.hu</a>
+</main>
+
+<footer>
+  Made in Hungary 🇭🇺 · Source on <a href="https://github.com/kugg111/voiceover" target="_blank" rel="noopener">GitHub</a>
+  · <a href="https://github.com/kugg111/voiceover/releases" target="_blank" rel="noopener">Release notes / changelog</a>.
+</footer>
+
+</body>
+</html>

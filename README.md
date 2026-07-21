@@ -7,7 +7,8 @@ sharing, and end-to-end encrypted messaging.
 
 **Live app:** [voiceover-app.hu](https://www.voiceover-app.hu/) (or the
 [Railway subdomain](https://voiceover-production-c32a.up.railway.app/)) —
-download the Windows installer or a portable ZIP from the landing page.
+grab the Windows installer or a portable ZIP from the
+[download page](https://www.voiceover-app.hu/download.html).
 
 ## Features
 

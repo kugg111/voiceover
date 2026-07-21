@@ -19,4 +19,10 @@
       <image:title>Voiceover friends list</image:title>
     </image:image>
   </url>
+  <url>
+    <loc>https://www.voiceover-app.hu/download.html</loc>
+    <lastmod>2026-07-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
 </urlset>
