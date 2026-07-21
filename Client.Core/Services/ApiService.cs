@@ -43,8 +43,22 @@ public class ApiService
     // dead and the UI needs to send the user back to the login window.
     public event Action? SessionExpired;
 
+    // Session persistence (SessionStorage's DPAPI-encrypted "remember me"
+    // file) is a client-platform concern this class has no business
+    // knowing about - see the Linux client plan on why. RefreshAccessTokenAsync
+    // raises these instead of calling SessionStorage directly; whoever
+    // constructs this instance for a real (non-throwaway) session is
+    // responsible for subscribing immediately, since a refresh token can
+    // rotate before a UI even exists to observe it (see App.xaml.cs's
+    // "remember me" restore path).
+    public event Action? SessionCleared;
+    public event Action<string>? RefreshTokenRotated;
+
+    private readonly string _baseUrl;
+
     public ApiService(string baseUrl)
     {
+        _baseUrl = baseUrl;
         _authHttp = new HttpClient(new RetryHandler { InnerHandler = new HttpClientHandler() }) { BaseAddress = new Uri(baseUrl) };
         _http = new HttpClient(new AuthRefreshHandler(GetFreshAccessTokenAsync) { InnerHandler = new RetryHandler { InnerHandler = new HttpClientHandler() } })
         {
@@ -52,6 +66,14 @@ public class ApiService
         };
         E2ee = new E2eeService(this);
     }
+
+    // Same resolution App.ResolveUploadUrl does for the WPF views (relative
+    // "/uploads/xxx.png" paths from the server need the base URL prefixed)
+    // - kept as ApiService's own private helper rather than calling into
+    // App (a WPF-only class) so this file has no Windows-specific
+    // dependency, only .NET BCL - see the Linux client plan.
+    private string? ResolveUploadUrl(string? relativeOrNull) =>
+        string.IsNullOrEmpty(relativeOrNull) ? null : _baseUrl.TrimEnd('/') + relativeOrNull;
 
     // Register never returns a 2FA challenge (a brand-new account can't
     // have 2FA enabled yet) - a plain AuthResponse on success, same
@@ -162,7 +184,7 @@ public class ApiService
         _refreshToken = auth.RefreshToken;
         CurrentUserId = auth.UserId;
         CurrentUsername = auth.Username;
-        CurrentUserAvatarUrl = App.ResolveUploadUrl(auth.AvatarUrl);
+        CurrentUserAvatarUrl = ResolveUploadUrl(auth.AvatarUrl);
         CurrentUserCustomStatus = auth.CustomStatus;
         CurrentUserTwoFactorEnabled = auth.TwoFactorEnabled;
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token);
@@ -213,7 +235,7 @@ public class ApiService
         {
             _refreshToken = null;
             Token = null;
-            SessionStorage.Clear();
+            SessionCleared?.Invoke();
             SessionExpired?.Invoke();
             return false;
         }
@@ -228,7 +250,7 @@ public class ApiService
         // revoked immediately) - the locally saved "remember me" file must
         // move to the new one too, or the next app launch would try to
         // redeem an already-revoked token and force a real re-login.
-        SessionStorage.UpdateRefreshToken(auth.RefreshToken);
+        RefreshTokenRotated?.Invoke(auth.RefreshToken);
         return true;
     }
 
