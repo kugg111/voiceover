@@ -82,6 +82,7 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="48"/>
                 <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
             <Border Grid.Row="0" Background="{StaticResource BgDark}" BorderBrush="{StaticResource BgDarker}" BorderThickness="0,0,0,1">
@@ -89,14 +90,47 @@
                            FontWeight="Bold" VerticalAlignment="Center" Margin="16,0,0,0"/>
             </Border>
 
-            <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center">
-                <TextBlock x:Name="WelcomeText" FontSize="20" FontWeight="Bold"
-                           Foreground="{StaticResource TextNormal}" HorizontalAlignment="Center"/>
-                <TextBlock x:Name="SelectedChannelSubtext"
-                           Text="Messages aren't wired up in this build yet - coming in a future update."
-                           FontSize="13" Foreground="{StaticResource TextMuted}"
-                           HorizontalAlignment="Center" Margin="0,8,0,0" IsVisible="False"/>
-            </StackPanel>
+            <Grid Grid.Row="1">
+                <StackPanel x:Name="WelcomePanel" VerticalAlignment="Center" HorizontalAlignment="Center">
+                    <TextBlock x:Name="WelcomeText" FontSize="20" FontWeight="Bold"
+                               Foreground="{StaticResource TextNormal}" HorizontalAlignment="Center"/>
+                    <TextBlock x:Name="SelectedChannelSubtext"
+                               Text="Messages aren't wired up in this build yet - coming in a future update."
+                               FontSize="13" Foreground="{StaticResource TextMuted}"
+                               HorizontalAlignment="Center" Margin="0,8,0,0" IsVisible="False"/>
+                </StackPanel>
+
+                <ScrollViewer x:Name="MessagesScrollViewer" IsVisible="False">
+                    <ItemsControl x:Name="MessageList" Margin="16,12">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="local:MessageListItem">
+                                <StackPanel Margin="0,6,0,6">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="{Binding AuthorUsername}" FontWeight="Bold"
+                                                   Foreground="{StaticResource AccentBlurple}" Margin="0,0,8,0"/>
+                                        <TextBlock Text="{Binding TimeDisplay}" FontSize="11"
+                                                   Foreground="{StaticResource TextMuted}" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <TextBlock Text="{Binding Content}" Foreground="{StaticResource TextNormal}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Grid>
+
+            <Grid Grid.Row="2" x:Name="MessageInputRow" IsVisible="False" Margin="16,0,16,16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBox Grid.Column="0" x:Name="MessageInputBox" PlaceholderText="Message..."
+                         Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
+                         BorderThickness="0" Padding="10,8" KeyDown="MessageInputBox_KeyDown"/>
+                <Button Grid.Column="1" Content="Send" Margin="8,0,0,0" Padding="14,8"
+                        Background="{StaticResource AccentBlurple}" Foreground="White"
+                        BorderThickness="0" Cursor="Hand" Click="SendButton_Click"/>
+            </Grid>
         </Grid>
     </Grid>
 </Window>
