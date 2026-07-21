@@ -224,42 +224,55 @@ public partial class VoiceSettingsPanel : UserControl
             var pcm = await RecordAsync(inputIndex, TimeSpan.FromSeconds(3));
 
             TestMicButton.Content = "Processing...";
-            using var processor = new NoiseSuppressionProcessor
+            // Off the UI thread - constructing NoiseSuppressionProcessor
+            // (GPU/ONNX session init when UseGpuForNsnet2 is on) and running
+            // ~150 frames of DSP through it is real blocking work; running
+            // it directly on the awaited UI-thread continuation (as this
+            // used to) froze the dispatcher for however long that took.
+            var resultText = await Task.Run(() =>
             {
-                Enabled = _voice.NoiseSuppressionEnabled,
-                Backend = _voice.NoiseSuppressionBackend,
-                SuppressionMix = _voice.SuppressionMix,
-                // GpuDeviceId before UseGpuForNsnet2 - see the matching
-                // comment on VoiceService's own MicCaptureSource
-                // construction for why the order matters here.
-                GpuDeviceId = _voice.GpuDeviceId,
-                UseGpuForNsnet2 = _voice.UseGpuForNsnet2,
-                VadGateEnabled = _voice.VadGateEnabled
-            };
+                using var processor = new NoiseSuppressionProcessor
+                {
+                    Enabled = _voice.NoiseSuppressionEnabled,
+                    Backend = _voice.NoiseSuppressionBackend,
+                    SuppressionMix = _voice.SuppressionMix,
+                    // GpuDeviceId before UseGpuForNsnet2 - see the matching
+                    // comment on VoiceService's own MicCaptureSource
+                    // construction for why the order matters here.
+                    GpuDeviceId = _voice.GpuDeviceId,
+                    UseGpuForNsnet2 = _voice.UseGpuForNsnet2,
+                    VadGateEnabled = _voice.VadGateEnabled
+                };
 
-            // Same 20ms/960-sample frame size MicCaptureSource's live
-            // capture loop uses - keeps Test Mic's processing identical to
-            // what actually gets published in a real call. A trailing
-            // partial frame (recording length isn't guaranteed to be an
-            // exact multiple) is just left unprocessed/raw - a few
-            // milliseconds of untouched tail is inaudible.
-            const int frameSize = 960;
-            for (int offset = 0; offset + frameSize <= pcm.Length; offset += frameSize)
-            {
-                var frame = new short[frameSize];
-                Array.Copy(pcm, offset, frame, 0, frameSize);
-                processor.ProcessFrame(frame);
-                Array.Copy(frame, 0, pcm, offset, frameSize);
-            }
+                // Same 20ms/960-sample frame size MicCaptureSource's live
+                // capture loop uses - keeps Test Mic's processing identical
+                // to what actually gets published in a real call. A
+                // trailing partial frame (recording length isn't guaranteed
+                // to be an exact multiple) is just left unprocessed/raw - a
+                // few milliseconds of untouched tail is inaudible.
+                const int frameSize = 960;
+                for (int offset = 0; offset + frameSize <= pcm.Length; offset += frameSize)
+                {
+                    var frame = new short[frameSize];
+                    Array.Copy(pcm, offset, frame, 0, frameSize);
+                    processor.ProcessFrame(frame);
+                    Array.Copy(frame, 0, pcm, offset, frameSize);
+                }
 
-            TestMicResultText.Text = processor.Backend switch
-            {
-                NoiseSuppressionBackend.Nsnet2 => $"NSNet2: ~{processor.LastNsnet2Ms:0.0}ms/frame (20ms budget)",
-                _ => $"RNNoise: ~{processor.LastRNNoiseMs:0.0}ms/frame (20ms budget)"
-            };
+                return processor.Backend switch
+                {
+                    NoiseSuppressionBackend.Nsnet2 => $"NSNet2: ~{processor.LastNsnet2Ms:0.0}ms/frame (20ms budget)",
+                    _ => $"RNNoise: ~{processor.LastRNNoiseMs:0.0}ms/frame (20ms budget)"
+                };
+            });
+            TestMicResultText.Text = resultText;
 
             TestMicButton.Content = "Playing back...";
-            await PlaybackAsync(outputIndex, pcm);
+            // PlaybackAsync's WaveOutEvent.Init/Play also block on device
+            // open - same reasoning, keep it off the UI thread. WaveOutEvent
+            // doesn't need the calling thread's message pump (it drives its
+            // own callback thread internally), so this is safe.
+            await Task.Run(() => PlaybackAsync(outputIndex, pcm));
         }
         catch (Exception ex)
         {
