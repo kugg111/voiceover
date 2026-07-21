@@ -273,16 +273,22 @@ public class ServersController : ControllerBase
         return Ok();
     }
 
+    // Same optional take/skip convention as GetMembers/GetModerationLog -
+    // omitting take still returns everything (ban lists are expected to
+    // stay small), a caller-supplied take just gets clamped to MaxPageSize.
     [HttpGet("{serverId}/bans")]
-    public async Task<ActionResult<List<BannedUserResponse>>> GetBans(int serverId)
+    public async Task<ActionResult<List<BannedUserResponse>>> GetBans(int serverId, int? take = null, int? skip = null)
     {
         if (!await _permissions.CanManageServerAsync(CurrentUserId, serverId))
             return Forbid();
 
-        var bans = await _db.BannedUsers
+        var query = _db.BannedUsers
             .Where(b => b.GuildServerId == serverId)
             .OrderByDescending(b => b.CreatedAt)
-            .ToListAsync();
+            .Skip(skip ?? 0);
+        if (PaginationLimits.Clamp(take) is { } clampedTake) query = query.Take(clampedTake);
+
+        var bans = await query.ToListAsync();
 
         // Usernames looked up separately (BannedUser has no FK navigation -
         // see that class's own comment for why) rather than a join, since
@@ -314,7 +320,7 @@ public class ServersController : ControllerBase
             .Where(m => m.GuildServerId == serverId)
             .OrderByDescending(m => m.CreatedAt)
             .Skip(skip ?? 0);
-        if (take.HasValue) query = query.Take(take.Value);
+        if (PaginationLimits.Clamp(take) is { } clampedTake) query = query.Take(clampedTake);
 
         var result = await query
             .Select(m => new ModerationLogEntryResponse(m.Id, m.ActorUsername, m.Action, m.TargetUsername, m.Details, m.CreatedAt))

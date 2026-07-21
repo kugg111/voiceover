@@ -63,7 +63,12 @@ builder.Host.UseSerilog((context, config) => config
         connectionString: npgsqlConnectionString,
         tableName: "logs",
         columnOptions: logColumns,
-        needAutoCreateTable: true));
+        needAutoCreateTable: true,
+        // Defaults to unbounded (int.MaxValue) otherwise - if the Postgres
+        // sink ever stalls (network blip, lock contention), the in-process
+        // log queue would grow without bound instead of just dropping the
+        // oldest events past this cap.
+        queueLimit: 10_000));
 
 // Railway (and most PaaS hosts) inject the port to listen on via $PORT rather
 // than a fixed config value. Note: appsettings.json's Kestrel:Endpoints config
