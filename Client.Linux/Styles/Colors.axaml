@@ -5,6 +5,7 @@
        match so the two clients look like the same app, not a reskin. -->
   <SolidColorBrush x:Key="BgDark" Color="#2B2D31"/>
   <SolidColorBrush x:Key="BgDarker" Color="#1E1F22"/>
+  <SolidColorBrush x:Key="BgSidebar" Color="#232428"/>
   <SolidColorBrush x:Key="AccentBlurple" Color="#5865F2"/>
   <SolidColorBrush x:Key="TextNormal" Color="#DBDEE1"/>
   <SolidColorBrush x:Key="TextMuted" Color="#949BA4"/>
