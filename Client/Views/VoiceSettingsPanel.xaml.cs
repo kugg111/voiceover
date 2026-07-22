@@ -48,6 +48,9 @@ public partial class VoiceSettingsPanel : UserControl
             case NoiseSuppressionBackend.Nsnet2:
                 Nsnet2Radio.IsChecked = true;
                 break;
+            case NoiseSuppressionBackend.FacebookDenoiser:
+                FacebookDenoiserRadio.IsChecked = true;
+                break;
             default:
                 RNNoiseRadio.IsChecked = true;
                 break;
@@ -55,12 +58,6 @@ public partial class VoiceSettingsPanel : UserControl
         SuppressionMixSlider.Value = _voice.SuppressionMix * 100;
         UpdateSuppressionMixDisplay();
         UpdateSuppressionMixAvailability();
-
-        var gpus = GpuDeviceService.GetGpus();
-        GpuDeviceCombo.ItemsSource = gpus;
-        GpuDeviceCombo.SelectedItem = gpus.FirstOrDefault(g => g.Index == _voice.GpuDeviceId) ?? gpus.FirstOrDefault();
-        Nsnet2GpuCheck.IsChecked = _voice.UseGpuForNsnet2;
-        UpdateNsnet2GpuAvailability();
 
         VadGateCheck.IsChecked = _voice.VadGateEnabled;
 
@@ -132,37 +129,13 @@ public partial class VoiceSettingsPanel : UserControl
     private void NoiseSuppressionBackendRadio_Changed(object sender, RoutedEventArgs e)
     {
         if (!_loaded) return;
-        _voice!.NoiseSuppressionBackend = sender == Nsnet2Radio
-            ? NoiseSuppressionBackend.Nsnet2
-            : NoiseSuppressionBackend.RNNoise;
+        _voice!.NoiseSuppressionBackend = sender switch
+        {
+            _ when sender == Nsnet2Radio => NoiseSuppressionBackend.Nsnet2,
+            _ when sender == FacebookDenoiserRadio => NoiseSuppressionBackend.FacebookDenoiser,
+            _ => NoiseSuppressionBackend.RNNoise
+        };
         UpdateSuppressionMixAvailability();
-        UpdateNsnet2GpuAvailability();
-    }
-
-    // RNNoise is a native library with no GPU path of its own, so this only
-    // ever does anything for NSNet2 - grey it out (rather than hide it
-    // outright) when RNNoise is selected, so the setting's still visible
-    // and its saved value doesn't feel like it silently vanished. The
-    // device picker is further gated on the GPU checkbox itself - picking
-    // a specific card is meaningless until "use GPU" is actually on.
-    private void UpdateNsnet2GpuAvailability()
-    {
-        var nsnet2Selected = Nsnet2Radio.IsChecked == true;
-        Nsnet2GpuCheck.IsEnabled = nsnet2Selected;
-        GpuDeviceCombo.IsEnabled = nsnet2Selected && Nsnet2GpuCheck.IsChecked == true;
-    }
-
-    private void Nsnet2GpuCheck_Changed(object sender, RoutedEventArgs e)
-    {
-        UpdateNsnet2GpuAvailability();
-        if (!_loaded) return;
-        _voice!.UseGpuForNsnet2 = Nsnet2GpuCheck.IsChecked == true;
-    }
-
-    private void GpuDeviceCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (!_loaded) return;
-        if (GpuDeviceCombo.SelectedItem is GpuDevice device) _voice!.GpuDeviceId = device.Index;
     }
 
     private void VadGateCheck_Changed(object sender, RoutedEventArgs e)
@@ -225,10 +198,10 @@ public partial class VoiceSettingsPanel : UserControl
 
             TestMicButton.Content = "Processing...";
             // Off the UI thread - constructing NoiseSuppressionProcessor
-            // (GPU/ONNX session init when UseGpuForNsnet2 is on) and running
-            // ~150 frames of DSP through it is real blocking work; running
-            // it directly on the awaited UI-thread continuation (as this
-            // used to) froze the dispatcher for however long that took.
+            // (ONNX session init for NSNet2) and running ~150 frames of DSP
+            // through it is real blocking work; running it directly on the
+            // awaited UI-thread continuation (as this used to) froze the
+            // dispatcher for however long that took.
             var resultText = await Task.Run(() =>
             {
                 using var processor = new NoiseSuppressionProcessor
@@ -236,11 +209,6 @@ public partial class VoiceSettingsPanel : UserControl
                     Enabled = _voice.NoiseSuppressionEnabled,
                     Backend = _voice.NoiseSuppressionBackend,
                     SuppressionMix = _voice.SuppressionMix,
-                    // GpuDeviceId before UseGpuForNsnet2 - see the matching
-                    // comment on VoiceService's own MicCaptureSource
-                    // construction for why the order matters here.
-                    GpuDeviceId = _voice.GpuDeviceId,
-                    UseGpuForNsnet2 = _voice.UseGpuForNsnet2,
                     VadGateEnabled = _voice.VadGateEnabled
                 };
 
@@ -262,6 +230,7 @@ public partial class VoiceSettingsPanel : UserControl
                 return processor.Backend switch
                 {
                     NoiseSuppressionBackend.Nsnet2 => $"NSNet2: ~{processor.LastNsnet2Ms:0.0}ms/frame (20ms budget)",
+                    NoiseSuppressionBackend.FacebookDenoiser => $"Facebook Denoiser: ~{processor.LastFacebookDenoiserMs:0.0}ms/frame (20ms budget)",
                     _ => $"RNNoise: ~{processor.LastRNNoiseMs:0.0}ms/frame (20ms budget)"
                 };
             });

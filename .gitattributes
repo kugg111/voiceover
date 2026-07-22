@@ -1,0 +1,7 @@
+# Facebook Denoiser (native/torch runtime) - too large for plain git blobs,
+# see REDEPLOY.txt/session notes for why these are LFS-tracked instead of
+# gitignored: they still need to ship in the CI-built release, just not as
+# regular git objects (torch_cpu.dll alone is ~300MB, over GitHub's 100MB
+# hard per-blob limit on normal pushes).
+Client/native/*.dll filter=lfs diff=lfs merge=lfs -text
+Client/native/*.pt filter=lfs diff=lfs merge=lfs -text

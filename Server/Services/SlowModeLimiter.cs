@@ -28,4 +28,23 @@ public class SlowModeLimiter
         _lastSentAt[key] = now;
         return true;
     }
+
+    // Removes entries whose last-sent timestamp is older than maxAge - keeps
+    // this dictionary from growing forever as channels/users churn over a
+    // long process uptime. Safe to call at any time: a stale entry only
+    // ever gates a future send that TryAcquire would already unconditionally
+    // allow once slowModeSeconds has elapsed anyway, so removing it changes
+    // no observable behavior. See CleanupService, which calls this
+    // periodically alongside its own DB-side cleanup.
+    public int EvictOlderThan(TimeSpan maxAge)
+    {
+        var cutoff = DateTime.UtcNow - maxAge;
+        var removed = 0;
+        foreach (var (key, lastSentAt) in _lastSentAt)
+        {
+            if (lastSentAt < cutoff && _lastSentAt.TryRemove(new KeyValuePair<(int, int), DateTime>(key, lastSentAt)))
+                removed++;
+        }
+        return removed;
+    }
 }

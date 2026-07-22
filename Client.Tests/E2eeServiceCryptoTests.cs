@@ -50,8 +50,8 @@ public class E2eeServiceCryptoTests
 
         // AES-GCM's authentication tag makes this fail closed (throws)
         // rather than silently decrypting to wrong bytes - callers
-        // (DecryptForServerAsync/DecryptAsync) rely on exactly this to show
-        // "[Unable to decrypt message]" instead of corrupted text.
+        // (DecryptChannelMessageAsync/DecryptAsync) rely on exactly this to
+        // show "[Unable to decrypt message]" instead of corrupted text.
         // AesGcm.Decrypt throws the more specific AuthenticationTagMismatchException
         // (a CryptographicException subclass, added in .NET 8) rather than
         // the base type - E2eeService's own catch clauses already handle

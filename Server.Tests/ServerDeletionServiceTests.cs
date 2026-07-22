@@ -34,7 +34,7 @@ public class ServerDeletionServiceTests
 
         db.MessageReactions.Add(new MessageReaction { MessageId = message.Id, UserId = 2, Emoji = "👍" });
         db.Memberships.Add(new Membership { UserId = 1, GuildServerId = server.Id, Role = MemberRole.Owner });
-        db.ServerMemberKeys.Add(new ServerMemberKey { GuildServerId = server.Id, UserId = 1, WrappedByUserId = 1, WrappedKey = "key" });
+        db.MessageRecipientKeys.Add(new MessageRecipientKey { MessageId = message.Id, UserId = 1, WrappedKey = "key" });
         db.BannedUsers.Add(new BannedUser { GuildServerId = server.Id, UserId = 3, BannedByUserId = 1 });
         db.ModerationLogEntries.Add(new ModerationLogEntry { GuildServerId = server.Id, ActorUserId = 1, ActorUsername = "owner", Action = "ban" });
         await db.SaveChangesAsync();
@@ -48,7 +48,7 @@ public class ServerDeletionServiceTests
         Assert.False(await db.Messages.AnyAsync());
         Assert.False(await db.MessageReactions.AnyAsync());
         Assert.False(await db.Memberships.AnyAsync());
-        Assert.False(await db.ServerMemberKeys.AnyAsync());
+        Assert.False(await db.MessageRecipientKeys.AnyAsync());
         Assert.False(await db.BannedUsers.AnyAsync());
         Assert.False(await db.ModerationLogEntries.AnyAsync());
     }

@@ -14,12 +14,14 @@
         Closing="MainWindow_Closing"
         PreviewKeyDown="MainWindow_PreviewKeyDown">
     <ui:FluentWindow.Resources>
-        <local:EmojiToImageConverter x:Key="EmojiToImageConverter"/>
+        <local:StringToVisibilityConverter x:Key="StringToVisibilityConverter"/>
         <!-- Applied to every emoji Button (the picker grid + the "Add
-             Reaction" trigger button) - see EmojiToImageConverter/
-             EmojiImageCache for why plain text Content isn't used directly. -->
+             Reaction" trigger button) - see EmojiImageBehavior/EmojiImageCache
+             for why plain text Content isn't used directly. Content is
+             either a unicode glyph or a "custom:{id}" token (see
+             CustomEmojiRegistry) - EmojiImageBehavior resolves either. -->
         <DataTemplate x:Key="EmojiButtonTemplate">
-            <Image Source="{Binding Converter={StaticResource EmojiToImageConverter}}"
+            <Image local:EmojiImageBehavior.Token="{Binding}"
                    Width="20" Height="20" Stretch="Uniform" SnapsToDevicePixels="True"
                    RenderOptions.BitmapScalingMode="HighQuality"/>
         </DataTemplate>
@@ -112,8 +114,13 @@
                      shown/dismissed in code (UpdateOnboardingNudge), see
                      LoadServersAsync. -->
                 <Popup x:Name="OnboardingNudgePopup" PlacementTarget="{Binding ElementName=AddServerButton}"
-                       Placement="Right" HorizontalOffset="8" IsOpen="False" StaysOpen="True" AllowsTransparency="True">
-                    <Border Background="{StaticResource AccentBlurple}" CornerRadius="6" Padding="10,8" MaxWidth="180">
+                       Placement="Right" HorizontalOffset="8" IsOpen="False" StaysOpen="True" AllowsTransparency="True"
+                       Opened="OnboardingNudgePopup_Opened">
+                    <Border x:Name="OnboardingNudgeCard" Background="{StaticResource AccentBlurple}" CornerRadius="6" Padding="10,8" MaxWidth="180"
+                            Opacity="0" RenderTransformOrigin="0.5,0.5">
+                        <Border.RenderTransform>
+                            <TranslateTransform x:Name="OnboardingNudgeTranslate" X="-8"/>
+                        </Border.RenderTransform>
                         <TextBlock Text="Create your first server here!" Foreground="White" FontSize="12" TextWrapping="Wrap"/>
                     </Border>
                 </Popup>
@@ -150,6 +157,8 @@
                                         <ContextMenu>
                                             <MenuItem Header="Add Channel" Tag="{Binding Id}" Click="AddChannelMenuItem_Click"/>
                                             <MenuItem Header="Invites" Tag="{Binding Id}" Click="InvitesMenuItem_Click"/>
+                                            <MenuItem Header="Manage Emoji" Tag="{Binding Id}" Click="ManageEmojiMenuItem_Click"/>
+                                            <MenuItem Header="Manage Categories" Tag="{Binding Id}" Click="ManageCategoriesMenuItem_Click"/>
                                             <MenuItem x:Name="ServerMuteMenuItem" Header="Mute Notifications" Tag="{Binding Id}" Click="ToggleServerMuteMenuItem_Click"/>
                                             <MenuItem Header="Leave Server" Tag="{Binding Id}" Click="LeaveServerMenuItem_Click"/>
                                             <MenuItem Header="Rename Server" Tag="{Binding Id}" Click="RenameServerMenuItem_Click"
@@ -214,6 +223,21 @@
                     <TextBlock Text="TEXT CHANNELS" FontSize="11" FontWeight="Bold"
                                Foreground="{StaticResource TextMuted}" Margin="14,6,0,4"/>
                     <ItemsControl x:Name="TextChannelList">
+                        <!-- Groups by ChannelListItem.CategoryName (see MainWindow's
+                             constructor, which sets ItemsSource to a grouped
+                             CollectionView) - empty-string group (uncategorized)
+                             renders no header at all via the converter below. -->
+                        <ItemsControl.GroupStyle>
+                            <GroupStyle>
+                                <GroupStyle.HeaderTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Name}" FontSize="11" FontWeight="Bold"
+                                                   Foreground="{StaticResource TextMuted}" Margin="14,10,0,4"
+                                                   Visibility="{Binding Name, Converter={StaticResource StringToVisibilityConverter}}"/>
+                                    </DataTemplate>
+                                </GroupStyle.HeaderTemplate>
+                            </GroupStyle>
+                        </ItemsControl.GroupStyle>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <Grid AllowDrop="True"
@@ -235,6 +259,10 @@
                                                 <MenuItem Header="Set Slow Mode..." Tag="{Binding Id}" Click="SetSlowModeMenuItem_Click"/>
                                                 <MenuItem x:Name="ChannelMuteMenuItem" Header="Mute Notifications" Tag="{Binding Id}" Click="ToggleChannelMuteMenuItem_Click"/>
                                                 <MenuItem Header="Rename Channel" Tag="{Binding Id}" Click="RenameChannelMenuItem_Click"/>
+                                                <!-- Populated dynamically each open (see
+                                                     ChannelButton_ContextMenuOpening) - the set
+                                                     of categories to offer isn't known at parse time. -->
+                                                <MenuItem Header="Move to Category"/>
                                             </ContextMenu>
                                         </Button.ContextMenu>
                                     </Button>
@@ -257,6 +285,17 @@
                     <TextBlock Text="VOICE CHANNELS" FontSize="11" FontWeight="Bold"
                                Foreground="{StaticResource TextMuted}" Margin="14,14,0,4"/>
                     <ItemsControl x:Name="VoiceChannelList">
+                        <ItemsControl.GroupStyle>
+                            <GroupStyle>
+                                <GroupStyle.HeaderTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Name}" FontSize="11" FontWeight="Bold"
+                                                   Foreground="{StaticResource TextMuted}" Margin="14,10,0,4"
+                                                   Visibility="{Binding Name, Converter={StaticResource StringToVisibilityConverter}}"/>
+                                    </DataTemplate>
+                                </GroupStyle.HeaderTemplate>
+                            </GroupStyle>
+                        </ItemsControl.GroupStyle>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <StackPanel>
@@ -264,17 +303,34 @@
                                           PreviewMouseLeftButtonDown="ChannelRow_PreviewMouseLeftButtonDown"
                                           PreviewMouseMove="ChannelRow_PreviewMouseMove"
                                           Drop="ChannelRow_Drop">
-                                        <Button Content="{Binding DisplayName}" Tag="{Binding Id}"
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Button Grid.Column="0" Content="{Binding DisplayName}" Tag="{Binding Id}"
                                                 Click="VoiceChannelButton_Click" HorizontalContentAlignment="Left"
                                                 Background="Transparent" Foreground="{StaticResource TextMuted}"
-                                                BorderThickness="0" Padding="14,6" Height="32">
+                                                BorderThickness="0" Padding="14,6" Height="32"
+                                                ContextMenuOpening="VoiceChannelButton_ContextMenuOpening">
                                             <Button.ContextMenu>
                                                 <ContextMenu>
                                                     <MenuItem Header="Rename Channel" Tag="{Binding Id}" Click="RenameChannelMenuItem_Click"/>
                                                     <MenuItem Header="Delete Channel" Tag="{Binding Id}" Click="DeleteChannelButton_Click"/>
+                                                    <MenuItem Header="Move to Category"/>
                                                 </ContextMenu>
                                             </Button.ContextMenu>
                                         </Button>
+                                        <!-- Opens this voice channel's text chat in the shared
+                                             message pane (see MainWindow.VoiceChannelChatButton_Click)
+                                             - a separate action from the row's own Click, which joins
+                                             the voice audio instead. Messages work in any channel
+                                             regardless of Type server-side; this is purely a client
+                                             entry point into that existing pipeline. -->
+                                        <Button Grid.Column="1" Content="💬" Tag="{Binding Id}"
+                                                Click="VoiceChannelChatButton_Click" ToolTip="Text Chat"
+                                                Width="26" Height="26" Padding="0" Margin="0,0,8,0"
+                                                Background="Transparent" Foreground="{StaticResource TextMuted}"
+                                                BorderThickness="0" Cursor="Hand"/>
                                     </Grid>
                                     <ItemsControl ItemsSource="{Binding Members}" Margin="34,0,8,4" Focusable="False">
                                         <ItemsControl.ItemTemplate>
@@ -380,7 +436,13 @@
                             <DataTemplate>
                                 <Button Click="DmConversation_Click" Tag="{Binding OtherUserId}"
                                         HorizontalContentAlignment="Stretch" Background="Transparent"
-                                        BorderThickness="0" Padding="14,8">
+                                        BorderThickness="0" Padding="14,8"
+                                        ContextMenuOpening="DmConversationButton_ContextMenuOpening">
+                                    <Button.ContextMenu>
+                                        <ContextMenu>
+                                            <MenuItem x:Name="DmMuteMenuItem" Header="Mute Notifications" Tag="{Binding OtherUserId}" Click="ToggleDmMuteMenuItem_Click"/>
+                                        </ContextMenu>
+                                    </Button.ContextMenu>
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="Auto"/>
@@ -610,7 +672,33 @@
                     </ListBox.ItemContainerStyle>
                     <ListBox.ItemTemplate>
                         <DataTemplate>
-                            <Grid x:Name="MessageRow" Margin="0,6,0,6" Background="{Binding RowBackground}">
+                            <!-- Fade+slide-in on Loaded - fires once per row
+                                 realization, so it plays for genuinely new
+                                 messages (and, as an accepted tradeoff under
+                                 virtualization, replays when a recycled row
+                                 scrolls back into view - fast/subtle enough
+                                 at 120ms not to be distracting either way). -->
+                            <Grid x:Name="MessageRow" Margin="0,6,0,6" Background="{Binding RowBackground}"
+                                  Opacity="0" RenderTransformOrigin="0.5,0.5">
+                                <Grid.RenderTransform>
+                                    <TranslateTransform Y="8"/>
+                                </Grid.RenderTransform>
+                                <Grid.Triggers>
+                                    <EventTrigger RoutedEvent="FrameworkElement.Loaded">
+                                        <BeginStoryboard>
+                                            <Storyboard>
+                                                <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                                 To="1" Duration="0:0:0.12"/>
+                                                <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.Y)"
+                                                                 To="0" Duration="0:0:0.12">
+                                                    <DoubleAnimation.EasingFunction>
+                                                        <QuadraticEase EasingMode="EaseOut"/>
+                                                    </DoubleAnimation.EasingFunction>
+                                                </DoubleAnimation>
+                                            </Storyboard>
+                                        </BeginStoryboard>
+                                    </EventTrigger>
+                                </Grid.Triggers>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>
@@ -619,6 +707,7 @@
                                 <Grid.ContextMenu>
                                     <ContextMenu>
                                         <MenuItem Header="Reply" Tag="{Binding}" Click="ReplyMessageButton_Click"/>
+                                        <MenuItem Header="Forward" Tag="{Binding}" Click="ForwardMessageButton_Click"/>
                                         <MenuItem Header="Edit Message" Tag="{Binding Id}" Click="EditMessageMenuItem_Click"
                                                   Visibility="{Binding EditMenuVisibility}"/>
                                         <MenuItem Header="Delete Message" Tag="{Binding Id}" Click="DeleteMessageMenuItem_Click"
@@ -660,7 +749,8 @@
                                          without a separate close handler for that path. -->
                                     <Popup Placement="Bottom" PlacementTarget="{Binding ElementName=ReactionButton}"
                                            IsOpen="{Binding IsEmojiPickerOpen, Mode=TwoWay}" StaysOpen="False"
-                                           AllowsTransparency="True" PopupAnimation="Fade">
+                                           AllowsTransparency="True" PopupAnimation="Fade"
+                                           Opened="EmojiPickerPopup_Opened">
                                         <!-- Background/border/radius match ModalOverlay's card (this app's
                                              one other floating surface) rather than BgSidebar, which is
                                              the list-row color, not a popup-surface color. -->
@@ -742,6 +832,11 @@
                                             Width="26" Height="26" Padding="0" FontSize="14" Margin="0,0,4,0"
                                             Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
                                             BorderThickness="0" Cursor="Hand"/>
+                                    <Button Content="➡" Tag="{Binding}" Click="ForwardMessageButton_Click"
+                                            ToolTip="Forward"
+                                            Width="26" Height="26" Padding="0" FontSize="14" Margin="0,0,4,0"
+                                            Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
+                                            BorderThickness="0" Cursor="Hand"/>
                                     <Button Content="✏️" Tag="{Binding Id}" Click="EditMessageMenuItem_Click"
                                             Visibility="{Binding EditMenuVisibility}" ToolTip="Edit"
                                             Width="26" Height="26" Padding="0" FontSize="12" Margin="0,0,4,0"
@@ -754,6 +849,10 @@
                                             BorderThickness="0" Cursor="Hand"/>
                                 </StackPanel>
                                 <StackPanel Grid.Column="1">
+                                    <TextBlock Text="{Binding ForwardedFromAuthorUsername, StringFormat='➡ Forwarded from {0}'}"
+                                               Visibility="{Binding ForwardedBannerVisibility}"
+                                               FontSize="11" FontStyle="Italic" Margin="0,0,0,2"
+                                               Foreground="{StaticResource TextMuted}"/>
                                     <Border Visibility="{Binding ReplyPreviewVisibility}" Background="{StaticResource BgSidebar}"
                                             CornerRadius="3" Padding="6,3" Margin="0,0,0,4" HorizontalAlignment="Left" MaxWidth="360">
                                         <TextBlock Text="{Binding ReplyPreviewDisplay, StringFormat='↩ {0}'}" FontSize="11"
@@ -818,7 +917,7 @@
                                                         Padding="6,2" Margin="0,0,4,4" FontSize="12" Cursor="Hand"
                                                         BorderThickness="1">
                                                     <StackPanel Orientation="Horizontal">
-                                                        <Image Source="{Binding Emoji, Converter={StaticResource EmojiToImageConverter}}"
+                                                        <Image local:EmojiImageBehavior.Token="{Binding Emoji}"
                                                                Width="14" Height="14" Margin="0,0,4,0" Stretch="Uniform"
                                                                RenderOptions.BitmapScalingMode="HighQuality"/>
                                                         <TextBlock Text="{Binding Count}" VerticalAlignment="Center"/>
@@ -898,48 +997,68 @@
             <DockPanel Margin="12">
                 <TextBlock DockPanel.Dock="Top" Text="MEMBERS" FontSize="11" FontWeight="Bold"
                            Foreground="{StaticResource TextMuted}" Margin="4,4,0,8"/>
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <ItemsControl x:Name="MemberList">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <StackPanel Orientation="Horizontal" Margin="0,4,0,4"
-                                            ContextMenuOpening="MemberRow_ContextMenuOpening">
-                                    <StackPanel.ContextMenu>
-                                        <ContextMenu>
-                                            <MenuItem Header="{Binding RoleButtonLabel}" Tag="{Binding UserId}"
-                                                      Click="MemberRoleButton_Click" Visibility="{Binding RoleButtonVisibility}"/>
-                                            <MenuItem Header="Edit Permissions..." Tag="{Binding}" Click="MemberEditPermissionsButton_Click"
-                                                      Visibility="{Binding EditPermissionsVisibility}"/>
-                                            <MenuItem Header="Kick" Tag="{Binding UserId}" Click="MemberKickButton_Click"
-                                                      Visibility="{Binding KickButtonVisibility}"/>
-                                            <MenuItem Header="Ban..." Tag="{Binding UserId}" Click="MemberBanButton_Click"
-                                                      Visibility="{Binding BanButtonVisibility}"/>
-                                            <MenuItem Header="Purge Messages..." Tag="{Binding UserId}" Click="MemberPurgeButton_Click"
-                                                      Visibility="{Binding PurgeButtonVisibility}"/>
-                                        </ContextMenu>
-                                    </StackPanel.ContextMenu>
-                                    <local:AvatarView Size="28" DisplayName="{Binding Username}"
-                                                       ImageUrl="{Binding AvatarUrl}" Margin="0,0,8,0"/>
-                                    <StackPanel VerticalAlignment="Center">
-                                        <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="{Binding Username}" Foreground="{StaticResource TextNormal}" FontSize="13"/>
-                                            <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
-                                                     Fill="#3BA55D" Visibility="{Binding OnlineDotVisibility}" ToolTip="Online"/>
-                                            <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
-                                                     Fill="#F0B232" Visibility="{Binding AwayDotVisibility}" ToolTip="Away"/>
-                                            <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
-                                                     Fill="#80848E" Visibility="{Binding OfflineDotVisibility}" ToolTip="Offline"/>
-                                        </StackPanel>
-                                        <TextBlock Text="{Binding Role}" Foreground="{StaticResource TextMuted}" FontSize="11"/>
-                                        <TextBlock Text="{Binding CustomStatus}" Foreground="{StaticResource TextMuted}" FontSize="11"
-                                                   TextTrimming="CharacterEllipsis" MaxWidth="140"
-                                                   Visibility="{Binding CustomStatusVisibility}"/>
+                <!-- ListBox instead of ItemsControl for built-in UI
+                     virtualization (large servers) - ItemContainerStyle
+                     strips ListBoxItem's default selection/hover chrome so
+                     it's visually identical to the old ItemsControl rows,
+                     same pattern as MessageList above. -->
+                <ListBox x:Name="MemberList" Background="Transparent" BorderThickness="0"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         VirtualizingPanel.IsVirtualizing="True"
+                         VirtualizingPanel.VirtualizationMode="Recycling">
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                            <Setter Property="Focusable" Value="False"/>
+                            <Setter Property="Padding" Value="0"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListBoxItem">
+                                        <ContentPresenter/>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Orientation="Horizontal" Margin="0,4,0,4"
+                                        ContextMenuOpening="MemberRow_ContextMenuOpening">
+                                <StackPanel.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="{Binding RoleButtonLabel}" Tag="{Binding UserId}"
+                                                  Click="MemberRoleButton_Click" Visibility="{Binding RoleButtonVisibility}"/>
+                                        <MenuItem Header="Edit Permissions..." Tag="{Binding}" Click="MemberEditPermissionsButton_Click"
+                                                  Visibility="{Binding EditPermissionsVisibility}"/>
+                                        <MenuItem Header="Kick" Tag="{Binding UserId}" Click="MemberKickButton_Click"
+                                                  Visibility="{Binding KickButtonVisibility}"/>
+                                        <MenuItem Header="Ban..." Tag="{Binding UserId}" Click="MemberBanButton_Click"
+                                                  Visibility="{Binding BanButtonVisibility}"/>
+                                        <MenuItem Header="Purge Messages..." Tag="{Binding UserId}" Click="MemberPurgeButton_Click"
+                                                  Visibility="{Binding PurgeButtonVisibility}"/>
+                                    </ContextMenu>
+                                </StackPanel.ContextMenu>
+                                <local:AvatarView Size="28" DisplayName="{Binding Username}"
+                                                   ImageUrl="{Binding AvatarUrl}" Margin="0,0,8,0"/>
+                                <StackPanel VerticalAlignment="Center">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="{Binding Username}" Foreground="{StaticResource TextNormal}" FontSize="13"/>
+                                        <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
+                                                 Fill="#3BA55D" Visibility="{Binding OnlineDotVisibility}" ToolTip="Online"/>
+                                        <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
+                                                 Fill="#F0B232" Visibility="{Binding AwayDotVisibility}" ToolTip="Away"/>
+                                        <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
+                                                 Fill="#80848E" Visibility="{Binding OfflineDotVisibility}" ToolTip="Offline"/>
                                     </StackPanel>
+                                    <TextBlock Text="{Binding Role}" Foreground="{StaticResource TextMuted}" FontSize="11"/>
+                                    <TextBlock Text="{Binding CustomStatus}" Foreground="{StaticResource TextMuted}" FontSize="11"
+                                               TextTrimming="CharacterEllipsis" MaxWidth="140"
+                                               Visibility="{Binding CustomStatusVisibility}"/>
                                 </StackPanel>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </ScrollViewer>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
             </DockPanel>
         </Border>
 
@@ -964,8 +1083,16 @@
             <!-- No margin here - pages that have an edge-to-edge sidebar
                  (Settings) need to reach the window's left/bottom edges;
                  plain-content pages bring their own inner margin instead. -->
+            <!-- TranslateTransform animated by GoBack's manual slide-out
+                 (see MainWindow.xaml.cs) - NavigateTo's own entrance uses
+                 WPF-UI's FadeInWithSlide transition instead, which manages
+                 its own transform on this element directly. -->
             <ContentControl x:Name="PageHostContent" Grid.Row="1"
-                             HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
+                             HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
+                <ContentControl.RenderTransform>
+                    <TranslateTransform x:Name="PageHostContentTranslate" Y="0"/>
+                </ContentControl.RenderTransform>
+            </ContentControl>
         </Grid>
 
         <!-- MODAL OVERLAY - in-window replacement for ConfirmDialog/
@@ -973,8 +1100,17 @@
              ConfirmAsync/AlertAsync/PromptAsync/CreateOrJoinAsync in
              MainWindow.xaml.cs. Scrim blocks input to everything beneath it. -->
         <Grid x:Name="ModalOverlay" Grid.Column="0" Grid.ColumnSpan="4" Background="#B3000000" Visibility="Collapsed">
-            <Border Background="{StaticResource BgDark}" BorderBrush="{StaticResource BgDarker}" BorderThickness="1"
-                    CornerRadius="6" Width="360" Padding="20" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <!-- ScaleTransform animated by ShowModal/CompleteModal (see
+                 MainWindow.xaml.cs) alongside the overlay's own WPF-UI
+                 FadeIn transition, so the card scales in/out while the
+                 backdrop fades - RenderTransformOrigin centers the scale
+                 instead of growing from the top-left corner. -->
+            <Border x:Name="ModalCard" Background="{StaticResource BgDark}" BorderBrush="{StaticResource BgDarker}" BorderThickness="1"
+                    CornerRadius="6" Width="360" Padding="20" HorizontalAlignment="Center" VerticalAlignment="Center"
+                    RenderTransformOrigin="0.5,0.5">
+                <Border.RenderTransform>
+                    <ScaleTransform x:Name="ModalCardScale" ScaleX="1" ScaleY="1"/>
+                </Border.RenderTransform>
                 <StackPanel>
                     <TextBlock x:Name="ModalTitleText" FontSize="16" FontWeight="Bold"
                                Foreground="{StaticResource TextNormal}" Margin="0,0,0,16"/>

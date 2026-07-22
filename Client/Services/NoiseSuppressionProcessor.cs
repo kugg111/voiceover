@@ -5,7 +5,7 @@ using RNNoise.NET;
 namespace Voiceover.Client.Services;
 
 // Owns the two noise-suppression engines (RNNoise, NSNet2) and the
-// per-frame processing pipeline (suppression -> wet/dry mix -> gain).
+// per-frame processing pipeline (gain -> suppression -> wet/dry mix).
 // Extracted out of MicCaptureSource so there's exactly one implementation
 // of "what happens to a captured frame" shared between the live capture
 // path and the Settings "Test Mic" preview (see VoiceSettingsPanel),
@@ -15,18 +15,11 @@ internal class NoiseSuppressionProcessor : IDisposable
     public bool Enabled { get; set; } = true;
 
     // ProcessFrame runs on the mic capture thread (NAudio's WaveInEvent
-    // callback), while Backend/UseGpuForNsnet2/GpuDeviceId/VadGateEnabled
-    // are set from the UI thread whenever Settings is open during a live
-    // call. UseGpuForNsnet2 and GpuDeviceId in particular dispose and
-    // rebuild the NSNet2 ONNX session - without this lock that races
-    // directly against ApplyNsnet2 calling into the same (soon to be
-    // freed) native InferenceSession from the capture thread, which
-    // crashes the whole process rather than throwing a catchable
-    // exception (confirmed live: toggling the GPU checkbox mid-call took
-    // the app down). Held for the whole ProcessFrame call, not just the
-    // _nsnet2 access, since Backend/VadGateEnabled's queue mutations
-    // (_nsnet2DryDelayLine, _preRollBuffer) have the same unsynchronized-
-    // shared-state shape.
+    // callback), while Backend/VadGateEnabled are set from the UI thread
+    // whenever Settings is open during a live call - this lock protects the
+    // shared mutable state those setters touch (delay lines, VAD internal
+    // buffers) from racing the capture thread's own read/write of the same
+    // state.
     private readonly object _lock = new();
 
     private NoiseSuppressionBackend _backend = NoiseSuppressionBackend.RNNoise;
@@ -39,12 +32,14 @@ internal class NoiseSuppressionProcessor : IDisposable
             {
                 if (_backend == value) return;
                 _backend = value;
-                // Drop whatever's mid-flight in the NSNet2 delay line - it
-                // holds raw samples captured while NSNet2 was last selected,
-                // which would otherwise get blended against fresh audio after
-                // a backend switch (a stale, wrong-content ~18ms blip instead
-                // of a clean one).
+                // Drop whatever's mid-flight in the delay lines - they hold
+                // raw samples captured while a since-deselected backend was
+                // active, which would otherwise get blended against fresh
+                // audio after a backend switch (a stale, wrong-content blip
+                // instead of a clean one).
                 _nsnet2DryDelayLine.Clear();
+                _facebookDenoiserDryDelayLine.Clear();
+                _facebookDenoiser?.Reset();
             }
         }
     }
@@ -68,60 +63,22 @@ internal class NoiseSuppressionProcessor : IDisposable
     // re-tests.
     public double LastRNNoiseMs { get; private set; }
     public double LastNsnet2Ms { get; private set; }
+    public double LastFacebookDenoiserMs { get; private set; }
 
     // --- RNNoise (lightweight RNN denoiser) ---
     private readonly Denoiser? _rnnoise;
 
     // --- NSNet2 (ONNX-based denoiser - see its own header for why it's
-    // meaningfully different in cost/architecture from RNNoise) ---
-    // Not readonly: UseGpuForNsnet2's setter disposes and rebuilds this,
-    // since the CPU/DirectML choice is baked into the InferenceSession at
-    // construction (SessionOptions has no "switch provider" call), unlike
-    // Backend/SuppressionMix above which are pure post-construction routing
-    // decisions.
-    private Nsnet2Processor? _nsnet2;
+    // meaningfully different in cost/architecture from RNNoise). CPU-only -
+    // see Nsnet2Processor.cs for why the GPU/DirectML path was removed. ---
+    private readonly Nsnet2Processor? _nsnet2;
 
-    private bool _useGpuForNsnet2;
-    public bool UseGpuForNsnet2
-    {
-        get => _useGpuForNsnet2;
-        set
-        {
-            lock (_lock)
-            {
-                if (_useGpuForNsnet2 == value) return;
-                _useGpuForNsnet2 = value;
-                _nsnet2?.Dispose();
-                _nsnet2 = CreateNsnet2Processor(value, _gpuDeviceId);
-            }
-        }
-    }
-
-    // Which GPU AppendExecutionProvider_DML targets - only meaningful once
-    // UseGpuForNsnet2 is also true. Same "dispose and rebuild" reasoning
-    // as UseGpuForNsnet2's setter: baked into the InferenceSession at
-    // construction time.
-    private int _gpuDeviceId;
-    public int GpuDeviceId
-    {
-        get => _gpuDeviceId;
-        set
-        {
-            lock (_lock)
-            {
-                if (_gpuDeviceId == value) return;
-                _gpuDeviceId = value;
-                if (!_useGpuForNsnet2) return;
-                _nsnet2?.Dispose();
-                _nsnet2 = CreateNsnet2Processor(true, value);
-            }
-        }
-    }
-
-    // Null (not just false) until NSNet2 has been constructed at least
-    // once, so the UI can tell "haven't loaded it yet" apart from "asked
-    // for GPU and it fell back to CPU".
-    public bool? Nsnet2UsingGpu => _nsnet2?.UsingGpu;
+    // --- Facebook Denoiser (real incremental streaming inference via
+    // LibTorch - see FacebookDenoiserProcessor.cs's own header). The
+    // heaviest backend by a wide margin (a genuine deep model, not a
+    // lightweight RNN or a magnitude-masking STFT approach), but
+    // meaningfully more aggressive on real background noise in testing. ---
+    private readonly FacebookDenoiserProcessor? _facebookDenoiser;
 
     // --- Silero VAD pre-gate: mutes confirmed-silence stretches after
     // suppression runs, catching residual noise (fan hum, breathing) a
@@ -177,6 +134,28 @@ internal class NoiseSuppressionProcessor : IDisposable
     private readonly Queue<short> _nsnet2DryDelayLine = new();
     private short[] _nsnet2DelayedDryScratch = Array.Empty<short>();
 
+    // Facebook Denoiser's own fixed algorithmic delay, in 48kHz samples -
+    // derived from known, verified constants rather than empirically
+    // measured through the model itself (an impulse-response test - the
+    // approach Nsnet2DelaySamples above used - isn't reliable for this
+    // backend specifically: it's a full waveform-domain model whose whole
+    // job is suppressing anything that doesn't look like speech, and a
+    // single-sample impulse embedded in silence is about as "not speech"
+    // as a test signal gets, so its peak isn't trustworthy to locate).
+    // Composed of: the exported model's own TotalLength=661 hop-buffering
+    // delay (see FacebookDenoiserProcessor - this number came from the
+    // reference DemucsStreamer's own documented streaming latency, and
+    // was confirmed bit-exact against that reference implementation
+    // during export, not guessed), expressed in 48kHz samples (661 * 3 =
+    // 1983, exact since 48000/16000 is an integer ratio), plus each
+    // resampler's own linear-phase FIR group delay ((taps-1)/2 = 31
+    // samples at their default 63 taps, one on the way down to 16kHz, one
+    // on the way back up to 48kHz - both operate at the 48kHz sample
+    // rate, so no additional unit conversion needed for those two terms).
+    private const int FacebookDenoiserDelaySamples = 1983 + 31 + 31;
+    private readonly Queue<short> _facebookDenoiserDryDelayLine = new();
+    private short[] _facebookDenoiserDelayedDryScratch = Array.Empty<short>();
+
     private readonly Stopwatch _stopwatch = new();
 
     public NoiseSuppressionProcessor()
@@ -193,31 +172,23 @@ internal class NoiseSuppressionProcessor : IDisposable
         try { _vad = new SileroVadProcessor(Path.Combine(AppContext.BaseDirectory, "silero_vad.onnx")); }
         catch { _vad = null; }
 
-        _nsnet2 = CreateNsnet2Processor(_useGpuForNsnet2, _gpuDeviceId);
-    }
+        try { _nsnet2 = new Nsnet2Processor(Path.Combine(AppContext.BaseDirectory, "nsnet2-20ms-48k-baseline.onnx")); }
+        catch { _nsnet2 = null; }
 
-    private static Nsnet2Processor? CreateNsnet2Processor(bool useGpu, int gpuDeviceId)
-    {
-        try
-        {
-            return new Nsnet2Processor(Path.Combine(AppContext.BaseDirectory, "nsnet2-20ms-48k-baseline.onnx"), useGpu, gpuDeviceId);
-        }
-        catch
-        {
-            return null;
-        }
+        try { _facebookDenoiser = new FacebookDenoiserProcessor(Path.Combine(AppContext.BaseDirectory, "denoiser_dns48_streaming.pt")); }
+        catch { _facebookDenoiser = null; }
     }
 
     // Processes exactly one 20ms/960-sample frame in place - gain first,
-    // then noise suppression, then the wet/dry mix blend. Gain runs first
-    // rather than last: no denoiser fully eliminates its target noise, and
-    // boosting after suppression would amplify whatever residual (fan hum,
-    // mic wind) each backend leaves behind right along with the voice -
-    // worse the higher Mic Gain is set. Gain-before-denoise is also the
-    // more standard signal-chain order (level the input, then process it).
-    // Callers (MicCaptureSource's live capture loop, and the Test Mic
-    // preview) both slice their input into this same frame size so preview
-    // and live behavior stay identical.
+    // then noise suppression, then the wet/dry mix blend. Gain runs before
+    // suppression rather than after: no denoiser fully eliminates its
+    // target noise, and boosting after suppression would amplify whatever
+    // residual (fan hum, mic wind) each backend leaves behind right along
+    // with the voice - worse the higher Mic Gain is set. Gain-before-
+    // denoise is also the more standard signal-chain order (level the
+    // input, then process it). Callers (MicCaptureSource's live capture
+    // loop, and the Test Mic preview) both slice their input into this same
+    // frame size so preview and live behavior stay identical.
     public void ProcessFrame(short[] pcm)
     {
         lock (_lock)
@@ -251,6 +222,21 @@ internal class NoiseSuppressionProcessor : IDisposable
                     }
                     if (blending) dryReference = _nsnet2DelayedDryScratch;
                 }
+                else if (Backend == NoiseSuppressionBackend.FacebookDenoiser)
+                {
+                    // Same reasoning as the NSNet2 delay line above - kept
+                    // fed unconditionally so toggling the mix slider mid-call
+                    // never hits a cold start.
+                    if (_facebookDenoiserDelayedDryScratch.Length < pcm.Length) _facebookDenoiserDelayedDryScratch = new short[pcm.Length];
+                    for (int i = 0; i < pcm.Length; i++)
+                    {
+                        _facebookDenoiserDryDelayLine.Enqueue(pcm[i]);
+                        _facebookDenoiserDelayedDryScratch[i] = _facebookDenoiserDryDelayLine.Count > FacebookDenoiserDelaySamples
+                            ? _facebookDenoiserDryDelayLine.Dequeue()
+                            : (short)0;
+                    }
+                    if (blending) dryReference = _facebookDenoiserDelayedDryScratch;
+                }
                 else if (blending)
                 {
                     if (_mixOriginalScratch.Length < pcm.Length) _mixOriginalScratch = new short[pcm.Length];
@@ -262,6 +248,9 @@ internal class NoiseSuppressionProcessor : IDisposable
                 {
                     case NoiseSuppressionBackend.Nsnet2:
                         ApplyNsnet2(pcm);
+                        break;
+                    case NoiseSuppressionBackend.FacebookDenoiser:
+                        ApplyFacebookDenoiser(pcm);
                         break;
                     default:
                         ApplyRNNoise(pcm);
@@ -368,11 +357,40 @@ internal class NoiseSuppressionProcessor : IDisposable
         LastNsnet2Ms = Ema(LastNsnet2Ms, _stopwatch.Elapsed.TotalMilliseconds);
 
         for (int i = 0; i < pcm.Length; i++)
-            pcm[i] = (short)Math.Clamp(_nsnet2Scratch[i] * short.MaxValue, short.MinValue, short.MaxValue);
+            pcm[i] = (short)(SoftClip(_nsnet2Scratch[i]) * short.MaxValue);
+    }
+
+    private void ApplyFacebookDenoiser(short[] pcm)
+    {
+        if (_facebookDenoiser is null) return;
+
+        _stopwatch.Restart();
+        _facebookDenoiser.Process(pcm);
+        _stopwatch.Stop();
+        LastFacebookDenoiserMs = Ema(LastFacebookDenoiserMs, _stopwatch.Elapsed.TotalMilliseconds);
     }
 
     private static double Ema(double previous, double sample) =>
         previous <= 0 ? sample : previous * 0.9 + sample * 0.1;
+
+    // NSNet2's mask-and-reconstruct output isn't guaranteed to stay within
+    // [-1,1] - its own STFT/overlap-add synthesis can occasionally overshoot
+    // on transients (see Nsnet2ProcessorTests' own +-2 tolerance on Denoise's
+    // output). A bare hard clamp on those rare over-unity samples is exactly
+    // what produced audible clipping/crackle on loud speech. This only
+    // engages above SoftClipKnee - anything under it (the vast majority of
+    // real audio) passes through completely unchanged, unlike ApplyGain's
+    // limiter, which is deliberately compressing across its whole range.
+    private const float SoftClipKnee = 0.9f;
+    private static float SoftClip(float x)
+    {
+        var abs = Math.Abs(x);
+        if (abs <= SoftClipKnee) return x;
+
+        var over = (abs - SoftClipKnee) / (1f - SoftClipKnee);
+        var compressed = SoftClipKnee + (1f - SoftClipKnee) * (float)Math.Tanh(over);
+        return Math.Sign(x) * compressed;
+    }
 
     public void Dispose()
     {
@@ -380,6 +398,7 @@ internal class NoiseSuppressionProcessor : IDisposable
         {
             _rnnoise?.Dispose();
             _nsnet2?.Dispose();
+            _facebookDenoiser?.Dispose();
             _vad?.Dispose();
         }
     }

@@ -15,19 +15,6 @@ public class PermissionService
     public async Task<bool> IsMemberAsync(int userId, int serverId)
         => await _db.Memberships.AnyAsync(m => m.UserId == userId && m.GuildServerId == serverId);
 
-    // Coarse "has any management power at all" check - still fine for
-    // gates that don't care which specific power (e.g. viewing the
-    // moderation log). Owner always qualifies; a Moderator only if they
-    // have at least one permission bit set (an Owner could strip a
-    // Moderator down to ServerPermission.None without demoting them).
-    public async Task<bool> CanManageServerAsync(int userId, int serverId)
-    {
-        var membership = await GetMembershipAsync(userId, serverId);
-        if (membership is null) return false;
-        return membership.Role == MemberRole.Owner
-            || (membership.Role == MemberRole.Moderator && membership.Permissions != ServerPermission.None);
-    }
-
     public async Task<bool> IsOwnerAsync(int userId, int serverId)
     {
         var membership = await GetMembershipAsync(userId, serverId);

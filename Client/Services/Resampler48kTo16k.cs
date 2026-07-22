@@ -26,6 +26,8 @@ internal class Resampler48kTo16k
         _history = new float[_kernel.Length - 1];
     }
 
+    public void Reset() => Array.Clear(_history);
+
     // Always returns exactly pcm.Length / 3 samples.
     public float[] Process(short[] pcm)
     {

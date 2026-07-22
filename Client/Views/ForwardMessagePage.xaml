@@ -1,0 +1,25 @@
+<UserControl x:Class="Voiceover.Client.Views.ForwardMessagePage"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <DockPanel Margin="16">
+        <TextBlock DockPanel.Dock="Top" Text="Choose where to forward this message:"
+                   FontSize="12" Foreground="{StaticResource TextMuted}" Margin="0,0,0,8"/>
+        <TextBlock DockPanel.Dock="Top" x:Name="EmptyStateText" Text="No destinations available."
+                   FontSize="12" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}"
+                   Visibility="Collapsed" Margin="0,0,0,8"/>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <ItemsControl x:Name="DestinationList" MaxWidth="480" HorizontalAlignment="Left">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Button Content="{Binding DisplayName}" Tag="{Binding}" Click="DestinationButton_Click"
+                                HorizontalContentAlignment="Left"
+                                Padding="10,8" Margin="0,0,0,4" FontSize="13"
+                                Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
+                                BorderThickness="0" Cursor="Hand"/>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

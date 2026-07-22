@@ -34,9 +34,11 @@ public class SignalRService
     public event Action<int>? ModerationLogChanged; // serverId
     public event Action<int>? ChannelCreated; // serverId
     public event Action<int>? ChannelDeleted; // serverId
+    public event Action<int>? ServerEmojisChanged; // serverId
     public event Action<int>? ServerDeleted; // serverId
     public event Action<int>? ServerRenamed; // serverId
     public event Action<string, int>? UserTyping;
+    public event Action<string, int>? DmUserTyping; // username, senderId
     public event Action<int, string, int, string?>? VoiceUserJoined;
     public event Action<int, string, int>? VoiceUserLeft;
     public event Action<int, int, bool>? UserSpeaking;
@@ -46,8 +48,6 @@ public class SignalRService
     public event Action<int, int>? FriendRequestAccepted;
     public event Action<int, string>? PresenceChanged;
     public event Action<int, string?>? CustomStatusChanged;
-    public event Action<int, int>? ServerKeyRequested; // serverId, requestingUserId
-    public event Action<int>? ServerKeyProvisioned; // serverId
     public event Action<string, int, string, string?>? IncomingCall; // callId, callerId, callerUsername, callerAvatarUrl
     public event Action<string>? CallAccepted; // callId
     public event Action<string>? CallDeclined; // callId
@@ -96,9 +96,11 @@ public class SignalRService
         _connection.On<int>("ModerationLogChanged", serverId => ModerationLogChanged?.Invoke(serverId));
         _connection.On<int>("ChannelCreated", serverId => ChannelCreated?.Invoke(serverId));
         _connection.On<int>("ChannelDeleted", serverId => ChannelDeleted?.Invoke(serverId));
+        _connection.On<int>("ServerEmojisChanged", serverId => ServerEmojisChanged?.Invoke(serverId));
         _connection.On<int>("ServerDeleted", serverId => ServerDeleted?.Invoke(serverId));
         _connection.On<int>("ServerRenamed", serverId => ServerRenamed?.Invoke(serverId));
         _connection.On<string, int>("UserTyping", (username, channelId) => UserTyping?.Invoke(username, channelId));
+        _connection.On<string, int>("DmUserTyping", (username, senderId) => DmUserTyping?.Invoke(username, senderId));
         _connection.On<int, string, int, string?>("VoiceUserJoined", (userId, username, channelId, avatarUrl) => VoiceUserJoined?.Invoke(userId, username, channelId, avatarUrl));
         _connection.On<int, string, int>("VoiceUserLeft", (userId, username, channelId) => VoiceUserLeft?.Invoke(userId, username, channelId));
         _connection.On<int, int, bool>("UserSpeaking", (userId, channelId, isSpeaking) => UserSpeaking?.Invoke(userId, channelId, isSpeaking));
@@ -108,8 +110,6 @@ public class SignalRService
         _connection.On<int, int>("FriendRequestAccepted", (friendshipId, accepterId) => FriendRequestAccepted?.Invoke(friendshipId, accepterId));
         _connection.On<int, string>("PresenceChanged", (userId, state) => PresenceChanged?.Invoke(userId, state));
         _connection.On<int, string?>("CustomStatusChanged", (userId, status) => CustomStatusChanged?.Invoke(userId, status));
-        _connection.On<int, int>("ServerKeyRequested", (serverId, requestingUserId) => ServerKeyRequested?.Invoke(serverId, requestingUserId));
-        _connection.On<int>("ServerKeyProvisioned", serverId => ServerKeyProvisioned?.Invoke(serverId));
         _connection.On<string, int, string, string?>("IncomingCall", (callId, callerId, callerUsername, callerAvatarUrl) => IncomingCall?.Invoke(callId, callerId, callerUsername, callerAvatarUrl));
         _connection.On<string>("CallAccepted", callId => CallAccepted?.Invoke(callId));
         _connection.On<string>("CallDeclined", callId => CallDeclined?.Invoke(callId));
@@ -124,11 +124,12 @@ public class SignalRService
 
     public Task JoinChannelAsync(int channelId) => _connection!.InvokeAsync("JoinChannel", channelId);
     public Task LeaveChannelAsync(int channelId) => _connection!.InvokeAsync("LeaveChannel", channelId);
-    public Task SendMessageAsync(int channelId, string content, string? attachmentUrl = null, int? replyToMessageId = null)
-        => _connection!.InvokeAsync("SendMessage", channelId, content, attachmentUrl, replyToMessageId);
+    public Task SendMessageAsync(int channelId, string content, List<MessageKeyEnvelope> recipientKeys, string? attachmentUrl = null, int? replyToMessageId = null, string? forwardedFromAuthorUsername = null)
+        => _connection!.InvokeAsync("SendMessage", channelId, content, recipientKeys, attachmentUrl, replyToMessageId, forwardedFromAuthorUsername);
     public Task NotifyTypingAsync(int channelId) => _connection!.InvokeAsync("NotifyTyping", channelId);
-    public Task SendDirectMessageAsync(int recipientId, string content, int? replyToMessageId = null)
-        => _connection!.InvokeAsync("SendDirectMessage", recipientId, content, replyToMessageId);
+    public Task NotifyDmTypingAsync(int recipientId) => _connection!.InvokeAsync("NotifyDmTyping", recipientId);
+    public Task SendDirectMessageAsync(int recipientId, string content, int? replyToMessageId = null, string? forwardedFromAuthorUsername = null)
+        => _connection!.InvokeAsync("SendDirectMessage", recipientId, content, replyToMessageId, forwardedFromAuthorUsername);
     public Task MarkDmReadAsync(int otherUserId) => _connection!.InvokeAsync("MarkDmRead", otherUserId);
     public Task ToggleMessageReactionAsync(int messageId, string emoji) => _connection!.InvokeAsync("ToggleMessageReaction", messageId, emoji);
     public Task ToggleDirectMessageReactionAsync(int messageId, string emoji) => _connection!.InvokeAsync("ToggleDirectMessageReaction", messageId, emoji);
@@ -143,7 +144,6 @@ public class SignalRService
     public Task LeaveServerPresenceAsync(int serverId) => _connection!.InvokeAsync("LeaveServerPresence", serverId);
     public Task<List<ChannelVoiceRoster>> GetVoiceRostersForServerAsync(int serverId) => _connection!.InvokeAsync<List<ChannelVoiceRoster>>("GetVoiceRostersForServer", serverId);
     public Task SetPresenceStateAsync(string state) => _connection!.InvokeAsync("SetPresenceState", state);
-    public Task RequestServerKeyAsync(int serverId) => _connection!.InvokeAsync("RequestServerKey", serverId);
 
     // --- Private calls (1:1, friends-only - see ChatHub's call signaling
     // methods server-side). Returns null from InitiateCallAsync if the two

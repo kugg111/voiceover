@@ -279,7 +279,7 @@ public class ServersController : ControllerBase
     [HttpGet("{serverId}/bans")]
     public async Task<ActionResult<List<BannedUserResponse>>> GetBans(int serverId, int? take = null, int? skip = null)
     {
-        if (!await _permissions.CanManageServerAsync(CurrentUserId, serverId))
+        if (!await _permissions.HasPermissionAsync(CurrentUserId, serverId, ServerPermission.ViewAuditLog))
             return Forbid();
 
         var query = _db.BannedUsers
@@ -313,7 +313,7 @@ public class ServersController : ControllerBase
     [HttpGet("{serverId}/moderation-log")]
     public async Task<ActionResult<List<ModerationLogEntryResponse>>> GetModerationLog(int serverId, int? take = null, int? skip = null)
     {
-        if (!await _permissions.CanManageServerAsync(CurrentUserId, serverId))
+        if (!await _permissions.HasPermissionAsync(CurrentUserId, serverId, ServerPermission.ViewAuditLog))
             return Forbid();
 
         var query = _db.ModerationLogEntries
@@ -355,13 +355,13 @@ public class ServersController : ControllerBase
     }
 
     // Url is expected to already be an uploaded file's path (from POST
-    // /api/upload). Owner-only, same as Rename below - matches real Discord
-    // where moderators can manage members/channels but not the server's
-    // branding/identity.
+    // /api/upload). ManageServer-gated (Owner implicitly passes, see
+    // HasPermissionAsync) - matches real Discord's "Manage Server"
+    // permission, delegable to a Moderator instead of owner-only.
     [HttpPut("{serverId}/icon")]
     public async Task<ActionResult<GuildServerResponse>> SetIcon(int serverId, SetIconRequest req)
     {
-        if (!await _permissions.IsOwnerAsync(CurrentUserId, serverId))
+        if (!await _permissions.HasPermissionAsync(CurrentUserId, serverId, ServerPermission.ManageServer))
             return Forbid();
 
         var server = await _db.GuildServers.FirstOrDefaultAsync(s => s.Id == serverId);
@@ -372,11 +372,11 @@ public class ServersController : ControllerBase
         return Ok(new GuildServerResponse(server.Id, server.Name, server.IconUrl, server.OwnerId, server.IsPublic, server.Description));
     }
 
-    // Owner-only, same gate as SetIcon above.
+    // Same gate as SetIcon above.
     [HttpPut("{serverId}/rename")]
     public async Task<ActionResult<GuildServerResponse>> Rename(int serverId, RenameServerRequest req)
     {
-        if (!await _permissions.IsOwnerAsync(CurrentUserId, serverId))
+        if (!await _permissions.HasPermissionAsync(CurrentUserId, serverId, ServerPermission.ManageServer))
             return Forbid();
 
         if (string.IsNullOrWhiteSpace(req.Name)) return BadRequest("Name cannot be empty.");
@@ -391,12 +391,12 @@ public class ServersController : ControllerBase
         return Ok(new GuildServerResponse(server.Id, server.Name, server.IconUrl, server.OwnerId, server.IsPublic, server.Description));
     }
 
-    // Owner-only, same gate as SetIcon/Rename above - controls whether this
-    // server shows up in Discover and can be joined without an invite.
+    // Same gate as SetIcon/Rename above - controls whether this server shows
+    // up in Discover and can be joined without an invite.
     [HttpPut("{serverId}/discoverable")]
     public async Task<ActionResult<GuildServerResponse>> SetDiscoverable(int serverId, SetDiscoverableRequest req)
     {
-        if (!await _permissions.IsOwnerAsync(CurrentUserId, serverId))
+        if (!await _permissions.HasPermissionAsync(CurrentUserId, serverId, ServerPermission.ManageServer))
             return Forbid();
 
         if (req.Description?.Length > 300) return BadRequest("Description must be 300 characters or fewer.");
@@ -413,8 +413,10 @@ public class ServersController : ControllerBase
     [HttpPut("{serverId}/members/{userId}/role")]
     public async Task<ActionResult> ChangeRole(int serverId, int userId, ChangeRoleRequest req)
     {
-        // Only the owner can promote/demote moderators.
-        if (!await _permissions.IsOwnerAsync(CurrentUserId, serverId))
+        // ManageRoles-gated (Owner implicitly passes) - see
+        // ServerPermission.ManageRoles for why this is split from
+        // SetPermissions below rather than sharing one gate.
+        if (!await _permissions.HasPermissionAsync(CurrentUserId, serverId, ServerPermission.ManageRoles))
             return Forbid();
 
         var target = await _db.Memberships.Include(m => m.User).FirstOrDefaultAsync(m => m.UserId == userId && m.GuildServerId == serverId);
@@ -438,8 +440,11 @@ public class ServersController : ControllerBase
         return Ok();
     }
 
-    // Owner-only, same gate as ChangeRole - lets the Owner dial back which
-    // specific powers a Moderator has instead of the all-or-nothing default.
+    // Deliberately stays owner-only (unlike ChangeRole above, which accepts
+    // ManageRoles) - hand-tuning another Moderator's exact permission bits,
+    // including granting them ManageRoles/All, is a materially bigger
+    // escalation path than just promoting someone with the default full
+    // grant, so this one isn't delegable. See ServerPermission.ManageRoles.
     [HttpPut("{serverId}/members/{userId}/permissions")]
     public async Task<ActionResult> SetPermissions(int serverId, int userId, SetPermissionsRequest req)
     {
@@ -461,91 +466,4 @@ public class ServersController : ControllerBase
         return Ok();
     }
 
-    // --- E2EE server key (shared, wrapped per member - see ServerMemberKey) ---
-
-    // GET /api/servers/{serverId}/keys/me -> this member's own wrapped copy,
-    // or a null WrappedKey if nobody's granted them one yet (brand new
-    // member - the client falls back to ChatHub.RequestServerKey to ask an
-    // online peer to onboard them).
-    [HttpGet("{serverId}/keys/me")]
-    public async Task<ActionResult<ServerKeyResponse>> GetMyServerKey(int serverId)
-    {
-        if (!await _permissions.IsMemberAsync(CurrentUserId, serverId)) return Forbid();
-
-        var row = await _db.ServerMemberKeys.FirstOrDefaultAsync(k => k.GuildServerId == serverId && k.UserId == CurrentUserId);
-        return Ok(new ServerKeyResponse(row?.WrappedKey, row?.WrappedByUserId));
-    }
-
-    // PUT /api/servers/{serverId}/keys/{targetUserId} - either a member
-    // wrapping the key for themselves (targetUserId == caller) or an
-    // existing member who already has the key wrapping a copy for a
-    // fellow member who doesn't yet (onboarding a new joiner, or the
-    // requester of ChatHub.RequestServerKey). WrappedByUserId is always the
-    // caller, never client-supplied, so the unwrapping side always redoes
-    // ECDH against a public key it can actually trust came from the caller.
-    [HttpPut("{serverId}/keys/{targetUserId}")]
-    public async Task<ActionResult> SetServerKey(int serverId, int targetUserId, SetServerKeyRequest req)
-    {
-        if (!await _permissions.IsMemberAsync(CurrentUserId, serverId)) return Forbid();
-        if (!await _permissions.IsMemberAsync(targetUserId, serverId)) return NotFound();
-
-        // Immutable once set - same reasoning as user identity key material
-        // (UsersController.SetMyKeys): a bad/foreign overwrite would just
-        // strand that one member, so simplest to disallow overwriting
-        // entirely rather than trying to authenticate "is this a legitimate
-        // correction."
-        if (await _db.ServerMemberKeys.AnyAsync(k => k.GuildServerId == serverId && k.UserId == targetUserId))
-            return Conflict("A key is already set for this member.");
-
-        var anyKeyExistsForServer = await _db.ServerMemberKeys.AnyAsync(k => k.GuildServerId == serverId);
-
-        if (targetUserId == CurrentUserId)
-        {
-            // Self-bootstrap - only ever the very first key for a server
-            // (no member, including this one, has one yet). Restricted to
-            // the owner so two members can't each notice "no key exists"
-            // at the same moment and generate two different keys,
-            // permanently splitting the server's history in two. If keys
-            // already exist for OTHER members but not this caller (e.g. a
-            // pre-E2EE server where onboarding hasn't reached them yet),
-            // this correctly refuses rather than letting them self-generate
-            // an incompatible key - they need a copy of the real one from
-            // an existing member (ChatHub.RequestServerKey), not a new one.
-            if (anyKeyExistsForServer)
-                return Conflict("A key already exists for this server - request a copy from an existing member instead of self-generating one.");
-            if (!await _permissions.IsOwnerAsync(CurrentUserId, serverId))
-                return Forbid();
-        }
-        // Wrapping a copy for a fellow member (onboarding) is open to any
-        // existing member, same trust level already granted for creating
-        // invites - the "target has no row yet" check above already
-        // prevents clobbering a working key.
-
-        _db.ServerMemberKeys.Add(new ServerMemberKey
-        {
-            GuildServerId = serverId,
-            UserId = targetUserId,
-            WrappedByUserId = CurrentUserId,
-            WrappedKey = req.WrappedKey
-        });
-
-        try
-        {
-            await _db.SaveChangesAsync();
-        }
-        catch (DbUpdateException)
-        {
-            // Backstop for the rare case two SetServerKey calls for the same
-            // target race past the AnyAsync check above simultaneously.
-            return Conflict("A key is already set for this member.");
-        }
-
-        // Lets the target's client (if it's the one that just asked via
-        // RequestServerKey and is sitting on a locked/placeholder view)
-        // pick this up immediately instead of waiting for its next poll.
-        if (targetUserId != CurrentUserId)
-            await _hub.Clients.User(targetUserId.ToString()).SendAsync("ServerKeyProvisioned", serverId);
-
-        return Ok();
-    }
 }

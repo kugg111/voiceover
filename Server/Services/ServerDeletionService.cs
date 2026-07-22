@@ -10,7 +10,8 @@ namespace Voiceover.Server.Services;
 // in the latter, and missing BannedUser/ModerationLogEntry cleanup even
 // there. Channels, their Messages, Memberships, and Invites all cascade
 // automatically once GuildServers.Remove is called (real, required FKs -
-// see AppDbContext); MessageReaction, ServerMemberKey, BannedUser, and
+// see AppDbContext), and MessageRecipientKey cascades along with its
+// Message the same way; MessageReaction, BannedUser, and
 // ModerationLogEntry have no FK/cascade configured at all (see each of
 // their own class comments), so they'd otherwise be left as permanently
 // orphaned rows.
@@ -26,7 +27,6 @@ public class ServerDeletionService
     {
         var messageIds = await _db.Messages.Where(m => m.Channel!.GuildServerId == server.Id).Select(m => m.Id).ToListAsync();
         _db.MessageReactions.RemoveRange(_db.MessageReactions.Where(r => messageIds.Contains(r.MessageId)));
-        _db.ServerMemberKeys.RemoveRange(_db.ServerMemberKeys.Where(k => k.GuildServerId == server.Id));
         _db.BannedUsers.RemoveRange(_db.BannedUsers.Where(b => b.GuildServerId == server.Id));
         _db.ModerationLogEntries.RemoveRange(_db.ModerationLogEntries.Where(m => m.GuildServerId == server.Id));
         _db.GuildServers.Remove(server);

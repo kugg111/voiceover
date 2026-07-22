@@ -124,7 +124,7 @@ public partial class MessageSearchPage : UserControl
                 page = new List<SearchResultItem>();
                 foreach (var m in history)
                 {
-                    var content = await _api.E2ee.DecryptForServerAsync(_serverId.Value, m.Content);
+                    var content = await _api.E2ee.DecryptChannelMessageAsync(m.AuthorId, m.WrappedKeyForMe, m.Content);
                     if (content.Contains(query, StringComparison.OrdinalIgnoreCase))
                         page.Add(new SearchResultItem { Id = m.Id, AuthorUsername = m.AuthorUsername, Content = content, TimeDisplay = m.SentAt.ToLocalTime().ToString("g") });
                 }

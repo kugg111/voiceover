@@ -44,10 +44,37 @@ public class ChannelsController : ControllerBase
         if (PaginationLimits.Clamp(take) is { } clampedTake) query = query.Take(clampedTake);
 
         var channels = await query
-            .Select(c => new ChannelResponse(c.Id, c.Name, c.Type.ToString(), c.GuildServerId, c.Position, c.SlowModeSeconds))
+            .Select(c => new ChannelResponse(c.Id, c.Name, c.Type.ToString(), c.GuildServerId, c.Position, c.SlowModeSeconds, c.CategoryId))
             .ToListAsync();
 
         return Ok(channels);
+    }
+
+    // ManageChannels-gated, same as the other channel-management endpoints.
+    // categoryId null moves the channel back to "uncategorized". A non-null
+    // value must belong to this same server - otherwise a moderator could
+    // point a channel at another server's category id with no visible effect
+    // beyond a confusing orphaned reference.
+    [HttpPut("{channelId}/category")]
+    public async Task<ActionResult> SetCategory(int serverId, int channelId, SetChannelCategoryRequest req)
+    {
+        if (!await _permissions.HasPermissionAsync(CurrentUserId, serverId, ServerPermission.ManageChannels))
+            return Forbid();
+
+        var channel = await _db.Channels.FirstOrDefaultAsync(c => c.Id == channelId && c.GuildServerId == serverId);
+        if (channel is null) return NotFound();
+
+        if (req.CategoryId is { } categoryId &&
+            !await _db.Categories.AnyAsync(c => c.Id == categoryId && c.GuildServerId == serverId))
+            return BadRequest("That category doesn't belong to this server.");
+
+        channel.CategoryId = req.CategoryId;
+        await _db.SaveChangesAsync();
+
+        // Reuses ChannelCreated purely as a "refetch the channel list"
+        // signal, same precedent as Rename above.
+        await _hub.Clients.Group(HubGroups.ServerPresence(serverId)).SendAsync("ChannelCreated", serverId);
+        return Ok();
     }
 
     [HttpPost]

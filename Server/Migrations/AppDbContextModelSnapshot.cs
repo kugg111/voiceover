@@ -152,6 +152,31 @@ namespace Server.Migrations
                     b.ToTable("CallRecords");
                 });
 
+            modelBuilder.Entity("Voiceover.Server.Models.Category", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("GuildServerId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GuildServerId");
+
+                    b.ToTable("Categories");
+                });
+
             modelBuilder.Entity("Voiceover.Server.Models.Channel", b =>
                 {
                     b.Property<int>("Id")
@@ -159,6 +184,9 @@ namespace Server.Migrations
                         .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("CategoryId")
+                        .HasColumnType("integer");
 
                     b.Property<int>("GuildServerId")
                         .HasColumnType("integer");
@@ -177,6 +205,8 @@ namespace Server.Migrations
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CategoryId");
 
                     b.HasIndex("GuildServerId");
 
@@ -197,6 +227,9 @@ namespace Server.Migrations
 
                     b.Property<DateTime?>("EditedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ForwardedFromAuthorUsername")
+                        .HasColumnType("text");
 
                     b.Property<DateTime?>("ReadAt")
                         .HasColumnType("timestamp with time zone");
@@ -249,6 +282,38 @@ namespace Server.Migrations
                         .IsUnique();
 
                     b.ToTable("DirectMessageReactions");
+                });
+
+            modelBuilder.Entity("Voiceover.Server.Models.Emoji", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("GuildServerId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ImageUrl")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GuildServerId");
+
+                    b.HasIndex("GuildServerId", "Name")
+                        .IsUnique();
+
+                    b.ToTable("Emojis");
                 });
 
             modelBuilder.Entity("Voiceover.Server.Models.Friendship", b =>
@@ -419,6 +484,9 @@ namespace Server.Migrations
                     b.Property<DateTime?>("EditedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("ForwardedFromAuthorUsername")
+                        .HasColumnType("text");
+
                     b.Property<DateTime?>("PinnedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -464,6 +532,32 @@ namespace Server.Migrations
                         .IsUnique();
 
                     b.ToTable("MessageReactions");
+                });
+
+            modelBuilder.Entity("Voiceover.Server.Models.MessageRecipientKey", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("MessageId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("WrappedKey")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MessageId", "UserId")
+                        .IsUnique();
+
+                    b.ToTable("MessageRecipientKeys");
                 });
 
             modelBuilder.Entity("Voiceover.Server.Models.ModerationLogEntry", b =>
@@ -539,38 +633,6 @@ namespace Server.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("RefreshTokens");
-                });
-
-            modelBuilder.Entity("Voiceover.Server.Models.ServerMemberKey", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("GuildServerId")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("UserId")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("WrappedByUserId")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("WrappedKey")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("GuildServerId", "UserId")
-                        .IsUnique();
-
-                    b.ToTable("ServerMemberKeys");
                 });
 
             modelBuilder.Entity("Voiceover.Server.Models.StoredFile", b =>
@@ -681,10 +743,39 @@ namespace Server.Migrations
                     b.ToTable("Users");
                 });
 
-            modelBuilder.Entity("Voiceover.Server.Models.Channel", b =>
+            modelBuilder.Entity("Voiceover.Server.Models.Category", b =>
                 {
                     b.HasOne("Voiceover.Server.Models.GuildServer", "GuildServer")
+                        .WithMany("Categories")
+                        .HasForeignKey("GuildServerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("GuildServer");
+                });
+
+            modelBuilder.Entity("Voiceover.Server.Models.Channel", b =>
+                {
+                    b.HasOne("Voiceover.Server.Models.Category", "Category")
                         .WithMany("Channels")
+                        .HasForeignKey("CategoryId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Voiceover.Server.Models.GuildServer", "GuildServer")
+                        .WithMany("Channels")
+                        .HasForeignKey("GuildServerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Category");
+
+                    b.Navigation("GuildServer");
+                });
+
+            modelBuilder.Entity("Voiceover.Server.Models.Emoji", b =>
+                {
+                    b.HasOne("Voiceover.Server.Models.GuildServer", "GuildServer")
+                        .WithMany("Emojis")
                         .HasForeignKey("GuildServerId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -752,6 +843,15 @@ namespace Server.Migrations
                     b.Navigation("Channel");
                 });
 
+            modelBuilder.Entity("Voiceover.Server.Models.MessageRecipientKey", b =>
+                {
+                    b.HasOne("Voiceover.Server.Models.Message", null)
+                        .WithMany()
+                        .HasForeignKey("MessageId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Voiceover.Server.Models.RefreshToken", b =>
                 {
                     b.HasOne("Voiceover.Server.Models.User", "User")
@@ -774,6 +874,11 @@ namespace Server.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("Voiceover.Server.Models.Category", b =>
+                {
+                    b.Navigation("Channels");
+                });
+
             modelBuilder.Entity("Voiceover.Server.Models.Channel", b =>
                 {
                     b.Navigation("Messages");
@@ -781,7 +886,11 @@ namespace Server.Migrations
 
             modelBuilder.Entity("Voiceover.Server.Models.GuildServer", b =>
                 {
+                    b.Navigation("Categories");
+
                     b.Navigation("Channels");
+
+                    b.Navigation("Emojis");
 
                     b.Navigation("Invites");
 

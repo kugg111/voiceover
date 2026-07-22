@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using Voiceover.Client.Services;
 using Wpf.Ui.Controls;
@@ -81,6 +82,17 @@ public partial class CallWindow : FluentWindow
 
         State = isOutgoing ? CallWindowState.OutgoingRinging : CallWindowState.IncomingRinging;
         ApplyState();
+
+        // Fade in on an incoming ring, reusing ToastNotificationWindow's
+        // pattern - an incoming call is an unprompted popup like a toast, so
+        // it gets the same soft entrance instead of snapping onto the screen.
+        // An outgoing call is a window the user just triggered themselves by
+        // clicking Call, so it keeps its instant, expected appearance.
+        if (!isOutgoing)
+        {
+            Opacity = 0;
+            Loaded += (_, _) => BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(200)));
+        }
     }
 
     private void ApplyState()

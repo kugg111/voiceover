@@ -16,7 +16,7 @@ public class AppDbContext : DbContext
     public DbSet<DirectMessage> DirectMessages => Set<DirectMessage>();
     public DbSet<Friendship> Friendships => Set<Friendship>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
-    public DbSet<ServerMemberKey> ServerMemberKeys => Set<ServerMemberKey>();
+    public DbSet<MessageRecipientKey> MessageRecipientKeys => Set<MessageRecipientKey>();
     public DbSet<CallRecord> CallRecords => Set<CallRecord>();
     public DbSet<MessageReaction> MessageReactions => Set<MessageReaction>();
     public DbSet<DirectMessageReaction> DirectMessageReactions => Set<DirectMessageReaction>();
@@ -26,6 +26,8 @@ public class AppDbContext : DbContext
     public DbSet<AdminAuditLogEntry> AdminAuditLogEntries => Set<AdminAuditLogEntry>();
     public DbSet<StoredFile> StoredFiles => Set<StoredFile>();
     public DbSet<TotpRecoveryCode> TotpRecoveryCodes => Set<TotpRecoveryCode>();
+    public DbSet<Emoji> Emojis => Set<Emoji>();
+    public DbSet<Category> Categories => Set<Category>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -70,6 +72,24 @@ public class AppDbContext : DbContext
             .HasOne(c => c.GuildServer)
             .WithMany(s => s.Channels)
             .HasForeignKey(c => c.GuildServerId);
+
+        // Nullable FK, SetNull on delete - removing a Category uncategorizes
+        // its channels rather than deleting them (see CategoriesController.Delete).
+        modelBuilder.Entity<Channel>()
+            .HasOne(c => c.Category)
+            .WithMany(cat => cat.Channels)
+            .HasForeignKey(c => c.CategoryId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        // Real, required FK - same as Channel/Emoji above, so it cascades
+        // automatically on server deletion.
+        modelBuilder.Entity<Category>()
+            .HasOne(c => c.GuildServer)
+            .WithMany(s => s.Categories)
+            .HasForeignKey(c => c.GuildServerId);
+
+        modelBuilder.Entity<Category>()
+            .HasIndex(c => c.GuildServerId);
 
         modelBuilder.Entity<Message>()
             .HasOne(m => m.Channel)
@@ -145,10 +165,20 @@ public class AppDbContext : DbContext
             .WithMany()
             .HasForeignKey(r => r.UserId);
 
-        // One wrapped copy of the server key per member - GetMyServerKey/
-        // SetServerKey both look up by this pair.
-        modelBuilder.Entity<ServerMemberKey>()
-            .HasIndex(k => new { k.GuildServerId, k.UserId })
+        // One wrapped copy of a message's one-time key per recipient - a real
+        // FK (unlike MessageReaction below) since both rows are always
+        // created/deleted together in application code, so letting Postgres
+        // cascade-delete these when their Message is removed is simpler and
+        // more reliable than remembering to clean them up by hand everywhere
+        // a Message gets deleted (Delete/DeleteAllFromUser/data-only wipe).
+        modelBuilder.Entity<MessageRecipientKey>()
+            .HasOne<Message>()
+            .WithMany()
+            .HasForeignKey(k => k.MessageId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<MessageRecipientKey>()
+            .HasIndex(k => new { k.MessageId, k.UserId })
             .IsUnique();
 
         // "Recent Calls" (CallsController.GetHistory) filters CallerId == X
@@ -216,6 +246,25 @@ public class AppDbContext : DbContext
             .HasIndex(s => s.Name, "IX_GuildServers_Name_Trgm")
             .HasMethod("gin")
             .HasOperators("gin_trgm_ops");
+
+        // Real, required FK - same as Channel above, so it cascades
+        // automatically on server deletion (see ServerDeletionService's own
+        // comment for the full list of what cascades for free this way).
+        modelBuilder.Entity<Emoji>()
+            .HasOne(em => em.GuildServer)
+            .WithMany(s => s.Emojis)
+            .HasForeignKey(em => em.GuildServerId);
+
+        // EmojisController.GetEmojis filters by this on every server open.
+        modelBuilder.Entity<Emoji>()
+            .HasIndex(em => em.GuildServerId);
+
+        // Duplicate names within one server would be confusing in the
+        // picker/management page - Id (not Name) is the real identity used
+        // by reaction tokens, so this is purely a UX guard, not a lookup key.
+        modelBuilder.Entity<Emoji>()
+            .HasIndex(em => new { em.GuildServerId, em.Name })
+            .IsUnique();
 
         // Real FK + cascade (same pattern as RefreshToken above) - account-
         // owned security data with no reason to outlive the account.

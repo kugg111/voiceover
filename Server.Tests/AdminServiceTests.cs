@@ -343,18 +343,18 @@ public class AdminServiceTests
     }
 
     [Fact]
-    public async Task ResetPasswordAsync_DoesNotTouchChannelMessages()
+    public async Task ResetPasswordAsync_LeavesMessageRowsIntact_ButClearsOnlyTargetsOwnRecipientKeyCopy()
     {
-        // Channel messages use a per-server key wrapped individually per
-        // member (ServerMemberKey), not derived from the target's own
-        // keypair like DMs are - resetting the target's password doesn't
-        // affect any OTHER member's copy of that key, and the target's own
-        // client already self-heals via the existing RequestServerKey
-        // flow once they have a new keypair. So unlike DMs, these must
-        // never be deleted.
+        // Each recipient's copy of a channel message's one-time key
+        // (MessageRecipientKey) is wrapped via ECDH against that
+        // recipient's own identity keypair - so resetting the target's
+        // password (which nulls and regenerates their keypair) strands
+        // only THEIR OWN wrapped copy, not the message itself and not any
+        // other member's independent copy of the same message.
         var db = CreateDb();
         var target = new User { Username = "target", PasswordHash = "x" };
-        db.Users.Add(target);
+        var otherMember = new User { Username = "other", PasswordHash = "x" };
+        db.Users.AddRange(target, otherMember);
         await db.SaveChangesAsync();
 
         var server = new GuildServer { Name = "Test Server", OwnerId = target.Id };
@@ -369,9 +369,16 @@ public class AdminServiceTests
         db.Messages.Add(message);
         await db.SaveChangesAsync();
 
+        var targetsOwnKey = new MessageRecipientKey { MessageId = message.Id, UserId = target.Id, WrappedKey = "wrapped-for-target" };
+        var otherMembersKey = new MessageRecipientKey { MessageId = message.Id, UserId = otherMember.Id, WrappedKey = "wrapped-for-other" };
+        db.MessageRecipientKeys.AddRange(targetsOwnKey, otherMembersKey);
+        await db.SaveChangesAsync();
+
         await CreateAdminService(db).ResetPasswordAsync(1, "admin", target.Id, "newpassword123");
 
         Assert.True(await db.Messages.AnyAsync(m => m.Id == message.Id));
+        Assert.False(await db.MessageRecipientKeys.AnyAsync(k => k.Id == targetsOwnKey.Id));
+        Assert.True(await db.MessageRecipientKeys.AnyAsync(k => k.Id == otherMembersKey.Id));
     }
 
     [Fact]

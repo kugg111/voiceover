@@ -19,6 +19,12 @@ public class Channel
     // the standard convention for this feature.
     public int SlowModeSeconds { get; set; }
 
+    // Null means "uncategorized" - deleting a Category sets this back to
+    // null rather than deleting the channel (see AppDbContext's SetNull
+    // configuration on this FK).
+    public int? CategoryId { get; set; }
+
     public GuildServer? GuildServer { get; set; }
+    public Category? Category { get; set; }
     public List<Message> Messages { get; set; } = new();
 }

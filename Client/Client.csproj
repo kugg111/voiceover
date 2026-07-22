@@ -13,7 +13,7 @@
          version.json to detect an available update. Must move together with
          Voiceover.iss's MyAppVersion and version.json on every release, see
          REDEPLOY.txt. -->
-    <Version>1.2.0</Version>
+    <Version>1.3.0</Version>
   </PropertyGroup>
 
   <ItemGroup>
@@ -57,6 +57,32 @@
          blob sha) from the official repo, not a third-party re-export:
          https://github.com/snakers4/silero-vad/blob/master/src/silero_vad/data/silero_vad.onnx -->
     <None Include="native\silero_vad.onnx" Link="silero_vad.onnx" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Facebook Denoiser (facebookresearch/denoiser, dns48 checkpoint) -
+         a third noise-suppression engine, meaningfully more aggressive on
+         real background noise than RNNoise/NSNet2 in testing. CC-BY-NC 4.0
+         licensed (code and weights) - fine for this app's non-commercial
+         use, but ruling this out for anyone building on this repo
+         commercially. Unlike RNNoise/NSNet2, this model has no ONNX export
+         path, so it's exported to TorchScript and run via a small native
+         LibTorch C++ host instead (FacebookDenoiserProcessor.cs +
+         denoiser_wrapper.dll) - see that class's own header for why a
+         from-scratch C# port wasn't viable (real incremental streaming
+         state, not a stateless per-frame model). denoiser_dns48_streaming.pt
+         is the exported model; the .dll set below is the LibTorch CPU
+         runtime denoiser_wrapper.dll links against - large (LibTorch's own
+         footprint, dominated by torch_cpu.dll), vendored whole rather than
+         trimmed down to only the DLLs actually loaded at runtime. -->
+    <None Include="native\denoiser_dns48_streaming.pt" Link="denoiser_dns48_streaming.pt" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="native\denoiser_wrapper.dll" Link="denoiser_wrapper.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="native\c10.dll" Link="c10.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="native\torch.dll" Link="torch.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="native\torch_cpu.dll" Link="torch_cpu.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="native\torch_global_deps.dll" Link="torch_global_deps.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="native\torch_python.dll" Link="torch_python.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="native\libiomp5md.dll" Link="libiomp5md.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="native\libiompstubs5md.dll" Link="libiompstubs5md.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="native\uv.dll" Link="uv.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="native\shm.dll" Link="shm.dll" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
@@ -78,29 +104,9 @@
          reimplementation. -->
     <PackageReference Include="Livekit.Rtc.Dotnet" Version="0.1.3" />
     <!-- Runs the NSNet2 ONNX model below (see Nsnet2Processor.cs) -
-         official Microsoft-maintained .NET bindings for ONNX Runtime. The
-         DirectML variant (not the plain CPU-only package) bundles the same
-         CPU execution provider plus DirectML, so this is a drop-in
-         replacement for the plain package - same C# API surface, only the
-         native binaries differ - and lets Nsnet2Processor opt into GPU
-         inference (any DX12 GPU: NVIDIA/AMD/Intel/Qualcomm, not vendor-
-         locked like CUDA) without a second package or API split. Pinned to
-         1.24.4, the newest version published - the DirectML EP is in
-         Microsoft's own "sustained engineering" (maintenance) mode, so it
-         trails the plain package's 1.27.1; nothing Nsnet2Processor uses
-         (SessionOptions, InferenceSession, NamedOnnxValue) is new enough
-         to need the newer release. -->
-    <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.24.4" />
-    <!-- Lists installed GPUs (Win32_VideoController via WMI) so the GPU
-         picker in Voice Settings can show real adapter names instead of a
-         bare index - see GpuDeviceService.cs. Enumeration order here is a
-         best-effort match for the adapter index DirectML's
-         AppendExecutionProvider_DML(int) expects (both ultimately come
-         from the same driver/PnP enumeration), not a guaranteed 1:1
-         mapping - Nsnet2Processor's existing GPU-init try/catch already
-         falls back to CPU if a selected index turns out invalid, so a rare
-         mismatch degrades gracefully rather than crashing. -->
-    <PackageReference Include="System.Management" Version="10.0.10" />
+         official Microsoft-maintained .NET bindings for ONNX Runtime,
+         CPU-only. -->
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.20.1" />
     <!-- FFT/IFFT for NSNet2's spectral-domain processing (see
          FourierTransform.cs) - a correctness-tested, widely-used library
          rather than a hand-rolled FFT, since subtly wrong DSP math here

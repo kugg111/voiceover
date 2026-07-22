@@ -27,20 +27,30 @@ public record DiscoverServerResponse(int Id, string Name, string? IconUrl, strin
 public record SetDiscoverableRequest(bool IsPublic, string? Description);
 public record SetIconRequest(string Url);
 public record RenameServerRequest(string Name);
-public record ChannelResponse(int Id, string Name, string Type, int GuildServerId, int Position, int SlowModeSeconds = 0);
+public record ChannelResponse(int Id, string Name, string Type, int GuildServerId, int Position, int SlowModeSeconds = 0, int? CategoryId = null);
 public record RenameChannelRequest(string Name);
 public record ReorderChannelsRequest(List<int> OrderedChannelIds);
+public record SetChannelCategoryRequest(int? CategoryId);
+public record CreateCategoryRequest(string Name);
+public record CategoryResponse(int Id, string Name, int GuildServerId, int Position);
+public record RenameCategoryRequest(string Name);
+public record ReorderCategoriesRequest(List<int> OrderedCategoryIds);
 public record ReactionSummaryResponse(string Emoji, int Count, bool ReactedByMe);
-public record MessageResponse(int Id, string Content, int ChannelId, int AuthorId, string AuthorUsername, DateTime SentAt, string? AttachmentUrl = null, string? AuthorAvatarUrl = null, DateTime? EditedAt = null, List<ReactionSummaryResponse>? Reactions = null, DateTime? PinnedAt = null, int? ReplyToMessageId = null, int? ReplyToAuthorId = null);
-public record EditMessageRequest(string Content);
-public record DirectMessageResponse(int Id, string Content, int SenderId, int RecipientId, DateTime SentAt, DateTime? EditedAt = null, DateTime? ReadAt = null, List<ReactionSummaryResponse>? Reactions = null, int? ReplyToMessageId = null, int? ReplyToAuthorId = null);
+public record CreateEmojiRequest(string Name, string Url);
+public record EmojiResponse(int Id, int GuildServerId, string Name, string ImageUrl, DateTime CreatedAt);
+public record MessageResponse(int Id, string Content, int ChannelId, int AuthorId, string AuthorUsername, DateTime SentAt, string? AttachmentUrl = null, string? AuthorAvatarUrl = null, DateTime? EditedAt = null, List<ReactionSummaryResponse>? Reactions = null, DateTime? PinnedAt = null, int? ReplyToMessageId = null, int? ReplyToAuthorId = null, string? ForwardedFromAuthorUsername = null, string? WrappedKeyForMe = null);
+public record MessageKeyEnvelope(int UserId, string WrappedKey);
+
+// Shared by both channel and DM message edits - RecipientKeys is only ever
+// populated for channel messages (see EditMessageAsync/EditDirectMessageAsync
+// in ApiService.cs and the server-side mirror of this record).
+public record EditMessageRequest(string Content, List<MessageKeyEnvelope>? RecipientKeys = null);
+public record DirectMessageResponse(int Id, string Content, int SenderId, int RecipientId, DateTime SentAt, DateTime? EditedAt = null, DateTime? ReadAt = null, List<ReactionSummaryResponse>? Reactions = null, int? ReplyToMessageId = null, int? ReplyToAuthorId = null, string? ForwardedFromAuthorUsername = null);
 public record DmConversationResponse(int OtherUserId, string OtherUsername, string LastMessagePreview, DateTime LastMessageAt, string? OtherUserAvatarUrl = null);
 public record CallRecordResponse(int Id, int OtherUserId, string OtherUsername, bool WasIncoming, string Outcome, DateTime StartedAt, DateTime EndedAt, int? DurationSeconds, string? OtherUserAvatarUrl = null);
 public record SetKeyMaterialRequest(string PublicKey, string WrappedPrivateKey, string PrivateKeySalt);
 public record PublicKeyResponse(int UserId, string? PublicKey);
 public record OwnKeyMaterialResponse(string? PublicKey, string? WrappedPrivateKey, string? PrivateKeySalt);
-public record SetServerKeyRequest(string WrappedKey);
-public record ServerKeyResponse(string? WrappedKey, int? WrappedByUserId);
 public record UserSummaryResponse(int Id, string Username, string? AvatarUrl = null);
 public record InviteResponse(string Code, DateTime? ExpiresAt, int? MaxUses, int UseCount);
 public record MemberResponse(int UserId, string Username, string Role, string? AvatarUrl = null, string PresenceState = "Offline", string? CustomStatus = null, int Permissions = 0);
@@ -66,7 +76,11 @@ public enum ServerPermission
     KickMembers = 2,
     ManageMessages = 4,
     MuteMembers = 8,
-    All = ManageChannels | KickMembers | ManageMessages | MuteMembers
+    MentionEveryone = 16,
+    ManageRoles = 32,
+    ManageServer = 64,
+    ViewAuditLog = 128,
+    All = ManageChannels | KickMembers | ManageMessages | MuteMembers | MentionEveryone | ManageRoles | ManageServer | ViewAuditLog
 }
 public record UploadResponse(string Url);
 public record VoiceParticipant(int UserId, string Username, string? AvatarUrl = null);

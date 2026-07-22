@@ -65,27 +65,53 @@ public record SetIconRequest(string Url);
 public record RenameServerRequest(string Name);
 
 public record CreateChannelRequest(string Name, string Type); // "Text" or "Voice"
-public record ChannelResponse(int Id, string Name, string Type, int GuildServerId, int Position, int SlowModeSeconds = 0);
+public record ChannelResponse(int Id, string Name, string Type, int GuildServerId, int Position, int SlowModeSeconds = 0, int? CategoryId = null);
 public record SetSlowModeRequest(int Seconds);
 public record RenameChannelRequest(string Name);
 public record ReorderChannelsRequest(List<int> OrderedChannelIds);
+public record SetChannelCategoryRequest(int? CategoryId);
+
+public record CreateCategoryRequest(string Name);
+public record CategoryResponse(int Id, string Name, int GuildServerId, int Position);
+public record RenameCategoryRequest(string Name);
+public record ReorderCategoriesRequest(List<int> OrderedCategoryIds);
 
 // Aggregated per (message, emoji) - ReactedByMe lets the client render the
 // "you reacted" highlight without shipping every individual reactor's id.
 public record ReactionSummaryResponse(string Emoji, int Count, bool ReactedByMe);
 
-// Content is opaque E2EE ciphertext, encrypted client-side under the
-// sending server's shared key - see Client/Services/E2eeService.cs and
-// ServerMemberKey. The server never has a usable key for this either.
+// Url is a relative /uploads/... path already returned by POST /api/upload,
+// same two-step upload-then-attach flow as SetIconRequest/SetAvatarRequest.
+public record CreateEmojiRequest(string Name, string Url);
+public record EmojiResponse(int Id, int GuildServerId, string Name, string ImageUrl, DateTime CreatedAt);
+
+// Content is opaque E2EE ciphertext, encrypted client-side under a fresh
+// one-time key generated for this message alone - see
+// Client/Services/E2eeService.cs and MessageRecipientKey. The server never
+// has a usable key for this either.
 public record SendMessageRequest(string Content);
-public record MessageResponse(int Id, string Content, int ChannelId, int AuthorId, string AuthorUsername, DateTime SentAt, string? AttachmentUrl = null, string? AuthorAvatarUrl = null, DateTime? EditedAt = null, List<ReactionSummaryResponse>? Reactions = null, DateTime? PinnedAt = null, int? ReplyToMessageId = null, int? ReplyToAuthorId = null);
-public record EditMessageRequest(string Content);
+
+// WrappedKeyForMe is this specific caller's own envelope-wrapped copy of the
+// message's one-time key (see MessageRecipientKey) - never any other
+// recipient's copy, so a response never leaks who else can read a message
+// beyond what channel membership already implies.
+public record MessageResponse(int Id, string Content, int ChannelId, int AuthorId, string AuthorUsername, DateTime SentAt, string? AttachmentUrl = null, string? AuthorAvatarUrl = null, DateTime? EditedAt = null, List<ReactionSummaryResponse>? Reactions = null, DateTime? PinnedAt = null, int? ReplyToMessageId = null, int? ReplyToAuthorId = null, string? ForwardedFromAuthorUsername = null, string? WrappedKeyForMe = null);
+public record MessageKeyEnvelope(int UserId, string WrappedKey);
+
+// Shared by both MessagesController.Edit and DirectMessagesController.Edit -
+// RecipientKeys is only ever populated (and only ever read) for channel
+// messages, since a DM's key is derivable on demand from the two
+// participants' public keys and never needs an envelope table at all (see
+// MessageRecipientKey). Left as one nullable-list DTO rather than two
+// separate request records so both editable-message controllers keep
+// sharing this type, matching how they already share EditMessageRequest.
+public record EditMessageRequest(string Content, List<MessageKeyEnvelope>? RecipientKeys = null);
 public record UploadResponse(string Url);
 
 // Content/LastMessagePreview are opaque E2EE ciphertext - the client
 // decrypts them itself (see Client/Services/E2eeService.cs); the server
 // never has a usable key.
-public record DirectMessageResponse(int Id, string Content, int SenderId, int RecipientId, DateTime SentAt, DateTime? EditedAt = null, DateTime? ReadAt = null, List<ReactionSummaryResponse>? Reactions = null, int? ReplyToMessageId = null, int? ReplyToAuthorId = null);
+public record DirectMessageResponse(int Id, string Content, int SenderId, int RecipientId, DateTime SentAt, DateTime? EditedAt = null, DateTime? ReadAt = null, List<ReactionSummaryResponse>? Reactions = null, int? ReplyToMessageId = null, int? ReplyToAuthorId = null, string? ForwardedFromAuthorUsername = null);
 public record DmConversationResponse(int OtherUserId, string OtherUsername, string LastMessagePreview, DateTime LastMessageAt, string? OtherUserAvatarUrl = null);
 
 // "Recent Calls" history (see CallsController/CallRecord) - Outcome is one
@@ -99,10 +125,6 @@ public record SetKeyMaterialRequest(string PublicKey, string WrappedPrivateKey, 
 public record PublicKeyResponse(int UserId, string? PublicKey);
 public record OwnKeyMaterialResponse(string? PublicKey, string? WrappedPrivateKey, string? PrivateKeySalt);
 
-// --- E2EE server (channel-message) key - one shared key per GuildServer,
-// asymmetrically wrapped per member (see ServerMemberKey) ---
-public record SetServerKeyRequest(string WrappedKey);
-public record ServerKeyResponse(string? WrappedKey, int? WrappedByUserId);
 public record VoiceParticipant(int UserId, string Username, string? AvatarUrl = null);
 public record ChannelVoiceRoster(int ChannelId, List<VoiceParticipant> Members);
 public record SetAvatarRequest(string Url);

@@ -1,8 +1,12 @@
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.ComponentModel;
+using System.Text.RegularExpressions;
 using System.Windows;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using Voiceover.Client.Models;
 using Voiceover.Client.Services;
 using Microsoft.Win32;
@@ -154,6 +158,17 @@ public class ChannelListItem : INotifyPropertyChanged
 {
     public int Id { get; set; }
     public string DisplayName { get; set; } = string.Empty;
+
+    // Set from ChannelResponse.CategoryId at construction (see
+    // MainWindow.RefreshChannelsAsync) - CategoryName is the grouping key
+    // TextChannelList/VoiceChannelList's ItemsControl.GroupStyle bind to
+    // (empty string for "uncategorized", sorted to the top - see
+    // RefreshChannelsAsync's ordering). Plain properties, not
+    // INotifyPropertyChanged-backed, since a category change always comes
+    // through a full RefreshChannelsAsync/ReplaceAll rather than an in-place
+    // edit of an existing item.
+    public int? CategoryId { get; set; }
+    public string CategoryName { get; set; } = string.Empty;
 
     // Only populated/shown for voice channels - who's currently connected.
     public ObservableCollection<VoiceMemberItem> Members { get; } = new();
@@ -417,6 +432,13 @@ public class MessageListItem : INotifyPropertyChanged
     public Visibility ReplyPreviewVisibility => ReplyToMessageId.HasValue ? Visibility.Visible : Visibility.Collapsed;
     public string ReplyPreviewDisplay => string.IsNullOrEmpty(ReplyPreviewAuthor) ? ReplyPreviewText : $"{ReplyPreviewAuthor}: {ReplyPreviewText}";
 
+    // Set from MessageResponse/DirectMessageResponse.ForwardedFromAuthorUsername
+    // at construction - a plain snapshot label, not resolved like the reply
+    // preview above (see Message.ForwardedFromAuthorUsername server-side for
+    // why there's no equivalent "jump to original" for a forward).
+    public string? ForwardedFromAuthorUsername { get; set; }
+    public Visibility ForwardedBannerVisibility => ForwardedFromAuthorUsername is not null ? Visibility.Visible : Visibility.Collapsed;
+
     // Briefly flashed true by MainWindow.HighlightMessageRowAsync when
     // jumping here from a search result (see MessageSearchPage), then set
     // back false after a short delay - a plain property swap rather than a
@@ -636,6 +658,17 @@ public partial class MainWindow : FluentWindow
     // Set by LoadMembersPanelAsync whenever a server is opened - whether the
     // current user can pin/unpin messages in it (owner/moderator only).
     private bool _canManageCurrentServer;
+
+    // Gates typing @everyone/@here as a real ping (see SendCurrentMessage) -
+    // recomputed alongside _canManageCurrentServer in LoadMembersPanelAsync.
+    private bool _canMentionEveryone;
+
+    // Gates the Ban List / Moderation Log buttons - mirrors
+    // ServersController.GetBans/GetModerationLog's own ViewAuditLog gate
+    // exactly, rather than the coarser _canManageCurrentServer (any
+    // permission at all), so those buttons don't show for a Moderator who'd
+    // just get a 403 clicking them.
+    private bool _canViewAuditLog;
     private string? _dmActiveUsername;
 
     // "Load older messages" - whether the currently open channel/DM history
@@ -672,7 +705,45 @@ public partial class MainWindow : FluentWindow
     private readonly BulkObservableCollection<ChannelListItem> _voiceChannels = new();
     private ChannelListItem? _draggedChannelItem;
     private Point _channelDragStartPoint;
+
+    // The current server's categories, ordered by Position - refreshed
+    // alongside channels (see RefreshChannelsAsync) since the two are always
+    // consumed together (grouping _textChannels/_voiceChannels by category,
+    // and populating the "Move to Category" submenu on each channel row).
+    private List<CategoryResponse> _categories = new();
     private readonly BulkObservableCollection<MessageListItem> _messages = new();
+    // Mirrors _messages, kept in sync purely by listening to its own
+    // CollectionChanged (wired once, see constructor) rather than requiring
+    // every existing _messages.Add/Remove/Clear/PrependRange/ReplaceAll call
+    // site to be touched - lets reaction/edit/pin/delete events resolve
+    // their target message in O(1) instead of an O(n) FirstOrDefault scan
+    // that only gets more expensive the longer a channel's history has been
+    // scrolled into.
+    private readonly Dictionary<int, MessageListItem> _messagesById = new();
+
+    private MessageListItem? FindMessageById(int id) =>
+        _messagesById.TryGetValue(id, out var item) ? item : null;
+
+    // BulkObservableCollection's bulk operations (PrependRange/ReplaceAll)
+    // raise a single Reset rather than itemized events, so those are
+    // handled by a full rebuild - cheap relative to how rarely they fire
+    // (once per channel switch/history page, not once per message).
+    private void OnMessagesCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        switch (e.Action)
+        {
+            case NotifyCollectionChangedAction.Add:
+                foreach (MessageListItem item in e.NewItems!) _messagesById[item.Id] = item;
+                break;
+            case NotifyCollectionChangedAction.Remove:
+                foreach (MessageListItem item in e.OldItems!) _messagesById.Remove(item.Id);
+                break;
+            default:
+                _messagesById.Clear();
+                foreach (var item in _messages) _messagesById[item.Id] = item;
+                break;
+        }
+    }
     private readonly BulkObservableCollection<DmConversationListItem> _dmConversations = new();
     private readonly ObservableCollection<UserSearchResultItem> _dmSearchResults = new();
     private readonly BulkObservableCollection<FriendListItem> _friends = new();
@@ -700,12 +771,21 @@ public partial class MainWindow : FluentWindow
     // on every single server switch (see RefreshChannelsAsync).
     private readonly HashSet<int> _joinedChannelIds = new();
 
+    // serverId -> its custom emoji, only populated for servers actually
+    // opened this session (see RefreshEmojisAsync, called from
+    // ServerButton_Click alongside RefreshChannelsAsync) - EmojiPickerPopup_
+    // Opened reads this to add per-server custom-emoji buttons to the
+    // reaction picker for a channel message.
+    private readonly Dictionary<int, List<EmojiResponse>> _serverEmojis = new();
+
     private DateTime _lastTypingNotify = DateTime.MinValue;
 
     public MainWindow(ApiService api)
     {
         InitializeComponent();
         _api = api;
+
+        _messages.CollectionChanged += OnMessagesCollectionChanged;
 
         // /uploads now requires auth (see Server/Program.cs) - both image
         // caches need a way to attach a bearer token to their own HttpClient
@@ -723,8 +803,21 @@ public partial class MainWindow : FluentWindow
 
         ServerList.ItemsSource = _servers;
         MemberList.ItemsSource = _members;
-        TextChannelList.ItemsSource = _textChannels;
-        VoiceChannelList.ItemsSource = _voiceChannels;
+
+        // Grouped by ChannelListItem.CategoryName via a collection view
+        // rather than a plain flat binding, so category headers render
+        // between rows (see MainWindow.xaml's GroupStyle) while every other
+        // mechanic - drag-and-drop reorder, unread badges, click handlers -
+        // keeps operating on the flat _textChannels/_voiceChannels lists
+        // exactly as before (RefreshChannelsAsync just orders items so each
+        // category's channels are contiguous, which is all grouping needs).
+        var textChannelsView = CollectionViewSource.GetDefaultView(_textChannels);
+        textChannelsView.GroupDescriptions.Add(new PropertyGroupDescription(nameof(ChannelListItem.CategoryName)));
+        TextChannelList.ItemsSource = textChannelsView;
+
+        var voiceChannelsView = CollectionViewSource.GetDefaultView(_voiceChannels);
+        voiceChannelsView.GroupDescriptions.Add(new PropertyGroupDescription(nameof(ChannelListItem.CategoryName)));
+        VoiceChannelList.ItemsSource = voiceChannelsView;
         MessageList.ItemsSource = _messages;
         _messages.CollectionChanged += (_, _) => UpdateMessagesEmptyState();
         DmConversationList.ItemsSource = _dmConversations;
@@ -754,11 +847,11 @@ public partial class MainWindow : FluentWindow
         _hub.MemberRoleChanged += (serverId, userId) => Dispatcher.Invoke(() => OnMemberRoleChanged(serverId, userId));
         _hub.ChannelCreated += serverId => Dispatcher.Invoke(() => OnChannelCreated(serverId));
         _hub.ChannelDeleted += serverId => Dispatcher.Invoke(() => OnChannelDeleted(serverId));
+        _hub.ServerEmojisChanged += serverId => Dispatcher.Invoke(() => OnServerEmojisChanged(serverId));
         _hub.ServerDeleted += serverId => Dispatcher.Invoke(() => OnServerDeleted(serverId));
         _hub.ServerRenamed += serverId => Dispatcher.Invoke(() => OnServerRenamed(serverId));
-        _hub.ServerKeyRequested += OnServerKeyRequested;
-        _hub.ServerKeyProvisioned += OnServerKeyProvisioned;
         _hub.UserTyping += OnUserTyping;
+        _hub.DmUserTyping += (username, senderId) => Dispatcher.Invoke(() => OnDmUserTyping(username, senderId));
         _hub.VoiceUserJoined += OnVoiceUserJoined;
         _hub.VoiceUserLeft += OnVoiceUserLeft;
         _hub.UserSpeaking += OnUserSpeaking;
@@ -826,22 +919,55 @@ public partial class MainWindow : FluentWindow
     // is left untouched, not torn down); GoBack hides it again. No back
     // stack - nothing here currently navigates from one page into another. ---
 
+    private const int PageHostAnimationDurationMs = 200;
+
+    // Bumped on every NavigateTo/GoBack - lets GoBack's delayed
+    // fade-out completion (see below) detect whether a newer navigation
+    // has since superseded it, so a fast Back-then-forward click can't
+    // have its stale animation wipe out the page that replaced it.
+    private int _pageHostNavVersion;
+
     public void NavigateTo(UserControl page, string title)
     {
+        _pageHostNavVersion++;
+
         PageHostTitleText.Text = title;
         PageHostContent.Content = page;
         PageHost.Visibility = Visibility.Visible;
+
+        // Clears any animated value a previous GoBack's slide-out left
+        // behind, same "held end value blocks the next animation" reasoning
+        // as ShowModal.
+        PageHostContent.BeginAnimation(OpacityProperty, null);
+        PageHostContentTranslate.BeginAnimation(TranslateTransform.YProperty, null);
+        Wpf.Ui.Animations.TransitionAnimationProvider.ApplyTransition(
+            PageHostContent, Wpf.Ui.Animations.Transition.FadeInWithSlide, PageHostAnimationDurationMs);
     }
 
     private void PageHostBackButton_Click(object sender, RoutedEventArgs e) => GoBack();
 
     public void GoBack()
     {
-        PageHost.Visibility = Visibility.Collapsed;
-        // Removing it from the visual tree fires the page's own Unloaded -
-        // that's where a converted page unsubscribes from SignalR events
-        // the same way the old Window-based versions did in Closed.
-        PageHostContent.Content = null;
+        var version = ++_pageHostNavVersion;
+
+        // Reverse of NavigateTo's entrance - fades out while sliding down
+        // instead of WPF-UI's up-and-in, then collapses/clears content once
+        // the animation finishes (same Unloaded-unsubscribe reasoning as
+        // before this animation existed, just delayed by the transition).
+        var fadeOut = new DoubleAnimation(1.0, 0.0, TimeSpan.FromMilliseconds(PageHostAnimationDurationMs));
+        fadeOut.Completed += (_, _) =>
+        {
+            if (_pageHostNavVersion != version) return; // superseded by a newer navigation
+            PageHost.Visibility = Visibility.Collapsed;
+            PageHostContent.Content = null;
+        };
+        PageHostContent.BeginAnimation(OpacityProperty, fadeOut);
+
+        var slideOut = new DoubleAnimation(0, 24, TimeSpan.FromMilliseconds(PageHostAnimationDurationMs))
+        {
+            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn }
+        };
+        PageHostContentTranslate.BeginAnimation(TranslateTransform.YProperty, slideOut);
     }
 
     // Ctrl+F opens message search; Esc closes whichever of PageHost/
@@ -886,19 +1012,69 @@ public partial class MainWindow : FluentWindow
     // property after ShowDialog() returned. ---
 
     private TaskCompletionSource<object?>? _modalTcs;
+    private int _modalVersion;
 
     private enum ModalButtonStyle { Plain, Primary, Destructive }
+
+    private const int ModalAnimationDurationMs = 200;
 
     private Task<object?> ShowModal()
     {
         _modalTcs = new TaskCompletionSource<object?>();
+        _modalVersion++;
+
+        // Clears any animated value a previous CompleteModal's fade/scale-out
+        // left behind - BeginAnimation holds its end value on the property
+        // (FillBehavior.HoldEnd) until explicitly cleared, which would
+        // otherwise silently block ApplyTransition's own opacity animation
+        // below from taking effect.
+        ModalOverlay.BeginAnimation(OpacityProperty, null);
+        ModalCardScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        ModalCardScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+        ModalCardScale.ScaleX = 0.92;
+        ModalCardScale.ScaleY = 0.92;
+
         ModalOverlay.Visibility = Visibility.Visible;
+        Wpf.Ui.Animations.TransitionAnimationProvider.ApplyTransition(ModalOverlay, Wpf.Ui.Animations.Transition.FadeIn, ModalAnimationDurationMs);
+
+        var scaleIn = new DoubleAnimation(0.92, 1.0, TimeSpan.FromMilliseconds(ModalAnimationDurationMs))
+        {
+            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+        };
+        ModalCardScale.BeginAnimation(ScaleTransform.ScaleXProperty, scaleIn);
+        ModalCardScale.BeginAnimation(ScaleTransform.ScaleYProperty, scaleIn);
+
         return _modalTcs.Task;
     }
 
     private void CompleteModal(object? result)
     {
-        ModalOverlay.Visibility = Visibility.Collapsed;
+        // Purely decorative - the logical completion (TrySetResult below)
+        // happens immediately regardless, same as before this animation was
+        // added; only the visual hide is delayed by the fade/scale-out.
+        // Captures the version so a chained ShowModal (e.g. CreateOrJoinAsync
+        // immediately followed by PromptAsync) can't have ITS freshly-opened
+        // overlay collapsed out from under it when this stale animation's
+        // Completed fires ~200ms later - BeginAnimation(prop, null) replaces
+        // the animated value but doesn't stop the old clock from still
+        // ticking to completion in the background. Same race PageHost's
+        // _pageHostNavVersion guards against for GoBack/navigate.
+        var version = _modalVersion;
+        var fadeOut = new DoubleAnimation(1.0, 0.0, TimeSpan.FromMilliseconds(ModalAnimationDurationMs));
+        fadeOut.Completed += (_, _) =>
+        {
+            if (_modalVersion == version)
+                ModalOverlay.Visibility = Visibility.Collapsed;
+        };
+        ModalOverlay.BeginAnimation(OpacityProperty, fadeOut);
+
+        var scaleOut = new DoubleAnimation(1.0, 0.92, TimeSpan.FromMilliseconds(ModalAnimationDurationMs))
+        {
+            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn }
+        };
+        ModalCardScale.BeginAnimation(ScaleTransform.ScaleXProperty, scaleOut);
+        ModalCardScale.BeginAnimation(ScaleTransform.ScaleYProperty, scaleOut);
+
         _modalTcs?.TrySetResult(result);
         _modalTcs = null;
     }
@@ -1500,10 +1676,22 @@ public partial class MainWindow : FluentWindow
     private async Task RefreshChannelsAsync(int serverId)
     {
         var channels = await _api.GetChannelsAsync(serverId);
+        _categories = await _api.GetCategoriesAsync(serverId);
+        var categoryById = _categories.ToDictionary(c => c.Id);
+
+        // Stable-sorts so each category's channels stay contiguous (needed
+        // for the ItemsControl.GroupStyle grouping in MainWindow.xaml to
+        // render one header per category instead of interleaving) - -1 for
+        // uncategorized channels puts them first, matching Discord's own
+        // convention. GetChannelsAsync already returns channels ordered by
+        // their own Position, and OrderBy is stable, so within one category
+        // (or the uncategorized group) that relative order is preserved.
+        var orderedChannels = channels.OrderBy(c =>
+            c.CategoryId is { } categoryId && categoryById.TryGetValue(categoryId, out var cat) ? cat.Position : -1);
 
         var textItems = new List<ChannelListItem>();
         var voiceItems = new List<ChannelListItem>();
-        foreach (var c in channels)
+        foreach (var c in orderedChannels)
         {
             _channelServerIds[c.Id] = c.GuildServerId;
 
@@ -1511,7 +1699,9 @@ public partial class MainWindow : FluentWindow
             {
                 Id = c.Id,
                 DisplayName = c.Type == "Text" ? $"# {c.Name}" : $"🔊 {c.Name}",
-                UnreadCount = c.Type == "Text" ? _unreadTextChannelCounts.GetValueOrDefault(c.Id) : 0
+                UnreadCount = c.Type == "Text" ? _unreadTextChannelCounts.GetValueOrDefault(c.Id) : 0,
+                CategoryId = c.CategoryId,
+                CategoryName = c.CategoryId is { } cid && categoryById.TryGetValue(cid, out var category) ? category.Name : string.Empty
             };
             if (c.Type == "Text") textItems.Add(item);
             else voiceItems.Add(item);
@@ -1525,6 +1715,21 @@ public partial class MainWindow : FluentWindow
         // text channel on every single server switch.
         foreach (var c in textItems.Where(c => _joinedChannelIds.Add(c.Id)))
             await _hub.JoinChannelAsync(c.Id);
+    }
+
+    // Populates _serverEmojis and CustomEmojiRegistry for this server -
+    // called on every ServerButton_Click (matches RefreshChannelsAsync's own
+    // scope: only the currently-open server needs a fresh list) and again
+    // whenever ServerEmojisChanged fires (someone added/removed one).
+    private async Task RefreshEmojisAsync(int serverId)
+    {
+        var emojis = await _api.GetServerEmojisAsync(serverId);
+        _serverEmojis[serverId] = emojis;
+        foreach (var emoji in emojis)
+        {
+            var url = App.ResolveUploadUrl(emoji.ImageUrl);
+            if (url is not null) CustomEmojiRegistry.Register(emoji.Id, url);
+        }
     }
 
     private async void ServerButton_Click(object sender, RoutedEventArgs e)
@@ -1550,6 +1755,7 @@ public partial class MainWindow : FluentWindow
         ServerNameText.Text = server?.Name ?? "Server";
 
         await RefreshChannelsAsync(serverId);
+        await RefreshEmojisAsync(serverId);
         await LoadVoiceRostersAsync(serverId);
         await LoadMembersPanelAsync(serverId);
     }
@@ -1570,6 +1776,9 @@ public partial class MainWindow : FluentWindow
         var selfPermissions = (ServerPermission)(self?.Permissions ?? 0);
         var hasKick = isOwner || (self?.Role == "Moderator" && selfPermissions.HasFlag(ServerPermission.KickMembers));
         var hasManageMessages = isOwner || (self?.Role == "Moderator" && selfPermissions.HasFlag(ServerPermission.ManageMessages));
+        var hasManageRoles = isOwner || (self?.Role == "Moderator" && selfPermissions.HasFlag(ServerPermission.ManageRoles));
+        _canMentionEveryone = isOwner || (self?.Role == "Moderator" && selfPermissions.HasFlag(ServerPermission.MentionEveryone));
+        _canViewAuditLog = isOwner || (self?.Role == "Moderator" && selfPermissions.HasFlag(ServerPermission.ViewAuditLog));
 
         _members.ReplaceAll(members.Select(m =>
         {
@@ -1581,10 +1790,16 @@ public partial class MainWindow : FluentWindow
                 AvatarUrl = App.ResolveUploadUrl(m.AvatarUrl),
                 Role = m.Role,
                 IsSelf = isSelf,
-                CanChangeRole = isOwner && m.Role != "Owner" && !isSelf,
+                // Mirrors ServersController.ChangeRole's server-side gate
+                // (ManageRoles, Owner implicitly included).
+                CanChangeRole = hasManageRoles && m.Role != "Owner" && !isSelf,
                 CanKick = canManageServer && m.Role != "Owner" && !isSelf,
                 CanBan = hasKick && m.Role != "Owner" && !isSelf,
                 CanPurge = hasManageMessages && !isSelf,
+                // Stays owner-only, unlike CanChangeRole above - mirrors
+                // SetPermissions' own server-side gate (see that endpoint's
+                // comment for why editing another Moderator's exact bits
+                // isn't delegable via ManageRoles).
                 CanEditPermissions = isOwner && m.Role == "Moderator" && !isSelf,
                 Permissions = m.Permissions,
                 PresenceState = m.PresenceState,
@@ -1708,6 +1923,8 @@ public partial class MainWindow : FluentWindow
     {
         if (sender is not FrameworkElement { Tag: int channelId }) return;
 
+        SaveCurrentDraft();
+
         // Deliberately doesn't leave the previous channel's group - all text
         // channels in the open server stay joined (see RefreshChannelsAsync)
         // so unread dots keep working for channels you switch away from too.
@@ -1724,50 +1941,89 @@ public partial class MainWindow : FluentWindow
         DmCallButton.Visibility = Visibility.Collapsed;
         PinnedMessagesButton.Visibility = Visibility.Visible;
         SearchMessagesButton.Visibility = Visibility.Visible;
-        ModerationLogButton.Visibility = _canManageCurrentServer ? Visibility.Visible : Visibility.Collapsed;
-        BanListButton.Visibility = _canManageCurrentServer ? Visibility.Visible : Visibility.Collapsed;
+        ModerationLogButton.Visibility = _canViewAuditLog ? Visibility.Visible : Visibility.Collapsed;
+        BanListButton.Visibility = _canViewAuditLog ? Visibility.Visible : Visibility.Collapsed;
 
+        LoadDraftIntoInput();
         await LoadChannelHistoryAsync(channelId);
     }
 
-    // Split out from ChannelButton_Click so OnServerKeyProvisioned can
-    // re-run it once this device receives a key it didn't have yet -
-    // messages that showed the "waiting for access" placeholder resolve to
-    // their real content without needing the user to reopen the channel.
+    // Captures whatever's currently sitting unsent in the compose box into
+    // the outgoing channel/DM's draft slot - called right before switching
+    // to a different channel or DM (see ChannelButton_Click/
+    // OpenDmConversation), using the OLD _currentChannelId/_dmActiveUserId
+    // (still set at the point this runs, before either gets reassigned).
+    private void SaveCurrentDraft()
+    {
+        if (_dmActiveUserId.HasValue) DraftStorage.SetDmDraft(_dmActiveUserId.Value, MessageInput.Text);
+        else if (_currentChannelId.HasValue) DraftStorage.SetChannelDraft(_currentChannelId.Value, MessageInput.Text);
+    }
+
+    // Counterpart to SaveCurrentDraft - loads whichever channel/DM is now
+    // current's stored draft (empty string if none) into the compose box.
+    // Called after _currentChannelId/_dmActiveUserId has already been
+    // reassigned to the newly-opened conversation.
+    private void LoadDraftIntoInput()
+    {
+        MessageInput.Text = _dmActiveUserId.HasValue
+            ? DraftStorage.GetDmDraft(_dmActiveUserId.Value)
+            : _currentChannelId.HasValue
+                ? DraftStorage.GetChannelDraft(_currentChannelId.Value)
+                : string.Empty;
+    }
+
     private async Task LoadChannelHistoryAsync(int channelId)
     {
-        if (_currentServerId is not { } serverId) return;
-
-        if (await _api.E2ee.GetServerKeyAsync(serverId) is null)
-        {
-            // If this device is the server's owner, this could be a server
-            // that predates the E2EE feature (or the moment right after
-            // creation, if creation-time generation somehow didn't run) -
-            // try self-bootstrapping. The server only accepts this when
-            // truly no key exists anywhere yet for the server (see
-            // ServersController.SetServerKey), so it's a safe no-op if a
-            // real key already exists among other members - this device
-            // just falls through to asking them instead. Otherwise (or if
-            // bootstrap wasn't accepted), ask peers - the response, if
-            // any, arrives asynchronously via OnServerKeyProvisioned,
-            // which reloads this same history.
-            var isOwner = _servers.FirstOrDefault(s => s.Id == serverId)?.OwnerId == _api.CurrentUserId;
-            if (!isOwner || !await _api.E2ee.GenerateAndUploadServerKeyAsync(serverId))
-                await _hub.RequestServerKeyAsync(serverId);
-        }
+        if (_currentServerId is null) return;
 
         // Decrypted in parallel, not one at a time - Task.WhenAll preserves
         // the input order (still oldest-first, matching what the server
         // returned), same fix already applied to
-        // ApiService.GetDmConversationsAsync this session.
+        // ApiService.GetDmConversationsAsync this session. Each message
+        // carries its own AuthorId + WrappedKeyForMe (see
+        // MessageResponse/E2eeService.DecryptChannelMessageAsync), so no
+        // separate per-server key lookup/bootstrap is needed here anymore.
         var history = await _api.GetMessageHistoryAsync(channelId);
         var items = await Task.WhenAll(history.Select(async m =>
-            ToListItem(m, await _api.E2ee.DecryptForServerAsync(serverId, m.Content))));
+            ToListItem(m, await _api.E2ee.DecryptChannelMessageAsync(m.AuthorId, m.WrappedKeyForMe, m.Content))));
         foreach (var item in items) ResolveReplyPreview(item, items);
         _messages.ReplaceAll(items);
         SetHasMoreHistory(items.Length);
 
         ScrollToBottom();
+    }
+
+    // Opens a voice channel's text chat - a separate action from
+    // VoiceChannelButton_Click (which joins the voice audio), reachable via
+    // its own 💬 icon on the row (see MainWindow.xaml). Messages aren't
+    // restricted by Channel.Type server-side (ChatHub.SendMessage/JoinChannel
+    // never check it - only MessagesController's history query cares about
+    // ChannelId, not Type), so this reuses the exact same message pane,
+    // compose box, and send/receive pipeline a text channel already gets;
+    // nothing server-side needed changing for this feature. Deliberately
+    // doesn't track unread counts the way text channels do (_unreadTextChannelCounts
+    // stays text-channel-only) - a smaller, acceptable scope gap rather than
+    // reworking that tracking to be type-agnostic too.
+    private async void VoiceChannelChatButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: int channelId }) return;
+
+        SaveCurrentDraft();
+
+        _currentChannelId = channelId;
+        CancelReply();
+        if (_joinedChannelIds.Add(channelId))
+            await _hub.JoinChannelAsync(channelId);
+
+        ChannelNameText.Text = $"{FindChannelDisplayName(channelId) ?? "🔊 channel"} · Text Chat";
+        DmCallButton.Visibility = Visibility.Collapsed;
+        PinnedMessagesButton.Visibility = Visibility.Visible;
+        SearchMessagesButton.Visibility = Visibility.Visible;
+        ModerationLogButton.Visibility = _canViewAuditLog ? Visibility.Visible : Visibility.Collapsed;
+        BanListButton.Visibility = _canViewAuditLog ? Visibility.Visible : Visibility.Collapsed;
+
+        LoadDraftIntoInput();
+        await LoadChannelHistoryAsync(channelId);
     }
 
     private async void VoiceChannelButton_Click(object sender, RoutedEventArgs e)
@@ -2325,15 +2581,7 @@ public partial class MainWindow : FluentWindow
 
             var server = await _api.CreateServerAsync(name);
             if (server is not null)
-            {
-                // This is the one moment a device can be sure no key exists
-                // for the server anywhere yet - see E2eeService.
-                // GenerateAndUploadServerKeyAsync for why that certainty
-                // matters. Every other member (there are none yet) will
-                // request a copy from this device once they join.
-                await _api.E2ee.GenerateAndUploadServerKeyAsync(server.Id);
                 await LoadServersAsync();
-            }
         }
         else if (createSelected == false)
         {
@@ -2378,6 +2626,26 @@ public partial class MainWindow : FluentWindow
         if (sender is not System.Windows.Controls.MenuItem { Tag: int serverId }) return;
 
         new InvitesWindow(_api, serverId) { Owner = this }.ShowDialog();
+    }
+
+    // Visible to every member (like AddChannelMenuItem_Click above) -
+    // EmojisController enforces ManageChannels server-side, same pattern as
+    // every other server-management action this app doesn't bother hiding
+    // client-side.
+    private void ManageEmojiMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.MenuItem { Tag: int serverId }) return;
+
+        NavigateTo(new EmojiManagementPage(this, _api, serverId), "Server Emoji");
+    }
+
+    // Visible to every member (like ManageEmojiMenuItem_Click above) -
+    // CategoriesController enforces ManageChannels server-side.
+    private void ManageCategoriesMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.MenuItem { Tag: int serverId }) return;
+
+        NavigateTo(new CategoryManagementPage(this, _api, serverId), "Channel Categories");
     }
 
     private async void LeaveServerMenuItem_Click(object sender, RoutedEventArgs e)
@@ -2492,6 +2760,21 @@ public partial class MainWindow : FluentWindow
         NotificationMuteStorage.SetServerMuted(serverId, !NotificationMuteStorage.IsServerMuted(serverId));
     }
 
+    // Same reasoning as ServerButton_ContextMenuOpening above - items[0] is
+    // the mute entry's fixed position (the only item in this menu).
+    private void DmConversationButton_ContextMenuOpening(object sender, System.Windows.Controls.ContextMenuEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: int otherUserId } button) return;
+        if (button.ContextMenu?.Items[0] is System.Windows.Controls.MenuItem muteItem)
+            muteItem.Header = NotificationMuteStorage.IsDmMuted(otherUserId) ? "Unmute Notifications" : "Mute Notifications";
+    }
+
+    private void ToggleDmMuteMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.MenuItem { Tag: int otherUserId }) return;
+        NotificationMuteStorage.SetDmMuted(otherUserId, !NotificationMuteStorage.IsDmMuted(otherUserId));
+    }
+
     private async void SetSlowModeMenuItem_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not System.Windows.Controls.MenuItem { Tag: int channelId } || _currentServerId is null) return;
@@ -2527,12 +2810,70 @@ public partial class MainWindow : FluentWindow
     }
 
     // Same reasoning as ServerButton_ContextMenuOpening above - items[1] is
-    // the mute entry's fixed position (Set Slow Mode..., Mute Notifications).
+    // the mute entry's fixed position (Set Slow Mode..., Mute Notifications,
+    // Rename Channel, Move to Category).
     private void ChannelButton_ContextMenuOpening(object sender, System.Windows.Controls.ContextMenuEventArgs e)
     {
-        if (sender is not FrameworkElement { Tag: int channelId } button) return;
+        if (sender is not FrameworkElement { Tag: int channelId, DataContext: ChannelListItem item } button) return;
         if (button.ContextMenu?.Items[1] is System.Windows.Controls.MenuItem muteItem)
             muteItem.Header = NotificationMuteStorage.IsChannelMuted(channelId) ? "Unmute Notifications" : "Mute Notifications";
+        if (button.ContextMenu?.Items[3] is System.Windows.Controls.MenuItem moveItem)
+            PopulateMoveToCategorySubmenu(moveItem, channelId, item.CategoryId);
+    }
+
+    // Voice row's context menu has no mute entry, just Rename/Delete/Move to
+    // Category - only the submenu needs rebuilding each open.
+    private void VoiceChannelButton_ContextMenuOpening(object sender, System.Windows.Controls.ContextMenuEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: int channelId, DataContext: ChannelListItem item } button) return;
+        if (button.ContextMenu?.Items[2] is System.Windows.Controls.MenuItem moveItem)
+            PopulateMoveToCategorySubmenu(moveItem, channelId, item.CategoryId);
+    }
+
+    // A plain value-tuple Tag doesn't work here - C# pattern matching can't
+    // type-check a nullable value type inside a boxed tuple (CS8116), since
+    // Nullable<T> boxes as either null or a bare T, not as Nullable<T>. A
+    // record's positional pattern deconstructs via Deconstruct() instead of
+    // a runtime type check, so it doesn't hit that restriction.
+    private record MoveToCategoryTarget(int ChannelId, int? CategoryId);
+
+    // Rebuilt fresh on every context-menu open (see the two handlers above)
+    // rather than bound declaratively, since the set of categories to offer
+    // isn't known until this server's categories are loaded, and can change
+    // between opens (see RefreshChannelsAsync/_categories).
+    private void PopulateMoveToCategorySubmenu(System.Windows.Controls.MenuItem submenu, int channelId, int? currentCategoryId)
+    {
+        submenu.Items.Clear();
+
+        var noneItem = new System.Windows.Controls.MenuItem
+        {
+            Header = "(None)", IsCheckable = true, IsChecked = currentCategoryId is null,
+            Tag = new MoveToCategoryTarget(channelId, null)
+        };
+        noneItem.Click += MoveChannelToCategoryMenuItem_Click;
+        submenu.Items.Add(noneItem);
+
+        if (_categories.Count > 0) submenu.Items.Add(new System.Windows.Controls.Separator());
+
+        foreach (var category in _categories)
+        {
+            var item = new System.Windows.Controls.MenuItem
+            {
+                Header = category.Name, IsCheckable = true, IsChecked = currentCategoryId == category.Id,
+                Tag = new MoveToCategoryTarget(channelId, category.Id)
+            };
+            item.Click += MoveChannelToCategoryMenuItem_Click;
+            submenu.Items.Add(item);
+        }
+    }
+
+    private async void MoveChannelToCategoryMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.MenuItem { Tag: MoveToCategoryTarget(var channelId, var categoryId) } || _currentServerId is null) return;
+
+        var success = await _api.SetChannelCategoryAsync(_currentServerId.Value, channelId, categoryId);
+        if (success) await RefreshChannelsAsync(_currentServerId.Value);
+        else await AlertAsync("Error", "Could not move this channel (you may lack permission).");
     }
 
     private void ToggleChannelMuteMenuItem_Click(object sender, RoutedEventArgs e)
@@ -2607,6 +2948,11 @@ public partial class MainWindow : FluentWindow
         if (sender is not FrameworkElement { DataContext: ChannelListItem targetItem }) return;
         if (e.Data.GetData(typeof(ChannelListItem)) is not ChannelListItem draggedItem) return;
         if (ReferenceEquals(draggedItem, targetItem) || _currentServerId is null) return;
+        // Cross-category drags aren't supported here - moving a channel to a
+        // different category is an explicit action (see the "Move to
+        // Category" submenu on each channel's context menu) rather than an
+        // implicit side effect of a reorder drop.
+        if (draggedItem.CategoryId != targetItem.CategoryId) return;
 
         BulkObservableCollection<ChannelListItem> list;
         if (_textChannels.Contains(draggedItem) && _textChannels.Contains(targetItem)) list = _textChannels;
@@ -2788,11 +3134,31 @@ public partial class MainWindow : FluentWindow
             await _hub.LeaveServerPresenceAsync(_currentServerId.Value);
     }
 
+    // Crossfades between the three mutually-exclusive Grid.Column="1" panels
+    // (ServerSidebarPanel/MessagesSidebarPanel/FriendsSidebarPanel) instead of
+    // an instant Visibility snap - they occupy the same fixed-width column so
+    // fading one out while fading the other in reads as a single transition
+    // rather than a flicker.
+    private void CrossfadeSidebarPanel(System.Windows.Controls.Border show)
+    {
+        foreach (var panel in new[] { ServerSidebarPanel, MessagesSidebarPanel, FriendsSidebarPanel })
+        {
+            if (panel == show || panel.Visibility != Visibility.Visible) continue;
+
+            var fadeOut = new DoubleAnimation(1.0, 0.0, TimeSpan.FromMilliseconds(120));
+            fadeOut.Completed += (_, _) => panel.Visibility = Visibility.Collapsed;
+            panel.BeginAnimation(OpacityProperty, fadeOut);
+        }
+
+        show.Visibility = Visibility.Visible;
+        show.BeginAnimation(OpacityProperty, null);
+        show.Opacity = 0;
+        show.BeginAnimation(OpacityProperty, new DoubleAnimation(0.0, 1.0, TimeSpan.FromMilliseconds(120)));
+    }
+
     private void ShowServerSidebar()
     {
-        ServerSidebarPanel.Visibility = Visibility.Visible;
-        MessagesSidebarPanel.Visibility = Visibility.Collapsed;
-        FriendsSidebarPanel.Visibility = Visibility.Collapsed;
+        CrossfadeSidebarPanel(ServerSidebarPanel);
         MembersPanel.Visibility = Visibility.Visible;
 
         if (_dmActiveUserId.HasValue || ChannelNameText.Text != "# select-a-channel")
@@ -2811,17 +3177,13 @@ public partial class MainWindow : FluentWindow
 
     private void ShowMessagesSidebar()
     {
-        ServerSidebarPanel.Visibility = Visibility.Collapsed;
-        MessagesSidebarPanel.Visibility = Visibility.Visible;
-        FriendsSidebarPanel.Visibility = Visibility.Collapsed;
+        CrossfadeSidebarPanel(MessagesSidebarPanel);
         MembersPanel.Visibility = Visibility.Collapsed;
     }
 
     private void ShowFriendsSidebar()
     {
-        ServerSidebarPanel.Visibility = Visibility.Collapsed;
-        MessagesSidebarPanel.Visibility = Visibility.Collapsed;
-        FriendsSidebarPanel.Visibility = Visibility.Visible;
+        CrossfadeSidebarPanel(FriendsSidebarPanel);
         MembersPanel.Visibility = Visibility.Collapsed;
     }
 
@@ -2856,6 +3218,8 @@ public partial class MainWindow : FluentWindow
 
     private async Task OpenDmConversation(int userId, string username)
     {
+        SaveCurrentDraft();
+
         _dmActiveUserId = userId;
         _dmActiveUsername = username;
         CancelReply();
@@ -2866,6 +3230,7 @@ public partial class MainWindow : FluentWindow
         SearchMessagesButton.Visibility = Visibility.Visible;
         ModerationLogButton.Visibility = Visibility.Collapsed;
         BanListButton.Visibility = Visibility.Collapsed;
+        LoadDraftIntoInput();
 
         var convo = _dmConversations.FirstOrDefault(c => c.OtherUserId == userId);
         if (convo is not null) convo.UnreadCount = 0;
@@ -3195,14 +3560,14 @@ public partial class MainWindow : FluentWindow
         // Content is always encrypted, even when empty (attachment-only) -
         // so the receive/history paths never need to guess whether a given
         // row is ciphertext or genuinely plaintext-empty.
-        var encrypted = await _api.E2ee.EncryptForServerAsync(serverId, string.Empty);
+        var encrypted = await _api.E2ee.EncryptForChannelAsync(serverId, string.Empty);
         if (encrypted is null)
         {
             await AlertAsync("Encryption unavailable", "Couldn't send - encryption isn't ready for this server yet.");
             return;
         }
 
-        await _hub.SendMessageAsync(_currentChannelId.Value, encrypted, upload.Url);
+        await _hub.SendMessageAsync(_currentChannelId.Value, encrypted.Content, encrypted.RecipientKeys, upload.Url);
     }
 
     private void AttachmentLink_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
@@ -3300,14 +3665,20 @@ public partial class MainWindow : FluentWindow
 
     private async void MessageInput_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
     {
-        if (_currentChannelId is null) return;
+        if (_currentChannelId is null && _dmActiveUserId is null) return;
 
         // Throttle typing notifications to at most once every 2 seconds.
         if ((DateTime.UtcNow - _lastTypingNotify).TotalSeconds < 2) return;
         _lastTypingNotify = DateTime.UtcNow;
 
-        await _hub.NotifyTypingAsync(_currentChannelId.Value);
+        if (_dmActiveUserId.HasValue) await _hub.NotifyDmTypingAsync(_dmActiveUserId.Value);
+        else if (_currentChannelId.HasValue) await _hub.NotifyTypingAsync(_currentChannelId.Value);
     }
+
+    // Word-boundary match so "@everyone" and "@here" are caught but
+    // "@everyonelse" or "@hereford" aren't - case-insensitive since Discord's
+    // own @everyone/@here aren't case-sensitive either.
+    private static readonly Regex EveryoneOrHerePattern = new(@"@(everyone|here)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private async Task SendCurrentMessage()
     {
@@ -3331,23 +3702,36 @@ public partial class MainWindow : FluentWindow
 
             await _hub.SendDirectMessageAsync(_dmActiveUserId.Value, encrypted, replyToMessageId);
             MessageInput.Clear();
+            SaveCurrentDraft(); // clears the now-stale stored draft (see SetDmDraft's empty-text handling)
             CancelReply();
             return;
         }
 
         if (_currentChannelId is null || _currentServerId is not { } serverId) return;
 
-        var encryptedChannelMessage = await _api.E2ee.EncryptForServerAsync(serverId, MessageInput.Text.Trim());
-        if (encryptedChannelMessage is null)
+        // Compose-time gate, not a server-enforced one - message content is
+        // E2EE ciphertext (see Message.Content), so ChatHub.SendMessage can
+        // never inspect whether this actually contains "@everyone"/"@here".
+        // ServerPermission.MentionEveryone can only ever be checked here,
+        // client-side, before encrypting - same documented tradeoff as
+        // MessageContentRenderer's own @mention highlighting.
+        if (!_canMentionEveryone && EveryoneOrHerePattern.IsMatch(MessageInput.Text))
         {
-            await AlertAsync("Encryption unavailable",
-                "Couldn't send an encrypted message right now - this device doesn't have this server's encryption key yet. It's waiting for another online member to grant access.");
-            await _hub.RequestServerKeyAsync(serverId);
+            await AlertAsync("Missing permission", "You don't have permission to mention @everyone or @here in this server.");
             return;
         }
 
-        await _hub.SendMessageAsync(_currentChannelId.Value, encryptedChannelMessage, replyToMessageId: replyToMessageId);
+        var encryptedChannelMessage = await _api.E2ee.EncryptForChannelAsync(serverId, MessageInput.Text.Trim());
+        if (encryptedChannelMessage is null)
+        {
+            await AlertAsync("Encryption unavailable",
+                "Couldn't send an encrypted message right now - either your own encryption keys aren't unlocked yet, or this server's member list couldn't be loaded.");
+            return;
+        }
+
+        await _hub.SendMessageAsync(_currentChannelId.Value, encryptedChannelMessage.Content, encryptedChannelMessage.RecipientKeys, replyToMessageId: replyToMessageId);
         MessageInput.Clear();
+        SaveCurrentDraft(); // clears the now-stale stored draft (see SetChannelDraft's empty-text handling)
         CancelReply();
     }
 
@@ -3362,6 +3746,18 @@ public partial class MainWindow : FluentWindow
         ReplyBannerText.Text = $"Replying to {item.AuthorUsername}";
         ReplyBanner.Visibility = Visibility.Visible;
         MessageInput.Focus();
+    }
+
+    // Same Tag="{Binding}" convention as ReplyMessageButton_Click above -
+    // opens a destination picker rather than acting immediately, since
+    // unlike Reply (which only ever targets the currently-open conversation)
+    // a forward's destination could be any channel/DM this user has access
+    // to (see ForwardMessagePage).
+    private void ForwardMessageButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: MessageListItem item }) return;
+
+        NavigateTo(new ForwardMessagePage(this, _api, _hub, item.Content, item.AuthorUsername), "Forward Message");
     }
 
     private void CancelReplyButton_Click(object sender, RoutedEventArgs e) => CancelReply();
@@ -3385,7 +3781,7 @@ public partial class MainWindow : FluentWindow
     {
         if (sender is not FrameworkElement { Tag: int messageId }) return;
 
-        var item = _messages.FirstOrDefault(m => m.Id == messageId);
+        var item = FindMessageById(messageId);
         if (item is null) return;
 
         item.EditingContent = item.Content;
@@ -3415,7 +3811,7 @@ public partial class MainWindow : FluentWindow
 
         if (success)
         {
-            var item = _messages.FirstOrDefault(m => m.Id == messageId);
+            var item = FindMessageById(messageId);
             if (item is not null) _messages.Remove(item);
         }
         else
@@ -3431,7 +3827,7 @@ public partial class MainWindow : FluentWindow
         var success = await _api.PinMessageAsync(_currentChannelId.Value, messageId);
         if (success)
         {
-            var item = _messages.FirstOrDefault(m => m.Id == messageId);
+            var item = FindMessageById(messageId);
             if (item is not null) item.IsPinned = true;
         }
     }
@@ -3443,7 +3839,7 @@ public partial class MainWindow : FluentWindow
         var success = await _api.UnpinMessageAsync(_currentChannelId.Value, messageId);
         if (success)
         {
-            var item = _messages.FirstOrDefault(m => m.Id == messageId);
+            var item = FindMessageById(messageId);
             if (item is not null) item.IsPinned = false;
         }
     }
@@ -3454,7 +3850,7 @@ public partial class MainWindow : FluentWindow
     // server when opened, so it doesn't need a live-update path of its own.
     private void OnMessagePinned(int messageId, bool isPinned)
     {
-        var item = _messages.FirstOrDefault(m => m.Id == messageId);
+        var item = FindMessageById(messageId);
         if (item is not null) item.IsPinned = isPinned;
     }
 
@@ -3475,7 +3871,7 @@ public partial class MainWindow : FluentWindow
     private async void SaveMessageEditButton_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not FrameworkElement { Tag: int messageId }) return;
-        var item = _messages.FirstOrDefault(m => m.Id == messageId);
+        var item = FindMessageById(messageId);
         if (item is null) return;
 
         var newContent = item.EditingContent.Trim();
@@ -3490,11 +3886,11 @@ public partial class MainWindow : FluentWindow
 
         if (_currentChannelId.HasValue && _currentServerId is { } serverId)
         {
-            var encryptedEdit = await _api.E2ee.EncryptForServerAsync(serverId, newContent);
+            var encryptedEdit = await _api.E2ee.EncryptForChannelAsync(serverId, newContent);
             if (encryptedEdit is not null)
             {
-                var updated = await _api.EditMessageAsync(_currentChannelId.Value, messageId, encryptedEdit);
-                newContentFromServer = updated is not null ? await _api.E2ee.DecryptForServerAsync(serverId, updated.Content) : null;
+                var updated = await _api.EditMessageAsync(_currentChannelId.Value, messageId, encryptedEdit.Content, encryptedEdit.RecipientKeys);
+                newContentFromServer = updated is not null ? await _api.E2ee.DecryptChannelMessageAsync(updated.AuthorId, updated.WrappedKeyForMe, updated.Content) : null;
                 editedAt = updated?.EditedAt;
             }
         }
@@ -3517,7 +3913,7 @@ public partial class MainWindow : FluentWindow
     private void CancelMessageEditButton_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not FrameworkElement { Tag: int messageId }) return;
-        var item = _messages.FirstOrDefault(m => m.Id == messageId);
+        var item = FindMessageById(messageId);
         if (item is not null) item.IsEditing = false;
     }
 
@@ -3535,12 +3931,13 @@ public partial class MainWindow : FluentWindow
 
             // Pushed straight from the hub, so still opaque ciphertext (see
             // ChatHub.SendMessage) - decrypt before this touches any UI-bound
-            // state. _channelServerIds resolves which server's key to use -
-            // this can arrive for a channel far from whatever's open right now
-            // (that's the whole point of the unread-count path below).
-            var content = _channelServerIds.TryGetValue(msg.ChannelId, out var serverId)
-                ? await _api.E2ee.DecryptForServerAsync(serverId, msg.Content)
-                : "[Encrypted message]";
+            // state. msg carries its own AuthorId + WrappedKeyForMe, so no
+            // separate per-server key lookup is needed here anymore.
+            // _channelServerIds is still consulted below for the mute check
+            // (this can arrive for a channel far from whatever's open right
+            // now - that's the whole point of the unread-count path below).
+            _channelServerIds.TryGetValue(msg.ChannelId, out var serverId);
+            var content = await _api.E2ee.DecryptChannelMessageAsync(msg.AuthorId, msg.WrappedKeyForMe, msg.Content);
 
             Dispatcher.Invoke(() =>
             {
@@ -3579,7 +3976,14 @@ public partial class MainWindow : FluentWindow
                 // suppresses this - a muted channel/server still updates the
                 // unread badge above, it just doesn't sound/toast.
                 var isMuted = NotificationMuteStorage.IsChannelMuted(msg.ChannelId) || NotificationMuteStorage.IsServerMuted(serverId);
-                if (!isOwnMessage && (!isCurrentlyOpen || !IsActive) && !isMuted)
+                // @everyone/@here pierces through a channel/server mute -
+                // same reasoning Discord itself uses (a broad ping should
+                // still reach you even if you've quieted routine chatter),
+                // and this app has no separate "suppress @everyone" toggle
+                // to fall back to. Detected the same lightweight, non-
+                // security way as the isMentioned check below.
+                var isEveryoneMention = EveryoneOrHerePattern.IsMatch(content);
+                if (!isOwnMessage && (!isCurrentlyOpen || !IsActive) && (!isMuted || isEveryoneMention))
                 {
                     NotificationService.PlayMessageSound();
                     if (!isCurrentlyOpen)
@@ -3592,9 +3996,11 @@ public partial class MainWindow : FluentWindow
                         var isMentioned = _api.CurrentUsername is { Length: > 0 } myName &&
                             content.Contains($"@{myName}", StringComparison.OrdinalIgnoreCase);
                         var preview = content.Length > 80 ? content[..80] + "…" : content;
-                        var title = isMentioned
-                            ? $"You were mentioned in {FindChannelDisplayName(msg.ChannelId) ?? "a channel"}"
-                            : FindChannelDisplayName(msg.ChannelId) ?? "New message";
+                        var title = isEveryoneMention
+                            ? $"@everyone mentioned in {FindChannelDisplayName(msg.ChannelId) ?? "a channel"}"
+                            : isMentioned
+                                ? $"You were mentioned in {FindChannelDisplayName(msg.ChannelId) ?? "a channel"}"
+                                : FindChannelDisplayName(msg.ChannelId) ?? "New message";
                         NotificationService.ShowToast(title, preview);
                     }
                 }
@@ -3668,7 +4074,8 @@ public partial class MainWindow : FluentWindow
                 // Call" toast for the one case that actually needs one, and
                 // this generic path has no idea how to prettify the content
                 // beyond the raw sentinel text.
-                if (!isOwnMessage && (!isCurrentlyOpen || !IsActive) && !CallEventMessage.IsCallEvent(content))
+                if (!isOwnMessage && (!isCurrentlyOpen || !IsActive) && !CallEventMessage.IsCallEvent(content)
+                    && !NotificationMuteStorage.IsDmMuted(otherUserId))
                 {
                     NotificationService.PlayMessageSound();
                     var preview = content.Length > 80 ? content[..80] + "…" : content;
@@ -3690,12 +4097,11 @@ public partial class MainWindow : FluentWindow
             // (matches the early-return this had before) - still has to happen
             // before Dispatcher.Invoke since it's async.
             if (msg.ChannelId != _currentChannelId) return;
-            if (!_channelServerIds.TryGetValue(msg.ChannelId, out var serverId)) return;
-            var content = await _api.E2ee.DecryptForServerAsync(serverId, msg.Content);
+            var content = await _api.E2ee.DecryptChannelMessageAsync(msg.AuthorId, msg.WrappedKeyForMe, msg.Content);
 
             Dispatcher.Invoke(() =>
             {
-                var item = _messages.FirstOrDefault(m => m.Id == msg.Id);
+                var item = FindMessageById(msg.Id);
                 if (item is null) return;
 
                 item.Content = content;
@@ -3781,6 +4187,11 @@ public partial class MainWindow : FluentWindow
         if (serverId == _currentServerId) await RefreshChannelsAsync(serverId);
     }
 
+    private async void OnServerEmojisChanged(int serverId)
+    {
+        if (_serverEmojis.ContainsKey(serverId) || serverId == _currentServerId) await RefreshEmojisAsync(serverId);
+    }
+
     // Bystander-facing counterpart to DeleteServerMenuItem_Click's own
     // cleanup below - fires for every other member with this server open
     // (the caller who actually deleted it handles its own UI reset inline,
@@ -3828,7 +4239,7 @@ public partial class MainWindow : FluentWindow
         Dispatcher.Invoke(() =>
         {
             if (channelId != _currentChannelId) return;
-            var item = _messages.FirstOrDefault(m => m.Id == messageId);
+            var item = FindMessageById(messageId);
             if (item is not null) _messages.Remove(item);
         });
     }
@@ -3847,7 +4258,7 @@ public partial class MainWindow : FluentWindow
 
             Dispatcher.Invoke(() =>
             {
-                var item = _messages.FirstOrDefault(m => m.Id == dm.Id);
+                var item = FindMessageById(dm.Id);
                 if (item is null) return;
 
                 item.Content = content;
@@ -3867,7 +4278,7 @@ public partial class MainWindow : FluentWindow
         Dispatcher.Invoke(() =>
         {
             if (otherUserId != _dmActiveUserId) return;
-            var item = _messages.FirstOrDefault(m => m.Id == messageId);
+            var item = FindMessageById(messageId);
             if (item is not null) _messages.Remove(item);
         });
     }
@@ -3892,7 +4303,7 @@ public partial class MainWindow : FluentWindow
     // message isn't currently open/loaded and there's nothing to update.
     private void OnReactionToggled(int messageId, string emoji, int userId, bool added)
     {
-        var message = _messages.FirstOrDefault(m => m.Id == messageId);
+        var message = FindMessageById(messageId);
         if (message is null) return;
 
         var reaction = message.Reactions.FirstOrDefault(r => r.Emoji == emoji);
@@ -3914,6 +4325,69 @@ public partial class MainWindow : FluentWindow
         }
     }
 
+    // Adds this server's custom-emoji buttons to the picker's WrapPanel
+    // (below the 48 static unicode ones already in XAML) each time the
+    // popup opens - rebuilt fresh every open rather than added once, since
+    // this DataTemplate instance gets recycled across different messages/
+    // rows as the ListBox virtualizes (see MainWindow.xaml's MessageList).
+    // Walks Popup.Child/Border.Child/ScrollViewer.Content directly (the
+    // exact structure written in XAML) rather than FindName, to avoid
+    // relying on DataTemplate NameScope behavior. Dynamically-added Buttons
+    // still pick up the WrapPanel.Resources implicit Style (Width/Height/
+    // ContentTemplate/etc) automatically - WPF resolves implicit styles by
+    // TargetType when an element is added to the tree, not just at parse
+    // time - so only Tag/Content/ToolTip/Click need setting here.
+    // Fade+slide-in for the first-run nudge, matching the emoji-picker's
+    // pop-in - Popup itself has no built-in "fade + slide from the
+    // placement-target side" animation, only a plain PopupAnimation enum.
+    private void OnboardingNudgePopup_Opened(object sender, EventArgs e)
+    {
+        var ease = new QuadraticEase { EasingMode = EasingMode.EaseOut };
+
+        OnboardingNudgeCard.BeginAnimation(OpacityProperty, null);
+        OnboardingNudgeCard.Opacity = 0;
+        OnboardingNudgeCard.BeginAnimation(OpacityProperty, new DoubleAnimation(0.0, 1.0, TimeSpan.FromMilliseconds(150)));
+
+        OnboardingNudgeTranslate.BeginAnimation(TranslateTransform.XProperty, null);
+        OnboardingNudgeTranslate.X = -8;
+        OnboardingNudgeTranslate.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(-8, 0, TimeSpan.FromMilliseconds(150)) { EasingFunction = ease });
+    }
+
+    private void EmojiPickerPopup_Opened(object sender, EventArgs e)
+    {
+        const int staticEmojiCount = 48;
+
+        if (sender is not System.Windows.Controls.Primitives.Popup
+            {
+                Child: System.Windows.Controls.Border { Child: ScrollViewer { Content: System.Windows.Controls.WrapPanel panel } } border,
+                DataContext: MessageListItem message
+            }) return;
+
+        // Scale-pop the card itself - Popup's own PopupAnimation="Fade" only
+        // handles opacity, so this is layered on top for the "pop open"
+        // feel. A fresh ScaleTransform each open is simpler than a named
+        // one in the DataTemplate, since this popup is recycled per-row.
+        border.RenderTransformOrigin = new Point(0.5, 0.5);
+        var scale = new ScaleTransform(0.9, 0.9);
+        border.RenderTransform = scale;
+        var popEase = new QuadraticEase { EasingMode = EasingMode.EaseOut };
+        scale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(0.9, 1.0, TimeSpan.FromMilliseconds(120)) { EasingFunction = popEase });
+        scale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.9, 1.0, TimeSpan.FromMilliseconds(120)) { EasingFunction = popEase });
+
+        while (panel.Children.Count > staticEmojiCount)
+            panel.Children.RemoveAt(panel.Children.Count - 1);
+
+        if (!message.IsChannelMessage || _currentServerId is not int serverId) return;
+        if (!_serverEmojis.TryGetValue(serverId, out var emojis)) return;
+
+        foreach (var emoji in emojis)
+        {
+            var button = new Button { Tag = message, Content = CustomEmojiRegistry.TokenFor(emoji.Id), ToolTip = emoji.Name };
+            button.Click += ReactionMenuItem_Click;
+            panel.Children.Add(button);
+        }
+    }
+
     // Opens immediately on a plain left-click instead of requiring a
     // right-click - a plain Button.ContextMenu requires that by default.
     private void ReactButton_Click(object sender, RoutedEventArgs e)
@@ -3924,8 +4398,10 @@ public partial class MainWindow : FluentWindow
 
     // Tag is the whole MessageListItem (see MainWindow.xaml) so this has
     // both the message id and whether it's a channel message or a DM
-    // without needing a second lookup; Content is the literal emoji glyph
-    // (one of the picker's Buttons, not a MenuItem - see ReactButton_Click).
+    // without needing a second lookup; Content is either a literal emoji
+    // glyph (one of the 48 static picker Buttons) or a "custom:{id}" token
+    // (one of EmojiPickerPopup_Opened's dynamically-added ones) - either way
+    // it's the exact string ToggleMessageReaction expects.
     private async void ReactionMenuItem_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { Tag: MessageListItem message } button) return;
@@ -3954,45 +4430,6 @@ public partial class MainWindow : FluentWindow
         catch { /* best-effort, same as other reaction-toggle failures */ }
     }
 
-    // A fellow member's device just asked for a copy of this server's
-    // shared key (ChatHub.RequestServerKey) - if this device already has
-    // it unlocked, hand over a copy wrapped for them. Best-effort and
-    // silent: if this device doesn't have the key cached either, some
-    // other online member may still answer, and if nobody does, the
-    // requester just stays locked until someone is (see E2eeService for
-    // why that's the standard tradeoff for group E2EE).
-    private async void OnServerKeyRequested(int serverId, int requestingUserId)
-    {
-        try
-        {
-            await _api.E2ee.ProvisionServerKeyForPeerAsync(serverId, requestingUserId);
-        }
-        catch
-        {
-            // Best-effort - see OnMessageReceived. Some other online
-            // member may still answer the same request.
-        }
-    }
-
-    // This device just received a wrapped copy of a server key it didn't
-    // have before (see OnServerKeyRequested on whichever peer answered).
-    // If the channel that triggered the original request is still the one
-    // open, reload it so the "waiting for access" placeholders resolve to
-    // real content without the user needing to reopen anything.
-    private async void OnServerKeyProvisioned(int serverId)
-    {
-        try
-        {
-            if (_currentServerId != serverId || _currentChannelId is not { } channelId) return;
-            await LoadChannelHistoryAsync(channelId);
-        }
-        catch
-        {
-            // Best-effort - see OnMessageReceived. Worst case the
-            // placeholder text just stays until the channel is reopened.
-        }
-    }
-
     // The Messages icon itself lights up while any conversation has an
     // unread dot - cleared only once that specific conversation is opened
     // (not just by visiting the Messages view), same as most chat apps.
@@ -4011,6 +4448,17 @@ public partial class MainWindow : FluentWindow
         {
             ChannelNameText.Text = $"{FindChannelDisplayName(channelId)}   ({username} is typing...)";
         });
+    }
+
+    // DM equivalent of OnUserTyping above - ChannelNameText is the same
+    // shared header both the channel and DM views repurpose (see the "@" -
+    // prefixed assignment in DmConversation_Click), so this just reuses it
+    // with the "@username" shape instead of "# channel-name".
+    private void OnDmUserTyping(string username, int senderId)
+    {
+        if (senderId != _dmActiveUserId) return;
+
+        ChannelNameText.Text = $"@{username}   (typing...)";
     }
 
 
@@ -4197,7 +4645,8 @@ public partial class MainWindow : FluentWindow
             CanManageServer = _canManageCurrentServer,
             IsPinned = m.PinnedAt is not null,
             ReplyToMessageId = m.ReplyToMessageId,
-            ReplyToAuthorId = m.ReplyToAuthorId
+            ReplyToAuthorId = m.ReplyToAuthorId,
+            ForwardedFromAuthorUsername = m.ForwardedFromAuthorUsername
         };
         PopulateReactions(item, m.Reactions);
         return item;
@@ -4259,7 +4708,8 @@ public partial class MainWindow : FluentWindow
             IsChannelMessage = false,
             IsRead = dm.ReadAt is not null,
             ReplyToMessageId = dm.ReplyToMessageId,
-            ReplyToAuthorId = dm.ReplyToAuthorId
+            ReplyToAuthorId = dm.ReplyToAuthorId,
+            ForwardedFromAuthorUsername = dm.ForwardedFromAuthorUsername
         };
         PopulateReactions(item, dm.Reactions);
         return item;
@@ -4395,7 +4845,7 @@ public partial class MainWindow : FluentWindow
         {
             var history = await _api.GetMessageHistoryAsync(_currentChannelId.Value, beforeId);
             var decrypted = await Task.WhenAll(history.Select(async m =>
-                ToListItem(m, await _api.E2ee.DecryptForServerAsync(_currentServerId.Value, m.Content))));
+                ToListItem(m, await _api.E2ee.DecryptChannelMessageAsync(m.AuthorId, m.WrappedKeyForMe, m.Content))));
             olderItems = decrypted.ToList();
         }
         else
@@ -4427,7 +4877,7 @@ public partial class MainWindow : FluentWindow
         if (_isLoadingOlderMessages) return;
 
         var pagesWalked = 0;
-        while (_messages.All(m => m.Id != messageId) && _hasMoreHistory && pagesWalked < JumpToMessagePageCap)
+        while (!_messagesById.ContainsKey(messageId) && _hasMoreHistory && pagesWalked < JumpToMessagePageCap)
         {
             if (_messages.FirstOrDefault() is not { } oldest) break;
 
@@ -4448,7 +4898,7 @@ public partial class MainWindow : FluentWindow
             pagesWalked++;
         }
 
-        var target = _messages.FirstOrDefault(m => m.Id == messageId);
+        var target = FindMessageById(messageId);
         if (target is null) return;
 
         await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Loaded);

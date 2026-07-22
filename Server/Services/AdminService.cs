@@ -187,22 +187,25 @@ public class AdminService
         // for a deleted account, applied here for the same underlying
         // reason - the ciphertext is unrecoverable either way.
         //
-        // Channel messages are NOT affected the same way and are
-        // deliberately left alone: those use one shared per-server key
-        // wrapped individually per member (see ServerMemberKey), not
-        // derived from this user's identity keypair. This user's own
-        // wrapped copy becomes stale, but every other member's copy of
-        // the same underlying key is untouched, and this user's client
-        // already self-heals via the existing RequestServerKey flow
-        // (identical to how a returning/new member gets onboarded) once
-        // they have a new keypair - full channel history comes back with
-        // zero data loss and zero impact on anyone else.
+        // Channel messages hit the same fate for the same reason - each
+        // recipient's copy of a message's one-time key (see
+        // MessageRecipientKey) is wrapped via ECDH against THIS user's
+        // identity keypair too, so it stops being derivable the moment that
+        // keypair changes. Unlike DMs, though, only this user's own wrapped
+        // copies are affected - every other recipient's independent copy of
+        // the same message is untouched, and this user's client
+        // transparently gets working copies of every message sent AFTER
+        // they have a new keypair (senders always wrap fresh against
+        // whatever public key is on file at send time) - only pre-reset
+        // channel history is lost for this user alone, not the message
+        // itself.
         var dmIds = await _db.DirectMessages
             .Where(dm => dm.SenderId == targetUserId || dm.RecipientId == targetUserId)
             .Select(dm => dm.Id)
             .ToListAsync();
         _db.DirectMessageReactions.RemoveRange(_db.DirectMessageReactions.Where(r => dmIds.Contains(r.DirectMessageId)));
         _db.DirectMessages.RemoveRange(_db.DirectMessages.Where(dm => dmIds.Contains(dm.Id)));
+        _db.MessageRecipientKeys.RemoveRange(_db.MessageRecipientKeys.Where(k => k.UserId == targetUserId));
 
         // Force re-login everywhere - same loop AuthController's logout-
         // everywhere endpoint uses.

@@ -20,6 +20,14 @@ public class Message
     // client-side rather than needing cleanup here.
     public int? ReplyToMessageId { get; set; }
 
+    // Set when this message was created via the "Forward" action (see
+    // ChatHub.SendMessage) - a snapshot of the original author's username at
+    // forward time, not a live reference. Unlike ReplyToMessageId, forwarding
+    // can cross channels/servers/DMs the recipient may have no access to, so
+    // there's no equivalent "jump to original" - just an attribution label.
+    // Null means "not a forward".
+    public string? ForwardedFromAuthorUsername { get; set; }
+
     public Channel? Channel { get; set; }
     public User? Author { get; set; }
 }

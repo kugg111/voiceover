@@ -55,7 +55,7 @@ public partial class PinnedMessagesPage : UserControl
         _pinned.Clear();
         foreach (var m in pinned)
         {
-            var content = await _api.E2ee.DecryptForServerAsync(_serverId, m.Content);
+            var content = await _api.E2ee.DecryptChannelMessageAsync(m.AuthorId, m.WrappedKeyForMe, m.Content);
             _pinned.Add(new PinnedMessageItem
             {
                 Id = m.Id,

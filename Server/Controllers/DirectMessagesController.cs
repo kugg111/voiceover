@@ -124,7 +124,7 @@ public class DirectMessagesController : ControllerBase
         var replyAuthors = await LoadReplyAuthorsAsync(messages);
 
         var response = messages
-            .Select(m => new DirectMessageResponse(m.Id, m.Content, m.SenderId, m.RecipientId, m.SentAt, m.EditedAt, m.ReadAt, reactionsByMessage.GetValueOrDefault(m.Id), m.ReplyToMessageId, m.ReplyToMessageId is null ? null : replyAuthors.GetValueOrDefault(m.ReplyToMessageId.Value)))
+            .Select(m => new DirectMessageResponse(m.Id, m.Content, m.SenderId, m.RecipientId, m.SentAt, m.EditedAt, m.ReadAt, reactionsByMessage.GetValueOrDefault(m.Id), m.ReplyToMessageId, m.ReplyToMessageId is null ? null : replyAuthors.GetValueOrDefault(m.ReplyToMessageId.Value), m.ForwardedFromAuthorUsername))
             .ToList();
 
         return Ok(response);
@@ -183,7 +183,7 @@ public class DirectMessagesController : ControllerBase
         // same reasoning on the send path).
         var reactions = (await LoadReactionsAsync(new List<int> { messageId })).GetValueOrDefault(messageId);
         var replyAuthors = await LoadReplyAuthorsAsync(new List<Models.DirectMessage> { message });
-        var response = new DirectMessageResponse(message.Id, message.Content, message.SenderId, message.RecipientId, message.SentAt, message.EditedAt, message.ReadAt, reactions, message.ReplyToMessageId, message.ReplyToMessageId is null ? null : replyAuthors.GetValueOrDefault(message.ReplyToMessageId.Value));
+        var response = new DirectMessageResponse(message.Id, message.Content, message.SenderId, message.RecipientId, message.SentAt, message.EditedAt, message.ReadAt, reactions, message.ReplyToMessageId, message.ReplyToMessageId is null ? null : replyAuthors.GetValueOrDefault(message.ReplyToMessageId.Value), message.ForwardedFromAuthorUsername);
 
         // Same dual-send pattern SendDirectMessage already uses - both
         // participants' own connections need the update, there's no shared

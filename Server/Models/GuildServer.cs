@@ -22,4 +22,6 @@ public class GuildServer
     public List<Channel> Channels { get; set; } = new();
     public List<Membership> Memberships { get; set; } = new();
     public List<Invite> Invites { get; set; } = new();
+    public List<Emoji> Emojis { get; set; } = new();
+    public List<Category> Categories { get; set; } = new();
 }

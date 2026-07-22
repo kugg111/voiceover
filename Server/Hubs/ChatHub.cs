@@ -62,15 +62,26 @@ public class ChatHub : Hub
         await Groups.RemoveFromGroupAsync(Context.ConnectionId, HubGroups.Channel(channelId));
     }
 
-    // content is already E2EE ciphertext by the time it gets here - the
-    // client encrypts client-side under that server's shared key before
-    // calling this (see Client/Services/E2eeService.cs and
-    // ServerMemberKey). This hub relays opaque bytes; it can't decrypt
-    // channel messages even if it wanted to.
-    public async Task SendMessage(int channelId, string content, string? attachmentUrl = null, int? replyToMessageId = null)
+    // content is already E2EE ciphertext by the time it gets here, encrypted
+    // client-side under a fresh one-time key generated just for this message
+    // (see Client/Services/E2eeService.cs and MessageRecipientKey) -
+    // recipientKeys carries that one-time key, individually wrapped for
+    // every member the client saw as current when it composed the message
+    // (including the sender itself, so its own history reload can still
+    // decrypt it). This hub relays opaque bytes; it can't decrypt channel
+    // messages even if it wanted to.
+    // forwardedFromAuthorUsername is set client-side when this message was
+    // created via the "Forward" action - a plain snapshot string (the
+    // original author's username at forward time), not a reference, since
+    // the source message may be in a channel/server/DM this recipient has no
+    // access to (see Message.ForwardedFromAuthorUsername).
+    private const int MaxForwardedUsernameLength = 64;
+
+    public async Task SendMessage(int channelId, string content, List<MessageKeyEnvelope> recipientKeys, string? attachmentUrl = null, int? replyToMessageId = null, string? forwardedFromAuthorUsername = null)
     {
         if (string.IsNullOrWhiteSpace(content) && string.IsNullOrWhiteSpace(attachmentUrl)) return;
         if (content.Length > ContentLimits.MaxMessageLength) return;
+        if (forwardedFromAuthorUsername is { Length: > MaxForwardedUsernameLength }) return;
 
         // Silently dropped rather than throwing - same treatment as the
         // empty-content no-op above. This is anti-spam, not a security
@@ -104,10 +115,30 @@ public class ChatHub : Hub
             Content = content ?? string.Empty,
             AttachmentUrl = attachmentUrl,
             SentAt = DateTime.UtcNow,
-            ReplyToMessageId = replyToMessageId
+            ReplyToMessageId = replyToMessageId,
+            ForwardedFromAuthorUsername = forwardedFromAuthorUsername
         };
 
         _db.Messages.Add(message);
+        await _db.SaveChangesAsync();
+
+        // Clamped to actual current members rather than trusting the
+        // client's list outright - a stale or misbehaving client can only
+        // ever narrow who gets a working copy of the key, never widen it to
+        // a non-member.
+        var memberIds = (await _db.Memberships
+                .Where(m => m.GuildServerId == channel.GuildServerId)
+                .Select(m => m.UserId)
+                .ToListAsync())
+            .ToHashSet();
+        var validKeys = recipientKeys.Where(k => memberIds.Contains(k.UserId)).ToList();
+
+        _db.MessageRecipientKeys.AddRange(validKeys.Select(k => new MessageRecipientKey
+        {
+            MessageId = message.Id,
+            UserId = k.UserId,
+            WrappedKey = k.WrappedKey
+        }));
         await _db.SaveChangesAsync();
 
         // CurrentUserId/CurrentUsername come straight from JWT claims, but
@@ -131,8 +162,16 @@ public class ChatHub : Hub
             ? null
             : await _db.Messages.Where(m => m.Id == replyToMessageId.Value).Select(m => (int?)m.AuthorId).FirstOrDefaultAsync();
 
-        var response = new MessageResponse(message.Id, message.Content, channelId, CurrentUserId, CurrentUsername, message.SentAt, message.AttachmentUrl, authorAvatarUrl, ReplyToMessageId: message.ReplyToMessageId, ReplyToAuthorId: replyToAuthorId);
-        await Clients.Group(HubGroups.Channel(channelId)).SendAsync("ReceiveMessage", response);
+        // Personalized per recipient (each only ever sees their own wrapped
+        // copy of the key, see MessageResponse.WrappedKeyForMe) - this can no
+        // longer be one shared Group broadcast the way it was under the old
+        // shared-server-key scheme. Clients.User(...) reaches every
+        // device/session that member has open, same as DMs already do.
+        foreach (var key in validKeys)
+        {
+            var response = new MessageResponse(message.Id, message.Content, channelId, CurrentUserId, CurrentUsername, message.SentAt, message.AttachmentUrl, authorAvatarUrl, ReplyToMessageId: message.ReplyToMessageId, ReplyToAuthorId: replyToAuthorId, ForwardedFromAuthorUsername: message.ForwardedFromAuthorUsername, WrappedKeyForMe: key.WrappedKey);
+            await Clients.User(key.UserId.ToString()).SendAsync("ReceiveMessage", response);
+        }
     }
 
     public async Task NotifyTyping(int channelId)
@@ -147,9 +186,17 @@ public class ChatHub : Hub
     // same shape EndCallInternalAsync already uses for decline/hangup.
     // Broadcasts only the delta (not a recomputed full reaction list) so
     // clients aggregate locally, same as UserSpeaking/UserMuted etc.
+    //
+    // Emoji is either a unicode glyph (from the fixed picker) or a
+    // "custom:{EmojiId}" token referencing a row in Emojis (see
+    // EmojisController/Client's CustomEmojiRegistry) - MaxEmojiTokenLength
+    // covers "custom:" (7 chars) plus a 10-digit int id with headroom.
+    private const int MaxEmojiTokenLength = 24;
+
     public async Task ToggleMessageReaction(int messageId, string emoji)
     {
-        if (string.IsNullOrWhiteSpace(emoji) || emoji.Length > 8) return;
+        if (string.IsNullOrWhiteSpace(emoji) || emoji.Length > MaxEmojiTokenLength) return;
+        if (!await IsValidEmojiTokenAsync(emoji)) return;
         if (!_messageRateLimiter.TryAcquire(CurrentUserId)) return;
 
         var message = await _db.Messages.Include(m => m.Channel).FirstOrDefaultAsync(m => m.Id == messageId);
@@ -181,7 +228,8 @@ public class ChatHub : Hub
 
     public async Task ToggleDirectMessageReaction(int messageId, string emoji)
     {
-        if (string.IsNullOrWhiteSpace(emoji) || emoji.Length > 8) return;
+        if (string.IsNullOrWhiteSpace(emoji) || emoji.Length > MaxEmojiTokenLength) return;
+        if (!await IsValidEmojiTokenAsync(emoji)) return;
         if (!_messageRateLimiter.TryAcquire(CurrentUserId)) return;
 
         var message = await _db.DirectMessages.FirstOrDefaultAsync(m => m.Id == messageId);
@@ -209,27 +257,18 @@ public class ChatHub : Hub
             .SendAsync("DirectMessageReactionToggled", messageId, emoji, CurrentUserId, added);
     }
 
-    // Called by a client that just joined a server (or opened one for the
-    // first time since E2EE shipped) and doesn't have a wrapped copy of its
-    // shared message key yet. Fans the request out to every other member's
-    // currently-connected sessions (not just whoever has the server "open"
-    // right now - Clients.Users reaches every connection that member has),
-    // so whichever of them already has the key unlocked in memory can wrap
-    // a copy for the requester and PUT it via ServersController.SetServerKey.
-    // If nobody who has the key happens to be online right now, the
-    // requester just stays locked until someone is - the same tradeoff
-    // every group-E2EE app (Signal, Matrix) makes, since nothing server-side
-    // can hand out a key it never has.
-    public async Task RequestServerKey(int serverId)
+    // Unicode glyph reactions (the fixed 48-emoji picker) pass through
+    // unchecked; a "custom:{id}" token must reference a real Emojis row so a
+    // tampered/stale id can't get stored and later render as a permanently
+    // broken image for everyone who sees the reaction. Deliberately not
+    // scoped to the reacting message's own server - a deleted/left server's
+    // emoji still resolving in an old reaction is harmless (same as an
+    // avatar from a user who since changed it), so this only guards against
+    // ids that never existed at all.
+    private async Task<bool> IsValidEmojiTokenAsync(string emoji)
     {
-        var otherMemberIds = await _db.Memberships
-            .Where(m => m.GuildServerId == serverId && m.UserId != CurrentUserId)
-            .Select(m => m.UserId)
-            .ToListAsync();
-
-        if (otherMemberIds.Count == 0) return;
-
-        await Clients.Users(otherMemberIds.Select(id => id.ToString())).SendAsync("ServerKeyRequested", serverId, CurrentUserId);
+        if (!emoji.StartsWith("custom:", StringComparison.Ordinal)) return true;
+        return int.TryParse(emoji.AsSpan(7), out var emojiId) && await _db.Emojis.AnyAsync(em => em.Id == emojiId);
     }
 
     // --- Direct messages ---
@@ -241,10 +280,11 @@ public class ChatHub : Hub
     // Client/Services/E2eeService.cs) using a key derived from both
     // participants' ECDH keypairs that the server never has. This hub
     // relays opaque bytes; it can't decrypt DMs even if it wanted to.
-    public async Task SendDirectMessage(int recipientId, string content, int? replyToMessageId = null)
+    public async Task SendDirectMessage(int recipientId, string content, int? replyToMessageId = null, string? forwardedFromAuthorUsername = null)
     {
         if (string.IsNullOrWhiteSpace(content)) return;
         if (content.Length > ContentLimits.MaxMessageLength) return;
+        if (forwardedFromAuthorUsername is { Length: > MaxForwardedUsernameLength }) return;
 
         // Shares the same per-user budget as SendMessage above - one spam
         // allowance across channels and DMs, not double the throughput by
@@ -271,7 +311,8 @@ public class ChatHub : Hub
             RecipientId = recipientId,
             Content = content,
             SentAt = DateTime.UtcNow,
-            ReplyToMessageId = replyToMessageId
+            ReplyToMessageId = replyToMessageId,
+            ForwardedFromAuthorUsername = forwardedFromAuthorUsername
         };
 
         _db.DirectMessages.Add(dm);
@@ -282,10 +323,23 @@ public class ChatHub : Hub
             ? null
             : await _db.DirectMessages.Where(m => m.Id == replyToMessageId.Value).Select(m => (int?)m.SenderId).FirstOrDefaultAsync();
 
-        var response = new Dtos.DirectMessageResponse(dm.Id, dm.Content, dm.SenderId, dm.RecipientId, dm.SentAt, ReplyToMessageId: dm.ReplyToMessageId, ReplyToAuthorId: replyToAuthorId);
+        var response = new Dtos.DirectMessageResponse(dm.Id, dm.Content, dm.SenderId, dm.RecipientId, dm.SentAt, ReplyToMessageId: dm.ReplyToMessageId, ReplyToAuthorId: replyToAuthorId, ForwardedFromAuthorUsername: dm.ForwardedFromAuthorUsername);
 
         await Clients.User(recipientId.ToString()).SendAsync("ReceiveDirectMessage", response);
         await Clients.User(CurrentUserId.ToString()).SendAsync("ReceiveDirectMessage", response);
+    }
+
+    // DM equivalent of NotifyTyping above - no group to broadcast to, so
+    // this targets the recipient directly. Same block check as
+    // SendDirectMessage, so a blocked user's typing state can't leak either.
+    public async Task NotifyDmTyping(int recipientId)
+    {
+        if (await _db.Blocks.AnyAsync(b =>
+                (b.BlockerId == CurrentUserId && b.BlockedId == recipientId) ||
+                (b.BlockerId == recipientId && b.BlockedId == CurrentUserId)))
+            return;
+
+        await Clients.User(recipientId.ToString()).SendAsync("DmUserTyping", CurrentUsername, CurrentUserId);
     }
 
     // Called when the current user opens/refreshes a DM conversation - marks

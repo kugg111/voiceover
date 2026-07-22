@@ -40,4 +40,30 @@ public class MessageRateLimiter
             return true;
         }
     }
+
+    // Removes per-user queues that are now empty after trimming - TryAcquire
+    // only ever trims a user's own queue lazily on THEIR next call, so a
+    // user who sends a burst and then goes permanently inactive would
+    // otherwise leave an empty queue (and dictionary entry) sitting in
+    // memory forever. The atomic KeyValuePair-based TryRemove only removes
+    // if the entry still holds this exact queue reference, so a concurrent
+    // TryAcquire that's mid-enqueue on the same user can't have its new
+    // entry silently dropped by a racing eviction pass.
+    public int EvictInactive()
+    {
+        var now = DateTime.UtcNow;
+        var removed = 0;
+        foreach (var (userId, queue) in _sends)
+        {
+            lock (queue)
+            {
+                while (queue.Count > 0 && now - queue.Peek() > _window)
+                    queue.Dequeue();
+                if (queue.Count == 0 &&
+                    _sends.TryRemove(new KeyValuePair<int, Queue<DateTime>>(userId, queue)))
+                    removed++;
+            }
+        }
+        return removed;
+    }
 }

@@ -26,6 +26,10 @@ public partial class EditPermissionsPage : UserControl
         KickMembersCheck.IsChecked = current.HasFlag(ServerPermission.KickMembers);
         ManageMessagesCheck.IsChecked = current.HasFlag(ServerPermission.ManageMessages);
         MuteMembersCheck.IsChecked = current.HasFlag(ServerPermission.MuteMembers);
+        MentionEveryoneCheck.IsChecked = current.HasFlag(ServerPermission.MentionEveryone);
+        ManageRolesCheck.IsChecked = current.HasFlag(ServerPermission.ManageRoles);
+        ManageServerCheck.IsChecked = current.HasFlag(ServerPermission.ManageServer);
+        ViewAuditLogCheck.IsChecked = current.HasFlag(ServerPermission.ViewAuditLog);
     }
 
     private async void SaveButton_Click(object sender, System.Windows.RoutedEventArgs e)
@@ -35,6 +39,10 @@ public partial class EditPermissionsPage : UserControl
         if (KickMembersCheck.IsChecked == true) permissions |= ServerPermission.KickMembers;
         if (ManageMessagesCheck.IsChecked == true) permissions |= ServerPermission.ManageMessages;
         if (MuteMembersCheck.IsChecked == true) permissions |= ServerPermission.MuteMembers;
+        if (MentionEveryoneCheck.IsChecked == true) permissions |= ServerPermission.MentionEveryone;
+        if (ManageRolesCheck.IsChecked == true) permissions |= ServerPermission.ManageRoles;
+        if (ManageServerCheck.IsChecked == true) permissions |= ServerPermission.ManageServer;
+        if (ViewAuditLogCheck.IsChecked == true) permissions |= ServerPermission.ViewAuditLog;
 
         var success = await _api.SetPermissionsAsync(_serverId, _userId, permissions);
         if (!success)

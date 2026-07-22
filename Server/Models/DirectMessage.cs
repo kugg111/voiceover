@@ -20,4 +20,7 @@ public class DirectMessage
 
     // No FK - same reasoning as Message.ReplyToMessageId.
     public int? ReplyToMessageId { get; set; }
+
+    // See Message.ForwardedFromAuthorUsername - same shape, DM equivalent.
+    public string? ForwardedFromAuthorUsername { get; set; }
 }

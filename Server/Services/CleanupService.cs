@@ -19,12 +19,24 @@ public class CleanupService : BackgroundService
     // that.
     private static readonly TimeSpan RevokedTokenRetention = TimeSpan.FromDays(30);
 
+    // In-memory (not DB-backed) per-process caches with no eviction of their
+    // own - see each class's EvictOlderThan/EvictInactive for why they'd
+    // otherwise grow without bound over a long process uptime. Safe to
+    // inject as singletons directly (unlike AppDbContext) since neither
+    // holds any scoped/disposable state.
+    private static readonly TimeSpan SlowModeEntryMaxAge = TimeSpan.FromHours(1);
+
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly SlowModeLimiter _slowModeLimiter;
+    private readonly MessageRateLimiter _messageRateLimiter;
     private readonly ILogger<CleanupService> _logger;
 
-    public CleanupService(IServiceScopeFactory scopeFactory, ILogger<CleanupService> logger)
+    public CleanupService(IServiceScopeFactory scopeFactory, SlowModeLimiter slowModeLimiter,
+        MessageRateLimiter messageRateLimiter, ILogger<CleanupService> logger)
     {
         _scopeFactory = scopeFactory;
+        _slowModeLimiter = slowModeLimiter;
+        _messageRateLimiter = messageRateLimiter;
         _logger = logger;
     }
 
@@ -57,10 +69,17 @@ public class CleanupService : BackgroundService
                 .Where(i => i.ExpiresAt != null && i.ExpiresAt < now)
                 .ExecuteDeleteAsync(ct);
 
+            var evictedSlowMode = _slowModeLimiter.EvictOlderThan(SlowModeEntryMaxAge);
+            var evictedRateLimit = _messageRateLimiter.EvictInactive();
+
             if (deletedTokens > 0 || deletedInvites > 0)
                 _logger.LogInformation(
                     "Cleanup pass removed {TokenCount} expired refresh tokens and {InviteCount} expired invites",
                     deletedTokens, deletedInvites);
+            if (evictedSlowMode > 0 || evictedRateLimit > 0)
+                _logger.LogInformation(
+                    "Cleanup pass evicted {SlowModeCount} stale slow-mode entries and {RateLimitCount} inactive rate-limit entries",
+                    evictedSlowMode, evictedRateLimit);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

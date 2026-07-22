@@ -25,18 +25,11 @@
             <RadioButton x:Name="Nsnet2Radio" Content="NSNet2" GroupName="NoiseBackend"
                          Foreground="{StaticResource TextNormal}" Margin="0,0,0,4"
                          Checked="NoiseSuppressionBackendRadio_Changed"/>
-            <TextBlock Text="RNNoise is a lightweight neural denoiser - lighter on CPU, sometimes more aggressive on background noise. NSNet2 is a heavier ML denoiser that re-analyzes a short rolling window on every frame rather than carrying state forward, so it costs more CPU than RNNoise. Try both and pick whichever sounds better on your mic."
+            <RadioButton x:Name="FacebookDenoiserRadio" Content="Facebook Denoiser" GroupName="NoiseBackend"
+                         Foreground="{StaticResource TextNormal}" Margin="0,0,0,4"
+                         Checked="NoiseSuppressionBackendRadio_Changed"/>
+            <TextBlock Text="RNNoise is a lightweight neural denoiser - lighter on CPU, sometimes more aggressive on background noise. NSNet2 is a heavier ML denoiser that re-analyzes a short rolling window on every frame rather than carrying state forward, so it costs more CPU than RNNoise. Facebook Denoiser is the heaviest of the three by a wide margin (a full deep model, not a lightweight RNN or a rolling-window re-analysis) but was noticeably more aggressive on real background noise in testing - worth trying if the other two aren't cutting it. Try all three and pick whichever sounds better on your mic."
                        FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}" Margin="0,0,0,8"/>
-
-            <CheckBox x:Name="Nsnet2GpuCheck" Content="Run NSNet2 on GPU" Margin="20,0,0,4"
-                      Foreground="{StaticResource TextNormal}"
-                      Checked="Nsnet2GpuCheck_Changed" Unchecked="Nsnet2GpuCheck_Changed"/>
-            <TextBlock x:Name="Nsnet2GpuHelpText" FontSize="11" TextWrapping="Wrap" Margin="20,0,0,8"
-                       Foreground="{StaticResource TextMuted}"
-                       Text="Uses any DirectX 12 GPU (NVIDIA/AMD/Intel), not just NVIDIA. NSNet2's model is small, so this often doesn't help - worth trying, but don't be surprised if CPU is just as fast or faster on your hardware. Falls back to CPU automatically if no compatible GPU is found."/>
-
-            <ComboBox x:Name="GpuDeviceCombo" Width="260" HorizontalAlignment="Left" Margin="20,0,0,12"
-                      DisplayMemberPath="Name" SelectionChanged="GpuDeviceCombo_SelectionChanged"/>
 
             <TextBlock Text="Suppression Mix" FontWeight="Bold"
                        Foreground="{StaticResource TextNormal}" Margin="0,12,0,4"/>

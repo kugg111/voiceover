@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore;
 namespace Voiceover.Server.Controllers;
 
 // Message content is always opaque E2EE ciphertext (see Dtos.MessageResponse
-// and ServerMemberKey) - this controller just stores/relays it, it never
+// and MessageRecipientKey) - this controller just stores/relays it, it never
 // decrypts.
 [ApiController]
 [Authorize]
@@ -60,9 +60,10 @@ public class MessagesController : ControllerBase
 
         var reactionsByMessage = await LoadReactionsAsync(messages.Select(m => m.Id).ToList());
         var replyAuthors = await LoadReplyAuthorsAsync(messages);
+        var recipientKeys = await LoadRecipientKeysAsync(messages.Select(m => m.Id).ToList());
 
         var response = messages
-            .Select(m => new MessageResponse(m.Id, m.Content, m.ChannelId, m.AuthorId, m.Author!.Username, m.SentAt, m.AttachmentUrl, m.Author!.AvatarUrl, m.EditedAt, reactionsByMessage.GetValueOrDefault(m.Id), m.PinnedAt, m.ReplyToMessageId, m.ReplyToMessageId is null ? null : replyAuthors.GetValueOrDefault(m.ReplyToMessageId.Value)))
+            .Select(m => new MessageResponse(m.Id, m.Content, m.ChannelId, m.AuthorId, m.Author!.Username, m.SentAt, m.AttachmentUrl, m.Author!.AvatarUrl, m.EditedAt, reactionsByMessage.GetValueOrDefault(m.Id), m.PinnedAt, m.ReplyToMessageId, m.ReplyToMessageId is null ? null : replyAuthors.GetValueOrDefault(m.ReplyToMessageId.Value), m.ForwardedFromAuthorUsername, recipientKeys.GetValueOrDefault(m.Id)))
             .ToList();
 
         return Ok(response);
@@ -93,9 +94,10 @@ public class MessagesController : ControllerBase
 
         var reactionsByMessage = await LoadReactionsAsync(messages.Select(m => m.Id).ToList());
         var replyAuthors = await LoadReplyAuthorsAsync(messages);
+        var recipientKeys = await LoadRecipientKeysAsync(messages.Select(m => m.Id).ToList());
 
         var response = messages
-            .Select(m => new MessageResponse(m.Id, m.Content, m.ChannelId, m.AuthorId, m.Author!.Username, m.SentAt, m.AttachmentUrl, m.Author!.AvatarUrl, m.EditedAt, reactionsByMessage.GetValueOrDefault(m.Id), m.PinnedAt, m.ReplyToMessageId, m.ReplyToMessageId is null ? null : replyAuthors.GetValueOrDefault(m.ReplyToMessageId.Value)))
+            .Select(m => new MessageResponse(m.Id, m.Content, m.ChannelId, m.AuthorId, m.Author!.Username, m.SentAt, m.AttachmentUrl, m.Author!.AvatarUrl, m.EditedAt, reactionsByMessage.GetValueOrDefault(m.Id), m.PinnedAt, m.ReplyToMessageId, m.ReplyToMessageId is null ? null : replyAuthors.GetValueOrDefault(m.ReplyToMessageId.Value), m.ForwardedFromAuthorUsername, recipientKeys.GetValueOrDefault(m.Id)))
             .ToList();
 
         return Ok(response);
@@ -177,6 +179,21 @@ public class MessagesController : ControllerBase
             .ToDictionaryAsync(m => m.Id, m => m.AuthorId);
     }
 
+    // Only ever the CALLING user's own wrapped copy (see
+    // MessageResponse.WrappedKeyForMe) - never anyone else's, so a history
+    // response can't leak who else has a working key for a message beyond
+    // what channel membership already implies. A message this caller joined
+    // the server after (or was never wrapped for, e.g. a stale sender's
+    // member list) simply has no entry here, same as a null Reactions list.
+    private async Task<Dictionary<int, string>> LoadRecipientKeysAsync(List<int> messageIds)
+    {
+        if (messageIds.Count == 0) return new();
+
+        return await _db.MessageRecipientKeys
+            .Where(k => messageIds.Contains(k.MessageId) && k.UserId == CurrentUserId)
+            .ToDictionaryAsync(k => k.MessageId, k => k.WrappedKey);
+    }
+
     // Author-only - unlike Delete, moderators can remove someone else's
     // message but shouldn't be able to rewrite their words.
     [HttpPut("{messageId}")]
@@ -187,23 +204,51 @@ public class MessagesController : ControllerBase
 
         var message = await _db.Messages
             .Include(m => m.Author)
+            .Include(m => m.Channel)
             .FirstOrDefaultAsync(m => m.Id == messageId && m.ChannelId == channelId);
 
         if (message is null) return NotFound();
         if (message.AuthorId != CurrentUserId) return Forbid();
 
-        // request.Content is already E2EE ciphertext by the time it gets
-        // here - the client always encrypts before calling this (see
-        // ApiService/MainWindow's channel-edit path).
+        // request.Content is already E2EE ciphertext under a brand new
+        // one-time key by the time it gets here - editing can't reuse the
+        // original message's key (the client never keeps a per-message key
+        // around past send time, see E2eeService), so every recipient's
+        // wrapped copy has to be replaced wholesale to match. Same "clamp to
+        // actual current members" guard as ChatHub.SendMessage.
+        var memberIds = (await _db.Memberships
+                .Where(m => m.GuildServerId == message.Channel!.GuildServerId)
+                .Select(m => m.UserId)
+                .ToListAsync())
+            .ToHashSet();
+        var validKeys = (request.RecipientKeys ?? new()).Where(k => memberIds.Contains(k.UserId)).ToList();
+
+        _db.MessageRecipientKeys.RemoveRange(_db.MessageRecipientKeys.Where(k => k.MessageId == messageId));
+        _db.MessageRecipientKeys.AddRange(validKeys.Select(k => new MessageRecipientKey
+        {
+            MessageId = messageId,
+            UserId = k.UserId,
+            WrappedKey = k.WrappedKey
+        }));
+
         message.Content = request.Content;
         message.EditedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
 
         var reactions = (await LoadReactionsAsync(new List<int> { messageId })).GetValueOrDefault(messageId);
         var replyAuthors = await LoadReplyAuthorsAsync(new List<Message> { message });
-        var response = new MessageResponse(message.Id, message.Content, channelId, message.AuthorId, message.Author!.Username, message.SentAt, message.AttachmentUrl, message.Author.AvatarUrl, message.EditedAt, reactions, message.PinnedAt, message.ReplyToMessageId, message.ReplyToMessageId is null ? null : replyAuthors.GetValueOrDefault(message.ReplyToMessageId.Value));
-        await _hub.Clients.Group(HubGroups.Channel(channelId)).SendAsync("MessageEdited", response);
 
+        // Personalized per recipient, same reasoning as ChatHub.SendMessage -
+        // each only ever sees their own wrapped copy of the (new) key, so
+        // this can no longer be one shared Group broadcast.
+        foreach (var key in validKeys)
+        {
+            var pushResponse = new MessageResponse(message.Id, message.Content, channelId, message.AuthorId, message.Author!.Username, message.SentAt, message.AttachmentUrl, message.Author.AvatarUrl, message.EditedAt, reactions, message.PinnedAt, message.ReplyToMessageId, message.ReplyToMessageId is null ? null : replyAuthors.GetValueOrDefault(message.ReplyToMessageId.Value), message.ForwardedFromAuthorUsername, key.WrappedKey);
+            await _hub.Clients.User(key.UserId.ToString()).SendAsync("MessageEdited", pushResponse);
+        }
+
+        var ownWrappedKey = validKeys.FirstOrDefault(k => k.UserId == CurrentUserId)?.WrappedKey;
+        var response = new MessageResponse(message.Id, message.Content, channelId, message.AuthorId, message.Author!.Username, message.SentAt, message.AttachmentUrl, message.Author.AvatarUrl, message.EditedAt, reactions, message.PinnedAt, message.ReplyToMessageId, message.ReplyToMessageId is null ? null : replyAuthors.GetValueOrDefault(message.ReplyToMessageId.Value), message.ForwardedFromAuthorUsername, ownWrappedKey);
         return Ok(response);
     }
 

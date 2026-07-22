@@ -272,7 +272,12 @@ public class UsersController : ControllerBase
         _db.CallRecords.RemoveRange(_db.CallRecords.Where(c => c.CallerId == CurrentUserId || c.CalleeId == CurrentUserId));
         _db.MessageReactions.RemoveRange(_db.MessageReactions.Where(r => r.UserId == CurrentUserId));
         _db.DirectMessageReactions.RemoveRange(_db.DirectMessageReactions.Where(r => r.UserId == CurrentUserId));
-        _db.ServerMemberKeys.RemoveRange(_db.ServerMemberKeys.Where(k => k.UserId == CurrentUserId || k.WrappedByUserId == CurrentUserId));
+        // Only the recipient side needs explicit cleanup - MessageRecipientKey
+        // has a real FK on MessageId (cascades when the message itself is
+        // deleted, including this account's own authored messages below), but
+        // none on UserId, so a row where this account was merely a RECIPIENT
+        // of someone else's still-existing message needs removing by hand.
+        _db.MessageRecipientKeys.RemoveRange(_db.MessageRecipientKeys.Where(k => k.UserId == CurrentUserId));
 
         // Cascades Memberships, authored channel Messages, and RefreshTokens
         // automatically - all three are real, required FKs (confirmed via

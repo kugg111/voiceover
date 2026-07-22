@@ -389,13 +389,54 @@ public class ApiService
     public async Task<bool> ReorderChannelsAsync(int serverId, List<int> orderedChannelIds)
         => (await _http.PutAsJsonAsync($"api/servers/{serverId}/channels/reorder", new ReorderChannelsRequest(orderedChannelIds))).IsSuccessStatusCode;
 
+    public async Task<bool> SetChannelCategoryAsync(int serverId, int channelId, int? categoryId)
+        => (await _http.PutAsJsonAsync($"api/servers/{serverId}/channels/{channelId}/category", new SetChannelCategoryRequest(categoryId))).IsSuccessStatusCode;
+
+    public async Task<List<CategoryResponse>> GetCategoriesAsync(int serverId)
+        => await _http.GetFromJsonAsync<List<CategoryResponse>>($"api/servers/{serverId}/categories") ?? new();
+
+    public async Task<CategoryResponse?> CreateCategoryAsync(int serverId, string name)
+    {
+        var response = await _http.PostAsJsonAsync($"api/servers/{serverId}/categories", new CreateCategoryRequest(name));
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<CategoryResponse>()
+            : null;
+    }
+
+    public async Task<bool> RenameCategoryAsync(int serverId, int categoryId, string name)
+        => (await _http.PutAsJsonAsync($"api/servers/{serverId}/categories/{categoryId}/rename", new RenameCategoryRequest(name))).IsSuccessStatusCode;
+
+    public async Task<bool> DeleteCategoryAsync(int serverId, int categoryId)
+        => (await _http.DeleteAsync($"api/servers/{serverId}/categories/{categoryId}")).IsSuccessStatusCode;
+
+    public async Task<bool> ReorderCategoriesAsync(int serverId, List<int> orderedCategoryIds)
+        => (await _http.PutAsJsonAsync($"api/servers/{serverId}/categories/reorder", new ReorderCategoriesRequest(orderedCategoryIds))).IsSuccessStatusCode;
+
+    public async Task<List<EmojiResponse>> GetServerEmojisAsync(int serverId)
+        => await _http.GetFromJsonAsync<List<EmojiResponse>>($"api/servers/{serverId}/emojis") ?? new();
+
+    // ManageChannels-gated server-side (see EmojisController.Create) - url is
+    // a relative /uploads/... path already returned by UploadFileAsync.
+    public async Task<(EmojiResponse? Result, string? Error)> CreateServerEmojiAsync(int serverId, string name, string url)
+    {
+        var response = await _http.PostAsJsonAsync($"api/servers/{serverId}/emojis", new CreateEmojiRequest(name, url));
+        if (response.IsSuccessStatusCode)
+            return (await response.Content.ReadFromJsonAsync<EmojiResponse>(), null);
+
+        var error = (await response.Content.ReadAsStringAsync()).Trim('"');
+        return (null, string.IsNullOrWhiteSpace(error) ? "Could not create emoji." : error);
+    }
+
+    public async Task<bool> DeleteServerEmojiAsync(int serverId, int emojiId)
+        => (await _http.DeleteAsync($"api/servers/{serverId}/emojis/{emojiId}")).IsSuccessStatusCode;
+
     public async Task<List<MessageResponse>> GetMessageHistoryAsync(int channelId, int? beforeId = null)
         => await _http.GetFromJsonAsync<List<MessageResponse>>(
             $"api/channels/{channelId}/messages?take=50{(beforeId.HasValue ? $"&beforeId={beforeId}" : "")}") ?? new();
 
-    public async Task<MessageResponse?> EditMessageAsync(int channelId, int messageId, string content)
+    public async Task<MessageResponse?> EditMessageAsync(int channelId, int messageId, string content, List<MessageKeyEnvelope> recipientKeys)
     {
-        var response = await _http.PutAsJsonAsync($"api/channels/{channelId}/messages/{messageId}", new EditMessageRequest(content));
+        var response = await _http.PutAsJsonAsync($"api/channels/{channelId}/messages/{messageId}", new EditMessageRequest(content, recipientKeys));
         return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<MessageResponse>() : null;
     }
 
@@ -554,22 +595,6 @@ public class ApiService
             return null;
         }
     }
-
-    // --- E2EE server (channel-message) keys ---
-    public async Task<ServerKeyResponse?> GetMyServerKeyAsync(int serverId)
-    {
-        try
-        {
-            return await _http.GetFromJsonAsync<ServerKeyResponse>($"api/servers/{serverId}/keys/me");
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    public async Task<bool> SetServerKeyAsync(int serverId, int targetUserId, string wrappedKey)
-        => (await _http.PutAsJsonAsync($"api/servers/{serverId}/keys/{targetUserId}", new SetServerKeyRequest(wrappedKey))).IsSuccessStatusCode;
 
     // --- Friends ---
     public async Task<List<FriendResponse>> GetFriendsAsync()

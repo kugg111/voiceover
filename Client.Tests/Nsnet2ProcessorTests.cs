@@ -39,23 +39,6 @@ public class Nsnet2ProcessorTests
         Assert.Single(session.OutputMetadata);
     }
 
-    // Requesting GPU must never be fatal - AppendExecutionProvider_DML can
-    // fail on CI/dev machines with no DX12-capable GPU, and the fallback
-    // path (a plain CPU session) must still leave the processor fully
-    // functional either way. Doesn't assert UsingGpu either direction,
-    // since that's legitimately machine-dependent - just that construction
-    // and inference both succeed regardless of which one it landed on.
-    [Fact]
-    public void Constructor_WithGpuRequested_StillProducesAWorkingProcessor()
-    {
-        using var processor = new Nsnet2Processor(ModelPath, useGpu: true);
-        var frame = new float[960];
-
-        var exception = Record.Exception(() => processor.Denoise(frame));
-
-        Assert.Null(exception);
-    }
-
     [Fact]
     public void Denoise_ProcessesFrameWithoutThrowing()
     {

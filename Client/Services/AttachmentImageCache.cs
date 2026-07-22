@@ -15,6 +15,19 @@ namespace Voiceover.Client.Services;
 // upload), so caching forever with no invalidation is safe here too.
 public static class AttachmentImageCache
 {
+    // Unlike the avatar cache (naturally bounded by distinct-user count),
+    // a long session scrolling image-heavy channel history can decode
+    // arbitrarily many distinct attachment URLs - cap how many decoded
+    // bitmaps stay resident. A plain bounded-FIFO eviction (oldest-inserted
+    // first) rather than true LRU - simpler, and "good enough" here since
+    // the failure mode of evicting a still-relevant image early is just a
+    // cheap re-download/re-decode next time it scrolls into view, not a
+    // correctness issue. The on-disk cache (below) stays unbounded - disk
+    // is cheap and content-addressed uploads mean it never grows from
+    // duplicate content anyway.
+    private const int MaxCachedImages = 200;
+    private static readonly ConcurrentQueue<string> InsertionOrder = new();
+
     private static readonly ConcurrentDictionary<string, BitmapImage> MemoryCache = new();
     private static readonly ConcurrentDictionary<string, Task<BitmapImage?>> InFlight = new();
     private static readonly HttpClient Http = new();
@@ -76,6 +89,10 @@ public static class AttachmentImageCache
             bitmap.Freeze();
 
             MemoryCache[url] = bitmap;
+            InsertionOrder.Enqueue(url);
+            while (MemoryCache.Count > MaxCachedImages && InsertionOrder.TryDequeue(out var oldest))
+                MemoryCache.TryRemove(oldest, out _);
+
             return bitmap;
         }
         catch

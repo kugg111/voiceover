@@ -8,7 +8,11 @@
         <CheckBox x:Name="ManageChannelsCheck" Content="Manage Channels" Foreground="{StaticResource TextNormal}" Margin="0,0,0,8"/>
         <CheckBox x:Name="KickMembersCheck" Content="Kick / Ban Members" Foreground="{StaticResource TextNormal}" Margin="0,0,0,8"/>
         <CheckBox x:Name="ManageMessagesCheck" Content="Manage Messages (pin, delete, purge)" Foreground="{StaticResource TextNormal}" Margin="0,0,0,8"/>
-        <CheckBox x:Name="MuteMembersCheck" Content="Mute Members" Foreground="{StaticResource TextNormal}" Margin="0,0,0,16"/>
+        <CheckBox x:Name="MuteMembersCheck" Content="Mute Members" Foreground="{StaticResource TextNormal}" Margin="0,0,0,8"/>
+        <CheckBox x:Name="MentionEveryoneCheck" Content="Mention @everyone / @here" Foreground="{StaticResource TextNormal}" Margin="0,0,0,8"/>
+        <CheckBox x:Name="ManageRolesCheck" Content="Manage Roles (promote/demote Moderators)" Foreground="{StaticResource TextNormal}" Margin="0,0,0,8"/>
+        <CheckBox x:Name="ManageServerCheck" Content="Manage Server (rename, icon, discoverability)" Foreground="{StaticResource TextNormal}" Margin="0,0,0,8"/>
+        <CheckBox x:Name="ViewAuditLogCheck" Content="View Ban List / Moderation Log" Foreground="{StaticResource TextNormal}" Margin="0,0,0,16"/>
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
             <Button x:Name="SaveButton" Content="Save" Height="36" Width="90" Margin="0,0,8,0"

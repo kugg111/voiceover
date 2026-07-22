@@ -3,12 +3,11 @@ using System.Text.Json;
 
 namespace Voiceover.Client.Services;
 
-// Personal, client-local notification-mute preference, keyed by channel and
-// by server - distinct from the moderation ServerPermission.MuteMembers
-// permission (that mutes someone's mic for everyone; this only silences
-// notifications for whoever set it, on this device). Deliberately scoped to
-// channels/servers only, not DMs. Same local-file shape/location convention
-// as UserVolumeStorage.
+// Personal, client-local notification-mute preference, keyed by channel, by
+// server, and by DM conversation (other user's id) - distinct from the
+// moderation ServerPermission.MuteMembers permission (that mutes someone's
+// mic for everyone; this only silences notifications for whoever set it, on
+// this device). Same local-file shape/location convention as UserVolumeStorage.
 public static class NotificationMuteStorage
 {
     private static readonly string FilePath = Path.Combine(
@@ -19,6 +18,7 @@ public static class NotificationMuteStorage
     {
         public HashSet<int> Channels { get; set; } = new();
         public HashSet<int> Servers { get; set; } = new();
+        public HashSet<int> DirectMessages { get; set; } = new();
     }
 
     // Loaded once and kept in memory - this file is only ever written by
@@ -29,6 +29,7 @@ public static class NotificationMuteStorage
 
     public static bool IsChannelMuted(int channelId) => Cache.Value.Channels.Contains(channelId);
     public static bool IsServerMuted(int serverId) => Cache.Value.Servers.Contains(serverId);
+    public static bool IsDmMuted(int otherUserId) => Cache.Value.DirectMessages.Contains(otherUserId);
 
     public static void SetChannelMuted(int channelId, bool muted)
     {
@@ -41,6 +42,13 @@ public static class NotificationMuteStorage
     {
         if (muted) Cache.Value.Servers.Add(serverId);
         else Cache.Value.Servers.Remove(serverId);
+        Save();
+    }
+
+    public static void SetDmMuted(int otherUserId, bool muted)
+    {
+        if (muted) Cache.Value.DirectMessages.Add(otherUserId);
+        else Cache.Value.DirectMessages.Remove(otherUserId);
         Save();
     }
 

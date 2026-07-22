@@ -60,24 +60,21 @@ public class PermissionServiceTests
         Assert.False(await permissions.IsOwnerAsync(2, 1));
     }
 
+    // ViewAuditLog gates GetBans/GetModerationLog - replaces the old coarse
+    // "has any permission at all" CanManageServerAsync check this test used
+    // to exercise (removed once every call site moved to the granular
+    // HasPermissionAsync check, see ServersController).
     [Theory]
     [InlineData(MemberRole.Owner, ServerPermission.All, true)]
-    [InlineData(MemberRole.Moderator, ServerPermission.All, true)]
-    [InlineData(MemberRole.Moderator, ServerPermission.None, false)] // an Owner can strip a Moderator down to no powers without demoting them
+    [InlineData(MemberRole.Moderator, ServerPermission.ViewAuditLog, true)]
+    [InlineData(MemberRole.Moderator, ServerPermission.None, false)]
+    [InlineData(MemberRole.Moderator, ServerPermission.ManageChannels, false)] // a different bit doesn't imply this one
     [InlineData(MemberRole.Member, ServerPermission.All, false)] // Permissions is only ever consulted for Moderator rows
-    public async Task CanManageServerAsync_MatchesExpectedCoarseRule(MemberRole role, ServerPermission permissions, bool expected)
+    public async Task HasPermissionAsync_ViewAuditLog_MatchesExpectedRule(MemberRole role, ServerPermission permissions, bool expected)
     {
         var (_, permissionService) = await SeedAsync(serverId: 1, userId: 1, role, permissions);
 
-        Assert.Equal(expected, await permissionService.CanManageServerAsync(1, 1));
-    }
-
-    [Fact]
-    public async Task CanManageServerAsync_ReturnsFalse_ForNonMember()
-    {
-        var (_, permissions) = await SeedAsync(serverId: 1, userId: 1, MemberRole.Owner);
-
-        Assert.False(await permissions.CanManageServerAsync(999, 1));
+        Assert.Equal(expected, await permissionService.HasPermissionAsync(1, 1, ServerPermission.ViewAuditLog));
     }
 
     [Theory]

@@ -1,9 +1,17 @@
 using System.Security.Cryptography;
 using System.Text;
+using Voiceover.Client.Models;
 
 namespace Voiceover.Client.Services;
 
 public enum E2eeUnlockResult { Ok, WrongPassword, ServerError }
+
+// Content is the single ciphertext body (encrypted once under a fresh
+// per-message key); RecipientKeys is that key wrapped individually for every
+// current member who could be derived for (see
+// E2eeService.EncryptForChannelAsync) - both travel together to
+// ChatHub.SendMessage/MessagesController.Edit.
+public record ChannelEncryptResult(string Content, List<MessageKeyEnvelope> RecipientKeys);
 
 // True end-to-end encryption for DMs - the server never holds a usable key
 // (see Server/Services/MessageEncryptionService.cs for the at-rest scheme
@@ -162,103 +170,70 @@ public class E2eeService
         }
     }
 
-    // --- Server (channel-message) keys - one shared AES-256 key per
-    // GuildServer, asymmetrically wrapped per member (see
-    // Server/Models/ServerMemberKey.cs). Unlike a DM's key, this one can't
-    // be derived on demand from a peer's public key alone - it's a random
-    // secret that has to be handed off member-to-member, wrapped so only
-    // the intended recipient can open it (see GetServerKeyAsync/
-    // ProvisionServerKeyForPeerAsync). Same tradeoff every group-E2EE app
-    // makes: a brand new member can't read history until an already-online
-    // member with the key hands them a copy. ---
+    // --- Channel-message keys - a fresh random AES-256 key per MESSAGE,
+    // asymmetrically wrapped for every current member of the sending
+    // channel's server (see Server/Models/MessageRecipientKey.cs), including
+    // the sender itself. Replaces the old one-shared-key-per-server scheme
+    // (still visible in git history), which required an already-onboarded
+    // member to be online to hand a new member a copy - two brand new
+    // members joining together could deadlock forever with neither able to
+    // grant the other access. Wrapping fresh per message instead means a
+    // member just needs to already be a member when a message is SENT, with
+    // no separate grant step ever required - whoever's in the member list
+    // at that moment gets a working copy of that message's key, full stop.
+    // ---
 
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, byte[]> _serverKeyCache = new();
-
-    public bool HasServerKeyCached(int serverId) => _serverKeyCache.ContainsKey(serverId);
-
-    // Fetches and unwraps this device's copy of a server's shared key, if
-    // it has one yet. Returns null when no copy is available right now -
-    // the caller (MainWindow) should show a locked/placeholder state and
-    // call ChatHub.RequestServerKey to ask an online peer to grant access,
-    // then retry this after a ServerKeyProvisioned push comes in.
-    public async Task<byte[]?> GetServerKeyAsync(int serverId)
+    // Encrypts plaintext for every current member of a server's channel.
+    // Returns null if this device's keys aren't unlocked, or the member list
+    // couldn't be fetched, or came back with nobody this device could wrap
+    // for at all (never happens in practice - the sender is always in their
+    // own server's member list). A peer with no public key on file yet (or a
+    // failed derivation) is simply skipped for that one recipient rather
+    // than failing the whole send - same "some recipients might not be
+    // ready yet" tolerance ChatHub.SendMessage's own member-list clamp
+    // already assumes server-side.
+    public async Task<ChannelEncryptResult?> EncryptForChannelAsync(int serverId, string plaintext)
     {
-        if (_serverKeyCache.TryGetValue(serverId, out var cached)) return cached;
         if (_privateKey is null) return null;
 
-        var material = await _api.GetMyServerKeyAsync(serverId);
-        if (material?.WrappedKey is null || material.WrappedByUserId is null) return null;
+        var members = await _api.GetMembersAsync(serverId);
+        if (members.Count == 0) return null;
 
-        var wrapKey = await DerivePeerKeyAsync(material.WrappedByUserId.Value, ServerKeyWrapInfoPrefix(serverId));
-        if (wrapKey is null) return null;
+        var messageKey = RandomNumberGenerator.GetBytes(32);
+        var content = Convert.ToBase64String(WrapBytes(Encoding.UTF8.GetBytes(plaintext), messageKey));
+
+        var recipientKeys = new List<MessageKeyEnvelope>();
+        foreach (var member in members)
+        {
+            var wrapKey = await DerivePeerKeyAsync(member.UserId, ChannelKeyWrapInfoPrefix);
+            if (wrapKey is null) continue;
+
+            recipientKeys.Add(new MessageKeyEnvelope(member.UserId, Convert.ToBase64String(WrapBytes(messageKey, wrapKey))));
+        }
+
+        if (recipientKeys.Count == 0) return null;
+        return new ChannelEncryptResult(content, recipientKeys);
+    }
+
+    // Decrypts a channel message using this device's own wrapped copy of
+    // its one-time key (MessageResponse.WrappedKeyForMe) - never throws,
+    // same fail-closed placeholder convention as DecryptAsync. A null
+    // wrappedKeyForMe means this device was never wrapped for this message
+    // at all (joined the server after it was sent, or was missing from the
+    // sender's member list at send time) - permanently unreadable by
+    // design, not a transient "wait and retry" state like the old
+    // shared-key scheme's locked placeholder was.
+    public async Task<string> DecryptChannelMessageAsync(int authorId, string? wrappedKeyForMe, string packedContentBase64)
+    {
+        if (wrappedKeyForMe is null) return "[Encrypted message - no key for this device]";
+
+        var wrapKey = await DerivePeerKeyAsync(authorId, ChannelKeyWrapInfoPrefix);
+        if (wrapKey is null) return "[Encrypted message - your keys aren't unlocked yet]";
 
         try
         {
-            var keyBytes = UnwrapBytes(Convert.FromBase64String(material.WrappedKey), wrapKey);
-            _serverKeyCache[serverId] = keyBytes;
-            return keyBytes;
-        }
-        catch (Exception ex) when (ex is FormatException or CryptographicException or ArgumentException)
-        {
-            // Corrupted or foreign blob - shouldn't happen in normal
-            // operation (the server never lets an existing row be
-            // overwritten), but fail closed rather than crash.
-            return null;
-        }
-    }
-
-    // Generates a brand new server key and self-wraps it - call this right
-    // after creating a server, the one moment a device can be certain no
-    // key exists for it yet anywhere (see ServersController.SetServerKey's
-    // owner-only bootstrap guard for why that certainty matters: two
-    // members each generating their own "first" key would permanently
-    // split the server's history in two).
-    public async Task<bool> GenerateAndUploadServerKeyAsync(int serverId)
-    {
-        if (_privateKey is null) return false;
-
-        var key = RandomNumberGenerator.GetBytes(32);
-        var myUserId = _api.CurrentUserId!.Value;
-        var wrapKey = await DerivePeerKeyAsync(myUserId, ServerKeyWrapInfoPrefix(serverId));
-        if (wrapKey is null) return false;
-
-        var uploaded = await _api.SetServerKeyAsync(serverId, myUserId, Convert.ToBase64String(WrapBytes(key, wrapKey)));
-        if (!uploaded) return false;
-
-        _serverKeyCache[serverId] = key;
-        return true;
-    }
-
-    // Wraps this device's already-unlocked copy of a server key for a
-    // fellow member who just asked for one (ChatHub.RequestServerKey) -
-    // the actual "onboarding" step. No-ops if this device doesn't have the
-    // key cached itself (nothing to hand over) - some other online member
-    // may still answer the same request.
-    public async Task<bool> ProvisionServerKeyForPeerAsync(int serverId, int requesterUserId)
-    {
-        if (!_serverKeyCache.TryGetValue(serverId, out var key)) return false;
-
-        var wrapKey = await DerivePeerKeyAsync(requesterUserId, ServerKeyWrapInfoPrefix(serverId));
-        if (wrapKey is null) return false;
-
-        return await _api.SetServerKeyAsync(serverId, requesterUserId, Convert.ToBase64String(WrapBytes(key, wrapKey)));
-    }
-
-    public async Task<string?> EncryptForServerAsync(int serverId, string plaintext)
-    {
-        var key = await GetServerKeyAsync(serverId);
-        if (key is null) return null;
-        return Convert.ToBase64String(WrapBytes(Encoding.UTF8.GetBytes(plaintext), key));
-    }
-
-    public async Task<string> DecryptForServerAsync(int serverId, string packedBase64)
-    {
-        var key = await GetServerKeyAsync(serverId);
-        if (key is null) return "[Encrypted message - waiting for a member to grant this device access]";
-
-        try
-        {
-            return DecryptPacked(packedBase64, key);
+            var messageKey = UnwrapBytes(Convert.FromBase64String(wrappedKeyForMe), wrapKey);
+            return DecryptPacked(packedContentBase64, messageKey);
         }
         catch (Exception ex) when (ex is FormatException or CryptographicException or ArgumentException)
         {
@@ -266,10 +241,11 @@ public class E2eeService
         }
     }
 
-    // Distinct info namespace per server so the same two users' ECDH
-    // shared secret can never collide with (or be confused for) their DM
-    // message key, or their wrap key in a different shared server.
-    private static string ServerKeyWrapInfoPrefix(int serverId) => $"voiceover-serverkey-wrap:{serverId}";
+    // No server id needed (unlike the old per-server wrap key) - each
+    // message's key is freshly random and never reused, so the only actual
+    // requirement is domain separation from a DM's own message key, not
+    // per-server separation.
+    private const string ChannelKeyWrapInfoPrefix = "voiceover-channelkey-wrap";
 
     // Span-based work pulled into its own non-async method - ref structs
     // (Span<T>/ReadOnlySpan<T>) can't be used as locals inside an async
