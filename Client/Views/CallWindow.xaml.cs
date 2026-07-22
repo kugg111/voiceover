@@ -266,7 +266,7 @@ public partial class CallWindow : FluentWindow
             return;
         }
 
-        _remoteViewer = new ScreenShareViewerWindow(_otherRosterItem.Username, _otherPartyPlayback);
+        _remoteViewer = new ScreenShareViewerWindow(_otherRosterItem.Username, _otherPartyPlayback, _voice, OtherPartyUserId);
         _remoteViewer.Closed += (_, _) => _remoteViewer = null;
         _remoteViewer.Show();
     }

@@ -2554,6 +2554,7 @@ public partial class MainWindow : FluentWindow
     {
         if (sender is not FrameworkElement { Tag: int userId }) return;
         if (!_activeScreenShares.TryGetValue(userId, out var playback)) return;
+        if (_voice is null) return;
 
         if (_screenShareViewers.TryGetValue(userId, out var existing))
         {
@@ -2562,7 +2563,7 @@ public partial class MainWindow : FluentWindow
         }
 
         var member = FindVoiceChannelItem(_currentVoiceChannelId ?? -1)?.Members.FirstOrDefault(m => m.UserId == userId);
-        var viewer = new ScreenShareViewerWindow(member?.Username ?? "Someone", playback);
+        var viewer = new ScreenShareViewerWindow(member?.Username ?? "Someone", playback, _voice, userId);
         _screenShareViewers[userId] = viewer;
         viewer.Closed += (_, _) => _screenShareViewers.Remove(userId);
         viewer.Show();

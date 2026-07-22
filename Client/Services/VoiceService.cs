@@ -351,6 +351,33 @@ public class VoiceService : IAsyncDisposable
             playback.PlaybackVolume = volume;
     }
 
+    // Same idea as SetRemoteVolume above, but for a screen-sharer's system
+    // audio track specifically (see _remoteScreenAudioPlaybacks) - a
+    // completely separate NAudio pipeline from their mic, so it needs its
+    // own volume control. Used by ScreenShareViewerWindow's slider.
+    public void SetRemoteScreenAudioVolume(int userId, float volume)
+    {
+        if (_remoteScreenAudioPlaybacks.TryGetValue(userId, out var playback))
+            playback.PlaybackVolume = volume;
+    }
+
+    // Lets a newly-opened ScreenShareViewerWindow initialize its slider to
+    // whatever volume is already in effect (e.g. the UserVolumeStorage
+    // default applied when the track was first subscribed) instead of
+    // silently resetting it to 100%.
+    public float GetRemoteScreenAudioVolume(int userId) =>
+        _remoteScreenAudioPlaybacks.TryGetValue(userId, out var playback) ? playback.PlaybackVolume : 1.0f;
+
+    // Turns a screen-sharer's system-audio playback on/off based on whether
+    // a ScreenShareViewerWindow is actually open for them right now (see
+    // RemoteAudioPlayback.IsListening) - called from that window's
+    // constructor/OnClosed.
+    public void SetRemoteScreenAudioListening(int userId, bool listening)
+    {
+        if (_remoteScreenAudioPlaybacks.TryGetValue(userId, out var playback))
+            playback.IsListening = listening;
+    }
+
     public VoiceService(SignalRService hub, int selfUserId)
     {
         _hub = hub;
@@ -461,7 +488,14 @@ public class VoiceService : IAsyncDisposable
             // subscription is for so they land in separate dictionaries
             // instead of one overwriting the other.
             if (audioTrack.Name == "system-audio")
+            {
+                // Starts muted - only actually plays once a viewer window is
+                // opened for this share (see SetRemoteScreenAudioListening),
+                // so sharing system audio doesn't blast through everyone's
+                // speakers the instant it starts, completely unwatched.
+                playback.IsListening = false;
                 _remoteScreenAudioPlaybacks[userId] = playback;
+            }
             else
                 _remotePlaybacks[userId] = playback;
         }

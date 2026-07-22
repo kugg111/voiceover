@@ -26,6 +26,15 @@ public class RemoteAudioPlayback : IAsyncDisposable
     // jitter buffer.
     public bool Deafened { get; set; }
 
+    // Same gating mechanism as Deafened, for a different reason: screen-share
+    // system audio (see VoiceService's "system-audio" track) should only
+    // actually reach the speaker while a ScreenShareViewerWindow is open for
+    // it - otherwise sharing your system audio would blast through
+    // everyone's speakers the instant it starts, completely unwatched.
+    // Regular mic playback leaves this at its default true, since voice
+    // channel audio should always play regardless of any window being open.
+    public bool IsListening { get; set; } = true;
+
     public RemoteAudioPlayback(RemoteAudioTrack track, int outputDeviceIndex)
     {
         _outputDeviceIndex = outputDeviceIndex;
@@ -39,7 +48,7 @@ public class RemoteAudioPlayback : IAsyncDisposable
         {
             await foreach (var frameEvent in _stream.WithCancellation(ct))
             {
-                if (Deafened) continue;
+                if (Deafened || !IsListening) continue;
 
                 var frame = frameEvent.Frame;
                 var pcm = frame.DataArray;

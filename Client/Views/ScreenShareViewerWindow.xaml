@@ -12,10 +12,25 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <ui:TitleBar x:Name="ViewerTitleBar" Title="Screen Share" Grid.Row="0"/>
 
         <Image x:Name="ShareImage" Grid.Row="1" Stretch="Uniform" RenderOptions.BitmapScalingMode="Linear"/>
+
+        <!-- Volume for the sharer's system audio track specifically - a
+             separate NAudio pipeline from their mic (see VoiceService's
+             _remoteScreenAudioPlaybacks), so it needs its own control
+             rather than reusing the mic volume slider on their voice row. -->
+        <Border Grid.Row="2" Background="{StaticResource BgDark}" Padding="14,10">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="🔊" FontSize="15" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                <Slider x:Name="AudioVolumeSlider" Width="220" Minimum="0" Maximum="200" Value="100"
+                        VerticalAlignment="Center" ValueChanged="AudioVolumeSlider_ValueChanged"/>
+                <TextBlock x:Name="VolumeDisplayText" Text="100%" Width="42" Margin="10,0,0,0"
+                           VerticalAlignment="Center" Foreground="{StaticResource TextMuted}"/>
+            </StackPanel>
+        </Border>
     </Grid>
 </ui:FluentWindow>

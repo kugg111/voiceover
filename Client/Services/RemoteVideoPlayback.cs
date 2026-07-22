@@ -19,6 +19,15 @@ public class RemoteVideoPlayback : IAsyncDisposable
     private WriteableBitmap? _bitmap;
     public ImageSource? Bitmap => _bitmap;
 
+    // Gates the actual decode/paint work in RenderFrame - starts false so a
+    // screen share doesn't burn CPU/dispatcher cycles decoding and painting
+    // frames nobody's watching (this class only exists for screen-share
+    // video, never a regular voice-channel participant, so there's no other
+    // caller that needs it to default true). ScreenShareViewerWindow flips
+    // this on/off as it opens/closes, same idea as
+    // RemoteAudioPlayback.IsListening for the matching system-audio track.
+    public bool IsRendering { get; set; }
+
     // Raised on the UI thread whenever a new frame has been written into
     // Bitmap - the viewer only needs to know a redraw happened, not rebind.
     public event Action? FrameUpdated;
@@ -59,6 +68,8 @@ public class RemoteVideoPlayback : IAsyncDisposable
     // get coalesced/dropped under load instead of piling up unboundedly.
     private void RenderFrame(VideoFrame frame)
     {
+        if (!IsRendering) return;
+
         lock (_frameLock)
         {
             _pendingFrame = frame;
