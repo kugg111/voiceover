@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Voiceover — Free Open-Source Discord Alternative &amp; Voice Chat App for Windows</title>
-<meta name="description" content="Voiceover is a free, open-source Discord alternative for Windows: servers &amp; channels, direct messages, voice chat, private calls, screen sharing, and end-to-end encrypted messaging. Download at voiceover-app.hu.">
+<meta name="description" content="Voiceover is a free, open-source Discord alternative for Windows: servers, channels &amp; categories, direct messages, custom emoji, voice chat with AI noise suppression, private calls, screen sharing, and true end-to-end encrypted messaging. Download at voiceover-app.hu.">
 <link rel="canonical" href="https://www.voiceover-app.hu/">
 <meta name="robots" content="index, follow">
 <meta name="google-site-verification" content="4yQayZBfYUyVW_Zw8GYqZ9HPLwTd1vLX1hRzBPFVFiw" />
@@ -13,7 +13,7 @@
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://www.voiceover-app.hu/">
 <meta property="og:title" content="Voiceover — Free Open-Source Discord Alternative for Windows">
-<meta property="og:description" content="Servers &amp; channels, direct messages, friends, voice chat, private calls, screen sharing, and end-to-end encrypted messaging — a free, open-source desktop app for Windows.">
+<meta property="og:description" content="Servers, channels &amp; categories, direct messages, friends, custom emoji, voice chat with AI noise suppression, private calls, screen sharing, and true end-to-end encrypted messaging — a free, open-source desktop app for Windows.">
 <meta property="og:image" content="https://www.voiceover-app.hu/images/og-image.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -21,7 +21,7 @@
 
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Voiceover — Free Open-Source Discord Alternative for Windows">
-<meta name="twitter:description" content="Servers, channels, DMs, voice chat, private calls, screen sharing, and end-to-end encrypted messaging — free and open-source.">
+<meta name="twitter:description" content="Servers, channels, DMs, custom emoji, voice chat with AI noise suppression, private calls, screen sharing, and true end-to-end encrypted messaging — free and open-source.">
 <meta name="twitter:image" content="https://www.voiceover-app.hu/images/og-image.png">
 
 <!-- Structured data - lets Google show this as a real downloadable app
@@ -33,7 +33,7 @@
   "name": "Voiceover",
   "alternateName": "Voiceover App",
   "url": "https://www.voiceover-app.hu/",
-  "description": "A free, open-source Discord alternative for Windows with servers and channels, direct messages, voice chat, private calls, screen sharing, and end-to-end encrypted messaging.",
+  "description": "A free, open-source Discord alternative for Windows with servers, channels & categories, direct messages, custom emoji, voice chat with AI noise suppression, private calls, screen sharing, and true end-to-end encrypted messaging.",
   "applicationCategory": "CommunicationApplication",
   "operatingSystem": "Windows 10, Windows 11",
   "downloadUrl": "https://github.com/kugg111/voiceover/releases/latest/download/Voiceover-Setup.exe",
@@ -173,6 +173,31 @@
     color: var(--text-muted);
   }
 
+  .features-grid {
+    max-width: 1100px;
+    margin: 96px auto 0;
+    padding: 0 6vw;
+  }
+  .features-grid h2 {
+    font-size: 26px;
+    margin: 0 0 36px;
+    text-align: center;
+  }
+  .feature-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 16px;
+  }
+  .feature-card {
+    background: var(--bg-dark);
+    border: 1px solid var(--bg-sidebar);
+    border-radius: 14px;
+    padding: 22px 20px;
+  }
+  .feature-card .icon { font-size: 26px; display: block; margin-bottom: 10px; }
+  .feature-card h3 { font-size: 15.5px; margin: 0 0 8px; }
+  .feature-card p { color: var(--text-muted); font-size: 13.5px; line-height: 1.55; margin: 0; }
+
   /* Scroll-reveal - sections fade/slide in the first time they cross into
      view, toggled by a small IntersectionObserver at the bottom of the
      page. Falls back to always-visible if IntersectionObserver is
@@ -270,7 +295,58 @@
   </div>
 </section>
 
-<section class="showcase reveal" id="features">
+<section class="features-grid reveal" id="features">
+  <h2>Everything you'd expect, and a few things you wouldn't</h2>
+  <div class="feature-cards">
+    <div class="feature-card">
+      <span class="icon">💬</span>
+      <h3>Servers, channels &amp; categories</h3>
+      <p>Text and voice channels organized into categories, custom roles with eight independently-grantable Moderator permissions, and shareable invite links.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">🔒</span>
+      <h3>Real end-to-end encryption</h3>
+      <p>Every message is encrypted on your device (ECDH + AES-256-GCM) before it ever leaves — the server only ever sees ciphertext it can't read, for channels and DMs alike.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">🎙️</span>
+      <h3>Crystal-clear voice chat</h3>
+      <p>LiveKit-powered voice channels with a choice of three real AI noise-suppression engines, push-to-talk, and per-user volume.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">🖥️</span>
+      <h3>Screen sharing</h3>
+      <p>Share a window or your whole screen — with your system audio — in a voice channel or a private call, with selectable resolution and framerate.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">📞</span>
+      <h3>Private calls</h3>
+      <p>Ring any friend directly, no server required, with a call history you can look back through.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">😀</span>
+      <h3>Custom emoji &amp; reactions</h3>
+      <p>Upload your own server emoji, react to any message, reply/quote, pin what matters, and forward a message to any channel or DM.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">🔎</span>
+      <h3>Search &amp; stay caught up</h3>
+      <p>In-app message search, unread badges, per-conversation draft persistence, and notification muting per channel, server, or DM.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">🛡️</span>
+      <h3>Moderation tools</h3>
+      <p>Bans, slow mode, bulk message deletion, and a per-server moderation audit log — gated behind whatever permissions you grant.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">🔄</span>
+      <h3>Self-updating</h3>
+      <p>A pre-login check installs new releases in the background, so you're always on the latest version without a manual download.</p>
+    </div>
+  </div>
+</section>
+
+<section class="showcase reveal">
   <div class="panel-media">
     <img src="/images/gallery-chat.png" alt="A text channel conversation in Voiceover">
   </div>
@@ -281,9 +357,9 @@
   <p>Voiceover is a free voice chat app for Windows built as an open-source
   Discord alternative — the full source is public on GitHub, so you can read
   exactly what it does, self-host your own server, or contribute. No paid
-  tiers, no ads, no account data sold: just servers, channels, direct
-  messages, and voice chat with real end-to-end encryption. Made in Hungary
-  by a solo developer.</p>
+  tiers, no ads, no account data sold: just servers, channels, categories,
+  custom emoji, direct messages, and voice chat with real end-to-end
+  encryption. Made in Hungary by a solo developer.</p>
 </section>
 
 <section class="faq reveal">
