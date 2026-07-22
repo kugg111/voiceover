@@ -48,7 +48,7 @@ public class MessagesController : ControllerBase
         if (!await _permissions.IsMemberAsync(CurrentUserId, channel.GuildServerId))
             return Forbid();
 
-        var query = _db.Messages.Where(m => m.ChannelId == channelId);
+        var query = _db.Messages.AsNoTracking().Where(m => m.ChannelId == channelId);
         if (beforeId.HasValue) query = query.Where(m => m.Id < beforeId.Value);
 
         var messages = await query
@@ -83,6 +83,7 @@ public class MessagesController : ControllerBase
             return Forbid();
 
         var query = _db.Messages
+            .AsNoTracking()
             .Where(m => m.ChannelId == channelId && m.PinnedAt != null)
             .OrderByDescending(m => m.PinnedAt)
             .Skip(skip ?? 0);

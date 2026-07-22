@@ -4434,11 +4434,31 @@ public partial class MainWindow : FluentWindow
     // The Messages icon itself lights up while any conversation has an
     // unread dot - cleared only once that specific conversation is opened
     // (not just by visiting the Messages view), same as most chat apps.
+    private int _lastMessagesUnreadTotal;
+
     private void UpdateMessagesUnreadBadge()
     {
         var total = _dmConversations.Sum(c => c.UnreadCount);
         MessagesUnreadBadge.Visibility = total > 0 ? Visibility.Visible : Visibility.Collapsed;
         MessagesUnreadBadgeText.Text = total > 99 ? "99+" : total.ToString();
+
+        // Bumps only when unread count actually grows (a new message
+        // arriving) - not when it's cleared/reduced by opening a
+        // conversation. Same pop-scale pattern EmojiPickerPopup_Opened
+        // already uses for new custom emoji tiles.
+        if (total > _lastMessagesUnreadTotal)
+        {
+            MessagesUnreadBadgeScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+            MessagesUnreadBadgeScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+            var bump = new DoubleAnimation(1.0, 1.4, TimeSpan.FromMilliseconds(150))
+            {
+                AutoReverse = true,
+                EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+            };
+            MessagesUnreadBadgeScale.BeginAnimation(ScaleTransform.ScaleXProperty, bump);
+            MessagesUnreadBadgeScale.BeginAnimation(ScaleTransform.ScaleYProperty, bump);
+        }
+        _lastMessagesUnreadTotal = total;
     }
 
     private void OnUserTyping(string username, int channelId)

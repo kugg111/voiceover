@@ -216,6 +216,19 @@ builder.Services.AddRateLimiter(options =>
             Window = TimeSpan.FromMinutes(1),
             QueueLimit = 0
         }));
+
+    // Categories/Emojis controllers: same "sanity bound, not the real access
+    // control" reasoning as "admin" above (ManageChannels/server-membership
+    // is the real gate) - these had no rate limit at all before, unlike every
+    // other controller.
+    options.AddPolicy("channel-management", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "unknown",
+        factory: _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 30,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0
+        }));
 });
 
 // The WPF client ignores CORS entirely (it's not a browser - CORS is only

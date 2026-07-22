@@ -53,6 +53,17 @@ public class E2eeService
     private readonly System.Collections.Concurrent.ConcurrentDictionary<int, byte[]> _peerPublicKeyCache = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<int, byte[]> _derivedPairKeyCache = new();
 
+    // Separate from _derivedPairKeyCache above - same otherUserId can map to
+    // two DIFFERENT derived keys depending on infoPrefix ("voiceover-dm" vs
+    // ChannelKeyWrapInfoPrefix), so these can't share one dictionary without
+    // one context clobbering the other. Added because EncryptForChannelAsync/
+    // DecryptChannelMessageAsync used to call DerivePeerKeyAsync fresh every
+    // time with no caching at all - unlike DMs, a single channel message
+    // sends to every member, so that was N full ECDH+HKDF derivations per
+    // message (and one more per message read back) instead of one per peer
+    // for the whole session.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, byte[]> _channelWrapKeyCache = new();
+
     // Serializes the ECDH/HKDF derivation itself, not just the caches
     // above - ECDiffieHellman wraps a native crypto handle that isn't
     // documented as safe for concurrent use from multiple threads, and
@@ -205,7 +216,7 @@ public class E2eeService
         var recipientKeys = new List<MessageKeyEnvelope>();
         foreach (var member in members)
         {
-            var wrapKey = await DerivePeerKeyAsync(member.UserId, ChannelKeyWrapInfoPrefix);
+            var wrapKey = await GetOrDeriveChannelWrapKeyAsync(member.UserId);
             if (wrapKey is null) continue;
 
             recipientKeys.Add(new MessageKeyEnvelope(member.UserId, Convert.ToBase64String(WrapBytes(messageKey, wrapKey))));
@@ -227,7 +238,7 @@ public class E2eeService
     {
         if (wrappedKeyForMe is null) return "[Encrypted message - no key for this device]";
 
-        var wrapKey = await DerivePeerKeyAsync(authorId, ChannelKeyWrapInfoPrefix);
+        var wrapKey = await GetOrDeriveChannelWrapKeyAsync(authorId);
         if (wrapKey is null) return "[Encrypted message - your keys aren't unlocked yet]";
 
         try
@@ -273,6 +284,17 @@ public class E2eeService
 
         var derived = await DerivePeerKeyAsync(otherUserId, "voiceover-dm");
         if (derived is not null) _derivedPairKeyCache[otherUserId] = derived;
+        return derived;
+    }
+
+    // Channel-context equivalent of GetOrDerivePairKeyAsync above - see
+    // _channelWrapKeyCache for why this can't just reuse that method's cache.
+    private async Task<byte[]?> GetOrDeriveChannelWrapKeyAsync(int otherUserId)
+    {
+        if (_channelWrapKeyCache.TryGetValue(otherUserId, out var cached)) return cached;
+
+        var derived = await DerivePeerKeyAsync(otherUserId, ChannelKeyWrapInfoPrefix);
+        if (derived is not null) _channelWrapKeyCache[otherUserId] = derived;
         return derived;
     }
 

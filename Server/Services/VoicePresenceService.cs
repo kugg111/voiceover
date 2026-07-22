@@ -41,6 +41,15 @@ public class VoicePresenceService
     public int? GetServerId(string connectionId) =>
         _connections.TryGetValue(connectionId, out var entry) ? entry.ServerId : null;
 
+    // Used by NotifySpeaking/NotifyMuted/NotifyDeafened to confirm the caller
+    // actually joined this exact voice channel (via JoinVoiceChannel) before
+    // trusting their self-reported state enough to broadcast it - otherwise
+    // any authenticated user could call one of those with an arbitrary
+    // channelId and inject a spoofed event into a voice channel they were
+    // never part of.
+    public bool IsInChannel(string connectionId, int channelId) =>
+        _connections.TryGetValue(connectionId, out var entry) && entry.ChannelId == channelId;
+
     public List<VoiceParticipant> GetRoster(int channelId) =>
         _connections.Values
             .Where(e => e.ChannelId == channelId)

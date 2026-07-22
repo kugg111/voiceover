@@ -6,6 +6,7 @@ using Voiceover.Server.Models;
 using Voiceover.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
@@ -18,6 +19,7 @@ namespace Voiceover.Server.Controllers;
 // category changes always need the client to refetch its channel list too.
 [ApiController]
 [Authorize]
+[EnableRateLimiting("channel-management")]
 [Route("api/servers/{serverId}/[controller]")]
 public class CategoriesController : ControllerBase
 {
@@ -56,6 +58,7 @@ public class CategoriesController : ControllerBase
             return Forbid();
 
         if (string.IsNullOrWhiteSpace(req.Name)) return BadRequest("Name cannot be empty.");
+        if (req.Name.Trim().Length > ContentLimits.MaxNameLength) return BadRequest("Name is too long.");
 
         var maxPosition = await _db.Categories.Where(c => c.GuildServerId == serverId)
             .Select(c => (int?)c.Position).MaxAsync() ?? -1;
@@ -81,6 +84,7 @@ public class CategoriesController : ControllerBase
             return Forbid();
 
         if (string.IsNullOrWhiteSpace(req.Name)) return BadRequest("Name cannot be empty.");
+        if (req.Name.Trim().Length > ContentLimits.MaxNameLength) return BadRequest("Name is too long.");
 
         var category = await _db.Categories.FirstOrDefaultAsync(c => c.Id == categoryId && c.GuildServerId == serverId);
         if (category is null) return NotFound();

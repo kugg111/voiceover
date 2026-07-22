@@ -6,6 +6,7 @@ using Voiceover.Server.Models;
 using Voiceover.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
@@ -13,6 +14,7 @@ namespace Voiceover.Server.Controllers;
 
 [ApiController]
 [Authorize]
+[EnableRateLimiting("channel-management")]
 [Route("api/servers/{serverId}/[controller]")]
 public class ChannelsController : ControllerBase
 {
@@ -84,13 +86,19 @@ public class ChannelsController : ControllerBase
         if (!await _permissions.HasPermissionAsync(CurrentUserId, serverId, ServerPermission.ManageChannels))
             return Forbid();
 
+        // Previously unchecked entirely - unlike Rename below, Create never
+        // validated req.Name at all (null/empty/whitespace or unbounded
+        // length all passed through).
+        if (string.IsNullOrWhiteSpace(req.Name)) return BadRequest("Name cannot be empty.");
+        if (req.Name.Trim().Length > ContentLimits.MaxNameLength) return BadRequest("Name is too long.");
+
         var type = string.Equals(req.Type, "Voice", StringComparison.OrdinalIgnoreCase) ? ChannelType.Voice : ChannelType.Text;
         var maxPosition = await _db.Channels.Where(c => c.GuildServerId == serverId)
             .Select(c => (int?)c.Position).MaxAsync() ?? -1;
 
         var channel = new Channel
         {
-            Name = req.Name,
+            Name = req.Name.Trim(),
             Type = type,
             GuildServerId = serverId,
             Position = maxPosition + 1
@@ -142,6 +150,7 @@ public class ChannelsController : ControllerBase
             return Forbid();
 
         if (string.IsNullOrWhiteSpace(req.Name)) return BadRequest("Name cannot be empty.");
+        if (req.Name.Trim().Length > ContentLimits.MaxNameLength) return BadRequest("Name is too long.");
 
         var channel = await _db.Channels.FirstOrDefaultAsync(c => c.Id == channelId && c.GuildServerId == serverId);
         if (channel is null) return NotFound();

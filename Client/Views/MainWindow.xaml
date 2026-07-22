@@ -131,7 +131,11 @@
                     <Border x:Name="MessagesUnreadBadge" MinWidth="16" Height="16" CornerRadius="8"
                             Background="{StaticResource AccentBlurple}" Padding="4,0"
                             HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-4,-4,0"
-                            Visibility="Collapsed" IsHitTestVisible="False">
+                            Visibility="Collapsed" IsHitTestVisible="False"
+                            RenderTransformOrigin="0.5,0.5">
+                        <Border.RenderTransform>
+                            <ScaleTransform x:Name="MessagesUnreadBadgeScale"/>
+                        </Border.RenderTransform>
                         <TextBlock x:Name="MessagesUnreadBadgeText" Text="0" FontSize="10" FontWeight="Bold"
                                    Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
@@ -268,8 +272,28 @@
                                     </Button>
                                     <Border Grid.Column="1" MinWidth="16" Height="16" CornerRadius="8" Margin="0,0,8,0"
                                             Background="{StaticResource AccentBlurple}" Padding="4,0"
-                                            VerticalAlignment="Center" Visibility="{Binding UnreadBadgeVisibility}">
-                                        <TextBlock Text="{Binding UnreadCountDisplay}" FontSize="10" FontWeight="Bold"
+                                            VerticalAlignment="Center" Visibility="{Binding UnreadBadgeVisibility}"
+                                            RenderTransformOrigin="0.5,0.5">
+                                        <Border.RenderTransform>
+                                            <ScaleTransform/>
+                                        </Border.RenderTransform>
+                                        <Border.Triggers>
+                                            <!-- Bumps the badge on every count change (not just
+                                                 appear/disappear) - NotifyOnTargetUpdated below makes the
+                                                 TextBlock raise Binding.TargetUpdated on each new value,
+                                                 which bubbles up to this EventTrigger. -->
+                                            <EventTrigger RoutedEvent="Binding.TargetUpdated">
+                                                <BeginStoryboard>
+                                                    <Storyboard>
+                                                        <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
+                                                                         From="1.4" To="1.0" Duration="0:0:0.2"/>
+                                                        <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)"
+                                                                         From="1.4" To="1.0" Duration="0:0:0.2"/>
+                                                    </Storyboard>
+                                                </BeginStoryboard>
+                                            </EventTrigger>
+                                        </Border.Triggers>
+                                        <TextBlock Text="{Binding UnreadCountDisplay, NotifyOnTargetUpdated=True}" FontSize="10" FontWeight="Bold"
                                                    Foreground="White" HorizontalAlignment="Center"/>
                                     </Border>
                                     <Button Grid.Column="2" Content="✕" Tag="{Binding Id}"
@@ -335,7 +359,31 @@
                                     <ItemsControl ItemsSource="{Binding Members}" Margin="34,0,8,4" Focusable="False">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
-                                                <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
+                                                <StackPanel Orientation="Horizontal" Margin="0,2,0,2"
+                                                            Opacity="0" RenderTransformOrigin="0.5,0.5">
+                                                    <!-- Entrance-only (WPF's ItemsControl removes containers
+                                                         immediately on unbind, so there's no reliable hook for
+                                                         an exit animation here without a heavier behavior) -
+                                                         same fade+slide-up as the message list entrance below. -->
+                                                    <StackPanel.RenderTransform>
+                                                        <TranslateTransform Y="8"/>
+                                                    </StackPanel.RenderTransform>
+                                                    <StackPanel.Triggers>
+                                                        <EventTrigger RoutedEvent="FrameworkElement.Loaded">
+                                                            <BeginStoryboard>
+                                                                <Storyboard>
+                                                                    <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                                                     To="1" Duration="0:0:0.12"/>
+                                                                    <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.Y)"
+                                                                                     To="0" Duration="0:0:0.12">
+                                                                        <DoubleAnimation.EasingFunction>
+                                                                            <QuadraticEase EasingMode="EaseOut"/>
+                                                                        </DoubleAnimation.EasingFunction>
+                                                                    </DoubleAnimation>
+                                                                </Storyboard>
+                                                            </BeginStoryboard>
+                                                        </EventTrigger>
+                                                    </StackPanel.Triggers>
                                                     <local:AvatarView Size="16" DisplayName="{Binding Username}" ImageUrl="{Binding AvatarUrl}" Margin="0,0,4,0"/>
                                                     <TextBlock Text="🔇" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0"
                                                                Visibility="{Binding MutedIconVisibility}" ToolTip="Muted"/>
@@ -358,7 +406,39 @@
                                                                ToolTip="{Binding JoiningTooltip}"/>
                                                     <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
                                                              Fill="{StaticResource AccentBlurple}"
-                                                             Visibility="{Binding SpeakingDotVisibility}"/>
+                                                             Visibility="{Binding SpeakingDotVisibility}"
+                                                             RenderTransformOrigin="0.5,0.5">
+                                        <Ellipse.RenderTransform>
+                                            <ScaleTransform ScaleX="1" ScaleY="1"/>
+                                        </Ellipse.RenderTransform>
+                                        <Ellipse.Style>
+                                            <Style TargetType="Ellipse">
+                                                <Style.Triggers>
+                                                    <!-- Pulses while actually speaking rather than just
+                                                         snapping the dot on/off - IsSpeaking is the raw bool
+                                                         VoiceMemberItem also derives SpeakingDotVisibility
+                                                         from, so this fires/stops in lockstep with it. -->
+                                                    <DataTrigger Binding="{Binding IsSpeaking}" Value="True">
+                                                        <DataTrigger.EnterActions>
+                                                            <BeginStoryboard x:Name="SpeakingPulseStoryboard">
+                                                                <Storyboard RepeatBehavior="Forever" AutoReverse="True">
+                                                                    <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
+                                                                                     To="1.4" Duration="0:0:0.5"/>
+                                                                    <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)"
+                                                                                     To="1.4" Duration="0:0:0.5"/>
+                                                                    <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                                                     From="1" To="0.6" Duration="0:0:0.5"/>
+                                                                </Storyboard>
+                                                            </BeginStoryboard>
+                                                        </DataTrigger.EnterActions>
+                                                        <DataTrigger.ExitActions>
+                                                            <StopStoryboard BeginStoryboardName="SpeakingPulseStoryboard"/>
+                                                        </DataTrigger.ExitActions>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Ellipse.Style>
+                                    </Ellipse>
                                                     <StackPanel.ContextMenu>
                                                         <ContextMenu>
                                                             <MenuItem Header="{Binding Username}" IsEnabled="False" FontWeight="Bold"
@@ -460,8 +540,25 @@
                                         </StackPanel>
                                         <Border Grid.Column="2" MinWidth="16" Height="16" CornerRadius="8" Margin="8,0,0,0"
                                                 Background="{StaticResource AccentBlurple}" Padding="4,0"
-                                                VerticalAlignment="Center" Visibility="{Binding UnreadBadgeVisibility}">
-                                            <TextBlock Text="{Binding UnreadCountDisplay}" FontSize="10" FontWeight="Bold"
+                                                VerticalAlignment="Center" Visibility="{Binding UnreadBadgeVisibility}"
+                                                RenderTransformOrigin="0.5,0.5">
+                                            <Border.RenderTransform>
+                                                <ScaleTransform/>
+                                            </Border.RenderTransform>
+                                            <Border.Triggers>
+                                                <!-- Same bump-on-change pattern as the channel-list badge above. -->
+                                                <EventTrigger RoutedEvent="Binding.TargetUpdated">
+                                                    <BeginStoryboard>
+                                                        <Storyboard>
+                                                            <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
+                                                                             From="1.4" To="1.0" Duration="0:0:0.2"/>
+                                                            <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)"
+                                                                             From="1.4" To="1.0" Duration="0:0:0.2"/>
+                                                        </Storyboard>
+                                                    </BeginStoryboard>
+                                                </EventTrigger>
+                                            </Border.Triggers>
+                                            <TextBlock Text="{Binding UnreadCountDisplay, NotifyOnTargetUpdated=True}" FontSize="10" FontWeight="Bold"
                                                        Foreground="White" HorizontalAlignment="Center"/>
                                         </Border>
                                     </Grid>

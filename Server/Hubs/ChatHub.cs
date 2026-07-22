@@ -77,11 +77,18 @@ public class ChatHub : Hub
     // access to (see Message.ForwardedFromAuthorUsername).
     private const int MaxForwardedUsernameLength = 64;
 
+    // recipientKeys is clamped to actual current members further down, but
+    // that clamp still has to iterate/hash the client-submitted list first -
+    // this bounds that work before it runs, well above any real server size
+    // this app is meant for.
+    private const int MaxRecipientKeys = 1000;
+
     public async Task SendMessage(int channelId, string content, List<MessageKeyEnvelope> recipientKeys, string? attachmentUrl = null, int? replyToMessageId = null, string? forwardedFromAuthorUsername = null)
     {
         if (string.IsNullOrWhiteSpace(content) && string.IsNullOrWhiteSpace(attachmentUrl)) return;
         if (content.Length > ContentLimits.MaxMessageLength) return;
         if (forwardedFromAuthorUsername is { Length: > MaxForwardedUsernameLength }) return;
+        if (recipientKeys.Count > MaxRecipientKeys) return;
 
         // Silently dropped rather than throwing - same treatment as the
         // empty-content no-op above. This is anti-spam, not a security
@@ -174,8 +181,14 @@ public class ChatHub : Hub
         }
     }
 
+    // Membership-gated, same reasoning as JoinChannel/SendMessage above - this
+    // previously had no check at all, letting any authenticated user inject a
+    // spoofed "typing" event into a channel they don't belong to.
     public async Task NotifyTyping(int channelId)
     {
+        var channel = await _db.Channels.AsNoTracking().FirstOrDefaultAsync(c => c.Id == channelId);
+        if (channel is null || !await _permissions.IsMemberAsync(CurrentUserId, channel.GuildServerId)) return;
+
         await Clients.OthersInGroup(HubGroups.Channel(channelId)).SendAsync("UserTyping", CurrentUsername, channelId);
     }
 
@@ -467,10 +480,15 @@ public class ChatHub : Hub
     // Returns the roster of who was already in the channel, so the joining
     // client can display the full member list immediately instead of waiting
     // for future VoiceUserJoined events.
+    // Membership-gated, same reasoning as GetLiveKitToken below - this
+    // previously had no check at all, letting any authenticated user join the
+    // voice presence roster (and appear as a phantom participant) of any
+    // channel in any server, plus see that channel's real member list/avatars.
     public async Task<List<VoiceParticipant>> JoinVoiceChannel(int channelId)
     {
         var channel = await _db.Channels.FirstOrDefaultAsync(c => c.Id == channelId);
-        if (channel is null) return new List<VoiceParticipant>();
+        if (channel is null || !await _permissions.IsMemberAsync(CurrentUserId, channel.GuildServerId))
+            return new List<VoiceParticipant>();
 
         // Same cache SendMessage uses - avoids a DB round trip for a value
         // that rarely changes.
@@ -526,6 +544,13 @@ public class ChatHub : Hub
     // per-frame one.
     public async Task NotifySpeaking(int channelId, bool isSpeaking)
     {
+        // Confirms the caller's own connection actually joined this voice
+        // channel (see VoicePresenceService.IsInChannel) before trusting a
+        // self-reported state enough to broadcast it - otherwise any
+        // authenticated user could spoof this event into a channel they
+        // never joined.
+        if (!_voicePresence.IsInChannel(Context.ConnectionId, channelId)) return;
+
         await Clients.OthersInGroup(HubGroups.Voice(channelId)).SendAsync("UserSpeaking", CurrentUserId, channelId, isSpeaking);
 
         var serverId = _voicePresence.GetServerId(Context.ConnectionId);
@@ -540,6 +565,9 @@ public class ChatHub : Hub
     // tradeoff the speaking indicator already accepts.
     public async Task NotifyMuted(int channelId, bool isMuted)
     {
+        // Same gate as NotifySpeaking above.
+        if (!_voicePresence.IsInChannel(Context.ConnectionId, channelId)) return;
+
         await Clients.OthersInGroup(HubGroups.Voice(channelId)).SendAsync("UserMuted", CurrentUserId, channelId, isMuted);
 
         var serverId = _voicePresence.GetServerId(Context.ConnectionId);
@@ -549,6 +577,9 @@ public class ChatHub : Hub
 
     public async Task NotifyDeafened(int channelId, bool isDeafened)
     {
+        // Same gate as NotifySpeaking above.
+        if (!_voicePresence.IsInChannel(Context.ConnectionId, channelId)) return;
+
         await Clients.OthersInGroup(HubGroups.Voice(channelId)).SendAsync("UserDeafened", CurrentUserId, channelId, isDeafened);
 
         var serverId = _voicePresence.GetServerId(Context.ConnectionId);

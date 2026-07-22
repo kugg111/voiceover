@@ -7,6 +7,7 @@ using Voiceover.Server.Models;
 using Voiceover.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
@@ -14,6 +15,7 @@ namespace Voiceover.Server.Controllers;
 
 [ApiController]
 [Authorize]
+[EnableRateLimiting("channel-management")]
 [Route("api/servers/{serverId}/[controller]")]
 public class EmojisController : ControllerBase
 {
