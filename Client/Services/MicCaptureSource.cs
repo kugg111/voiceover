@@ -89,7 +89,20 @@ public class MicCaptureSource : IDisposable
             var frame = _captureAccumulator.GetRange(0, SamplesPerFrame).ToArray();
             _captureAccumulator.RemoveRange(0, SamplesPerFrame);
 
-            _processor.ProcessFrame(frame);
+            // WaveInEvent marshals DataAvailable back through the
+            // SynchronizationContext captured when it was constructed (the
+            // UI thread's, since VoiceService is always built from there) -
+            // so an exception thrown here doesn't crash the process, it
+            // surfaces through WPF's DispatcherUnhandledException, which
+            // shows a blocking MessageBox and lets the app keep running.
+            // Uncaught, that turns one bad native noise-suppression frame
+            // into a new modal dialog roughly every 20ms for as long as the
+            // fault persists - stacking dialogs and freezing everything
+            // behind them. A dropped/unprocessed single frame is a far
+            // smaller problem than that, so best-effort and keep the mic
+            // loop alive.
+            try { _processor.ProcessFrame(frame); }
+            catch { /* best-effort - see comment above */ }
 
             OnProcessedFrame?.Invoke(frame);
 

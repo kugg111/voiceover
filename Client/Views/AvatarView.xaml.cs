@@ -81,6 +81,29 @@ public partial class AvatarView : UserControl
         view.FallbackCircle.Width = size;
         view.FallbackCircle.Height = size;
         view.InitialText.FontSize = Math.Max(9, size * 0.45);
+
+        // WPF centers a TextBlock by its full line box (ascent + descent),
+        // not by the glyph's actual ink. A lone capital letter/digit only
+        // ever needs cap-height above the baseline, but the line box still
+        // reserves full descent below it for characters this text never
+        // contains (g/y/p/q) - so Center/Center alignment alone leaves the
+        // glyph looking too high inside the circle. Nudging it down by ~8%
+        // of the font size (empirically tuned for Segoe UI Bold, this
+        // control's actual rendered font) compensates for that unused
+        // descent space and centers the glyph by its visible ink instead.
+        //
+        // A Margin, not a RenderTransform: this control renders inside both
+        // a plain Window (the in-game overlay) and a ui:FluentWindow
+        // (MainWindow, with its own DWM-backed custom chrome/compositing) -
+        // a sub-pixel RenderTransform offset rendered correctly in the
+        // former but was getting snapped away by the latter's compositor,
+        // so the same nudge looked centered in one and not the other. A
+        // Margin is resolved during layout/arrange, before either window's
+        // own rendering/compositing pipeline ever sees it, so it applies
+        // identically regardless of which kind of window hosts this control.
+        var offset = view.InitialText.FontSize * 0.08;
+        view.InitialText.Margin = new Thickness(0, offset, 0, 0);
+
         view.AvatarImage.Clip = new EllipseGeometry(new Point(size / 2, size / 2), size / 2, size / 2);
     }
 

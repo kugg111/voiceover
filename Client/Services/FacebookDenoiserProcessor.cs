@@ -40,6 +40,13 @@ internal class FacebookDenoiserProcessor : IDisposable
     private readonly Resampler48kTo16k _downsampler = new();
     private readonly Resampler16kTo48k _upsampler = new();
 
+    // Cuts wind rumble before it ever reaches the model - see HighPassFilter's
+    // own header for why. 100Hz sits comfortably below typical speech
+    // fundamentals (even a deep male voice's F0 rarely dips under ~85Hz)
+    // while still meaningfully attenuating wind noise, which concentrates
+    // well below that.
+    private readonly HighPassFilter _windRumbleFilter = new(sampleRate: 48000, cutoffHz: 100f);
+
     // Raw 16kHz samples waiting for enough context to fill one hop -
     // mirrors DemucsStreamer.feed()'s own "pending" accumulator, just
     // owned here instead of inside the scripted model (see the export
@@ -70,6 +77,7 @@ internal class FacebookDenoiserProcessor : IDisposable
         _output16k.Clear();
         _downsampler.Reset();
         _upsampler.Reset();
+        _windRumbleFilter.Reset();
     }
 
     // Denoises one 20ms/960-sample @ 48kHz frame in place. Produces
@@ -80,6 +88,16 @@ internal class FacebookDenoiserProcessor : IDisposable
     // covers exactly this the same way it already does for NSNet2).
     public void Process(short[] pcm)
     {
+        // In place, before anything else touches pcm - safe because pcm gets
+        // fully overwritten by the model's own output at the end of this
+        // method regardless (see the final loop below), and because
+        // NoiseSuppressionProcessor already captured its own untouched copy
+        // of the true raw mic signal for the dry/wet blend before calling
+        // into this backend at all, so filtering the model's input here
+        // doesn't change what the user hears when SuppressionMix blends back
+        // toward "dry".
+        _windRumbleFilter.Process(pcm);
+
         var down = _downsampler.Process(pcm); // pcm.Length/3 samples @ 16kHz
         _pending16k.AddRange(down);
 

@@ -3,6 +3,9 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <Grid x:Name="RootGrid" Width="32" Height="32">
         <Ellipse x:Name="FallbackCircle" Width="32" Height="32"/>
+        <!-- Margin (not RenderTransform) nudges the glyph down - see
+             OnSizeChanged for why plain Center/Center alignment alone isn't
+             enough here, and why this needs to be a layout-time offset. -->
         <TextBlock x:Name="InitialText" Foreground="White" FontWeight="Bold"
                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
         <Image x:Name="AvatarImage" Stretch="UniformToFill" Visibility="Collapsed"/>

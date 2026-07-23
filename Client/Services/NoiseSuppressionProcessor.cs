@@ -39,7 +39,24 @@ internal class NoiseSuppressionProcessor : IDisposable
                 // instead of a clean one).
                 _nsnet2DryDelayLine.Clear();
                 _facebookDenoiserDryDelayLine.Clear();
-                _facebookDenoiser?.Reset();
+
+                // Reset only when entering this backend, not on every
+                // switch regardless of direction (including switches that
+                // never touch it at all) - both because it's pointless work
+                // otherwise, and because this is the one call in this whole
+                // setter that crosses into LibTorch's native runtime via
+                // denoiser_wrapper.dll, so it's wrapped: a failure here
+                // must not take the setter (and whatever UI code called it)
+                // down, and previously calling it unconditionally on every
+                // switch - including switching AWAY from this backend -
+                // could leave the native side in a bad state that then
+                // broke whichever backend ran next, regardless of which one
+                // that was.
+                if (value == NoiseSuppressionBackend.FacebookDenoiser)
+                {
+                    try { _facebookDenoiser?.Reset(); }
+                    catch { /* best-effort - see ApplyFacebookDenoiser's own null-engine fallback */ }
+                }
             }
         }
     }

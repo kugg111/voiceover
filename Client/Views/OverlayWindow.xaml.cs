@@ -155,7 +155,35 @@ public partial class OverlayWindow : Window
         Evaluate();
     }
 
+    // This runs unattended on a 400ms timer for the entire app lifetime, so it
+    // must never let an exception escape: WPF's rendering pipeline
+    // (CompositionTarget.TransformFromDevice, used below) can genuinely throw
+    // while DWM composition is suspended - which real exclusive-fullscreen
+    // games do, and which this class's own rect-based heuristic can't always
+    // tell apart from the borderless case it's meant to support (see the
+    // header comment) - or transiently during any fullscreen mode-switch.
+    // Previously, an exception here propagated to App.xaml.cs's
+    // DispatcherUnhandledException handler, which shows a blocking
+    // MessageBox, and left the overlay silently wedged afterward (see
+    // RepositionIfMonitorChanged below for the specific "silently wedged"
+    // mechanism). Swallowing and retrying next tick is the correct behavior
+    // either way: if it was transient, the overlay just shows ~400ms later
+    // than usual; if it's persistent (a real exclusive-fullscreen game), it
+    // simply never shows, matching the documented scope limitation, instead
+    // of popping an error dialog.
     private void Evaluate()
+    {
+        try
+        {
+            EvaluateCore();
+        }
+        catch
+        {
+            // Best-effort - see method header above.
+        }
+    }
+
+    private void EvaluateCore()
     {
         // Pre-initialized so it's definitely assigned even when the &&
         // short-circuits before IsFullscreenAppActive runs (which is the point
@@ -236,8 +264,6 @@ public partial class OverlayWindow : Window
             last.Right == monitor.Right && last.Bottom == monitor.Bottom)
             return;
 
-        _lastPositionedMonitor = monitor;
-
         // Monitor bounds come back in physical pixels; WPF Left/Top are in DIPs.
         // Convert via this window's own device transform so multi-monitor +
         // per-monitor-DPI setups land the overlay correctly, then inset by a
@@ -246,6 +272,18 @@ public partial class OverlayWindow : Window
         var source = PresentationSource.FromVisual(this);
         if (source?.CompositionTarget is not null)
         {
+            // TransformFromDevice can throw (non-invertible matrix) while DWM
+            // composition is suspended, which happens transiently during a
+            // fullscreen mode-switch or persistently under true exclusive
+            // fullscreen. _lastPositionedMonitor is deliberately only updated
+            // AFTER this succeeds - setting it first (as an earlier version
+            // did) meant a throw here left it permanently marked "already
+            // positioned" for this monitor, so the early-return guard above
+            // silently skipped retrying on every later tick, appearing to
+            // wedge the overlay for the rest of the session even after DWM
+            // composition resumed. Evaluate()'s own try/catch still covers
+            // this too - this is the actual state-safety fix, that's the
+            // outer backstop.
             var topLeft = source.CompositionTarget.TransformFromDevice.Transform(
                 new Point(monitor.Left, monitor.Top));
             Left = topLeft.X + margin;
@@ -256,6 +294,8 @@ public partial class OverlayWindow : Window
             Left = monitor.Left + margin;
             Top = monitor.Top + margin;
         }
+
+        _lastPositionedMonitor = monitor;
     }
 
     protected override void OnClosed(EventArgs e)

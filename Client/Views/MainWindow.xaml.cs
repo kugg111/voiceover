@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using Voiceover.Client.Models;
@@ -1530,6 +1531,16 @@ public partial class MainWindow : FluentWindow
         Activate();
     }
 
+    private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (msg == (int)App.ShowExistingInstanceMessage)
+        {
+            RestoreFromTray();
+            handled = true;
+        }
+        return IntPtr.Zero;
+    }
+
     private void TrayExitMenuItem_Click(object sender, RoutedEventArgs e)
     {
         _reallyExit = true;
@@ -1565,6 +1576,16 @@ public partial class MainWindow : FluentWindow
 
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
+        // Listens for App.ShowExistingInstanceMessage, posted by a second
+        // launch's process (see App.BringExistingInstanceToForeground) when
+        // this instance is already running - restoring via this window's
+        // own Show()/Activate() (RestoreFromTray) rather than letting the
+        // other process manipulate the HWND directly, which desyncs WPF's
+        // internal Visibility state and leaves ui:FluentWindow's backdrop
+        // uncomposited (a blank window) after coming back from the tray.
+        if (PresentationSource.FromVisual(this) is HwndSource hwndSource)
+            hwndSource.AddHook(WndProc);
+
         await _hub.ConnectAsync(App.HubUrl, _api.GetFreshAccessTokenAsync);
         _voice = new VoiceService(_hub, _api.CurrentUserId!.Value);
         _voice.PeerConnected += userId => Dispatcher.Invoke(() =>

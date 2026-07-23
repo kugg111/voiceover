@@ -1,3 +1,6 @@
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
 using Voiceover.Client.Services;
@@ -32,9 +35,56 @@ public partial class App : Application
         DispatcherUnhandledException += OnDispatcherUnhandledException;
     }
 
+    // Held for the process's entire lifetime (a static field, not a local) -
+    // the GC must never finalize/release it early, which would let a later
+    // launch wrongly conclude no instance is running.
+    private static Mutex? _singleInstanceMutex;
+
+    private const string SingleInstanceMutexName = "Voiceover_SingleInstance_3F2504E0-4F89-11D3-9A0C-0305E82C3301";
+
+    // A registered message, not a raw ShowWindow/SetForegroundWindow call
+    // alone - those only flip the OS-level visibility/focus bits on the
+    // found HWND from this (foreign) process, without ever running WPF's
+    // own Show()/Activate() logic. That distinction matters specifically
+    // for a MainWindow parked in the tray via Hide() (see
+    // MainWindow.MainWindow_Closing): WPF's internal Visibility state and
+    // ui:FluentWindow's DWM-backed backdrop/composition only get
+    // re-established by that window's own Show() call on its own thread -
+    // an external ShowWindow(SW_RESTORE) makes the window visible and
+    // focused but leaves its content unpainted (a blank window). Posting
+    // this to the found HWND lets the owning process restore itself the
+    // correct way instead. RegisterWindowMessage is what makes a message
+    // ID shareable by name across the process boundary.
+    public static readonly uint ShowExistingInstanceMessage =
+        RegisterWindowMessage("Voiceover_ShowMainWindow_3F2504E0-4F89-11D3-9A0C-0305E82C3301");
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern uint RegisterWindowMessage(string lpString);
+
+    [DllImport("user32.dll")]
+    private static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        // Named Mutex, not "list processes and decide" - CreateMutex is
+        // atomic at the OS level, so this can't race two simultaneous
+        // launches the way a process-list check could. If another instance
+        // already holds it, activate that instance's window instead of
+        // launching a second, fully independent one - two copies both
+        // capturing the mic and both reacting to the same global hotkeys is
+        // exactly the confusing state this exists to prevent. Checked before
+        // anything else in startup so a rejected second launch creates zero
+        // windows and does zero work (no update check, no session restore)
+        // before exiting.
+        _singleInstanceMutex = new Mutex(initiallyOwned: true, SingleInstanceMutexName, out var createdNew);
+        if (!createdNew)
+        {
+            BringExistingInstanceToForeground();
+            Shutdown();
+            return;
+        }
 
         // WPF's default ShutdownMode (OnLastWindowClose) tears the whole
         // app down the instant the update gate window closes, if that
@@ -90,6 +140,76 @@ public partial class App : Application
         new LoginWindow().Show();
         ShutdownMode = ShutdownMode.OnLastWindowClose;
     }
+
+    // Finds the already-running instance's top-level window - whichever one
+    // it currently has open (LoginWindow, MainWindow, etc.), including a
+    // MainWindow hidden in the system tray, since Hide() only makes a window
+    // invisible, it doesn't destroy the HWND - EnumWindows/ShowWindow/
+    // SetForegroundWindow all still work against an invisible window - and
+    // activates it.
+    private static void BringExistingInstanceToForeground()
+    {
+        var currentProcessId = (uint)Environment.ProcessId;
+        var otherProcessIds = Process.GetProcessesByName(Process.GetCurrentProcess().ProcessName)
+            .Select(p => (uint)p.Id)
+            .Where(id => id != currentProcessId)
+            .ToHashSet();
+        if (otherProcessIds.Count == 0) return;
+
+        var found = IntPtr.Zero;
+        EnumWindows((hWnd, _) =>
+        {
+            GetWindowThreadProcessId(hWnd, out var pid);
+            // GW_OWNER == Zero excludes owned child windows (tooltips,
+            // owned popups) - only a real top-level window like
+            // LoginWindow/MainWindow itself should be activated.
+            if (otherProcessIds.Contains(pid) && GetWindow(hWnd, GW_OWNER) == IntPtr.Zero)
+            {
+                found = hWnd;
+                return false; // stop enumerating
+            }
+            return true;
+        }, IntPtr.Zero);
+
+        if (found == IntPtr.Zero) return;
+
+        const int SW_RESTORE = 9;
+        // Un-minimizes an OS-minimized (but not tray-hidden) window - a
+        // legitimate use of ShowWindow here, since that's a genuine OS-level
+        // window state with no WPF-internal counterpart to desync.
+        ShowWindow(found, SW_RESTORE);
+        // Ask the owning process to restore itself properly (see
+        // ShowExistingInstanceMessage's own comment) - a window that isn't
+        // listening for this (LoginWindow, UpdateGateWindow - never tray-
+        // hidden) just ignores it via DefWindowProc, harmless no-op.
+        PostMessage(found, ShowExistingInstanceMessage, IntPtr.Zero, IntPtr.Zero);
+        // Called from here, not from the found window's own process: Windows
+        // only lets the process that most recently received user input (this
+        // newly-launched one, since the user just ran it again) call
+        // SetForegroundWindow - the already-running instance calling this on
+        // itself in response to the message above would likely be silently
+        // ignored by Windows' foreground-lock rules.
+        SetForegroundWindow(found);
+    }
+
+    private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
+
+    private const uint GW_OWNER = 4;
+
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
 
     private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
