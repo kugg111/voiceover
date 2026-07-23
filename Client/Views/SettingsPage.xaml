@@ -17,6 +17,9 @@
                 <Button x:Name="VoiceTabButton" Content="Sound Options" Height="40" Margin="0,0,0,4"
                         Click="VoiceTabButton_Click" HorizontalContentAlignment="Left" Padding="12,0" FontWeight="Bold"
                         BorderThickness="0"/>
+                <Button x:Name="OverlayTabButton" Content="Game Overlay" Height="40" Margin="0,0,0,4"
+                        Click="OverlayTabButton_Click" HorizontalContentAlignment="Left" Padding="12,0" FontWeight="Bold"
+                        BorderThickness="0"/>
                 <Button x:Name="UpdateTabButton" Content="Version" Height="40"
                         Click="UpdateTabButton_Click" HorizontalContentAlignment="Left" Padding="12,0" FontWeight="Bold"
                         BorderThickness="0"/>
@@ -117,6 +120,35 @@
 
             <ScrollViewer x:Name="VoiceTabContent" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
                 <local:VoiceSettingsPanel x:Name="VoicePanel" MaxWidth="500" HorizontalAlignment="Left"/>
+            </ScrollViewer>
+
+            <ScrollViewer x:Name="OverlayTabContent" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+                <StackPanel MaxWidth="500" HorizontalAlignment="Left">
+                    <TextBlock Text="IN-GAME OVERLAY" FontSize="11" FontWeight="Bold"
+                               Foreground="{StaticResource TextMuted}" Margin="0,0,0,8"/>
+                    <CheckBox x:Name="OverlayEnabledCheck" Content="Show a voice overlay while gaming"
+                              Foreground="{StaticResource TextNormal}" FontWeight="Bold" Margin="0,0,0,4"
+                              Checked="OverlayEnabledCheck_Changed" Unchecked="OverlayEnabledCheck_Changed"/>
+                    <TextBlock Text="Pins a small panel to the top-left of your screen showing who's in your voice channel and who's speaking. It only appears while a fullscreen game has focus, and passes clicks straight through. Works with games set to Borderless or Windowed mode - not exclusive fullscreen."
+                               FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}" Margin="0,0,0,16"/>
+
+                    <TextBlock Text="Background Transparency" FontWeight="Bold" Foreground="{StaticResource TextNormal}" Margin="0,0,0,6"/>
+                    <StackPanel Orientation="Horizontal">
+                        <Slider x:Name="OverlayTransparencySlider" Width="220" Minimum="0" Maximum="100"
+                                VerticalAlignment="Center" ValueChanged="OverlayTransparencySlider_ValueChanged"/>
+                        <TextBlock x:Name="OverlayTransparencyText" Width="48" Margin="8,0,0,0"
+                                   VerticalAlignment="Center" Foreground="{StaticResource TextMuted}"/>
+                    </StackPanel>
+                    <TextBlock Text="How see-through the overlay's backdrop is. Member names and avatars always stay fully visible."
+                               FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}" Margin="0,4,0,16"/>
+
+                    <TextBlock Text="Toggle Hotkey" FontWeight="Bold" Foreground="{StaticResource TextNormal}" Margin="0,0,0,6"/>
+                    <Button x:Name="OverlayHotkeyButton" Content="None" Height="34" Width="220" HorizontalAlignment="Left"
+                            Click="OverlayHotkeyButton_Click"
+                            Background="{StaticResource BgDarker}" Foreground="{StaticResource TextNormal}" BorderThickness="0"/>
+                    <TextBlock Text="Press this key any time to show or hide the overlay. A function key (e.g. F8) is safest so it won't clash with in-game controls."
+                               FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}" Margin="0,4,0,0"/>
+                </StackPanel>
             </ScrollViewer>
 
             <StackPanel x:Name="UpdateTabContent" Visibility="Collapsed">

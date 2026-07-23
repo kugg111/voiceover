@@ -384,7 +384,55 @@
                                                             </BeginStoryboard>
                                                         </EventTrigger>
                                                     </StackPanel.Triggers>
-                                                    <local:AvatarView Size="16" DisplayName="{Binding Username}" ImageUrl="{Binding AvatarUrl}" Margin="0,0,4,0"/>
+                                                    <Grid Width="20" Height="20" Margin="0,0,4,0">
+                                                        <!-- Green speaking ring around the avatar, pulsing while
+                                                             IsSpeaking - the same indicator the in-game overlay
+                                                             uses, so both surfaces show "speaking" identically. -->
+                                                        <Ellipse Width="20" Height="20" Stroke="#3BA55D" StrokeThickness="2"
+                                                                 Fill="Transparent" Visibility="{Binding SpeakingDotVisibility}"
+                                                                 RenderTransformOrigin="0.5,0.5">
+                                                            <Ellipse.CacheMode>
+                                                                <!-- Caches the ring as a GPU texture so the pulse is a cheap
+                                                                     composition-thread scale of that texture, decoupled from
+                                                                     MainWindow's busy UI thread and heavier per-frame
+                                                                     compositing (which was stuttering the pulse here even
+                                                                     though the identical animation is smooth in the
+                                                                     lightweight overlay). RenderAtScale keeps the stroke
+                                                                     crisp when scaled up. -->
+                                                                <BitmapCache RenderAtScale="2"/>
+                                                            </Ellipse.CacheMode>
+                                                            <Ellipse.RenderTransform>
+                                                                <ScaleTransform ScaleX="1" ScaleY="1"/>
+                                                            </Ellipse.RenderTransform>
+                                                            <Ellipse.Style>
+                                                                <Style TargetType="Ellipse">
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding IsSpeaking}" Value="True">
+                                                                            <DataTrigger.EnterActions>
+                                                                                <BeginStoryboard x:Name="SidebarSpeakingPulse">
+                                                                                    <!-- No DesiredFrameRate here on purpose: setting it
+                                                                                         forces the animation onto the UI thread, which
+                                                                                         the busy MainWindow then starves (stutter). Left
+                                                                                         as a composition-thread animation, smoothed via
+                                                                                         the ring's BitmapCache above. -->
+                                                                                    <Storyboard RepeatBehavior="Forever" AutoReverse="True">
+                                                                                        <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
+                                                                                                         To="1.2" Duration="0:0:0.5"/>
+                                                                                        <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)"
+                                                                                                         To="1.2" Duration="0:0:0.5"/>
+                                                                                    </Storyboard>
+                                                                                </BeginStoryboard>
+                                                                            </DataTrigger.EnterActions>
+                                                                            <DataTrigger.ExitActions>
+                                                                                <StopStoryboard BeginStoryboardName="SidebarSpeakingPulse"/>
+                                                                            </DataTrigger.ExitActions>
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </Ellipse.Style>
+                                                        </Ellipse>
+                                                        <local:AvatarView Size="16" DisplayName="{Binding Username}" ImageUrl="{Binding AvatarUrl}"/>
+                                                    </Grid>
                                                     <TextBlock Text="🔇" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0"
                                                                Visibility="{Binding MutedIconVisibility}" ToolTip="Muted"/>
                                                     <TextBlock Text="🎧" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0"
@@ -404,41 +452,6 @@
                                                     <TextBlock Text="{Binding Username}" FontSize="12" VerticalAlignment="Center"
                                                                Foreground="{Binding UsernameForeground}"
                                                                ToolTip="{Binding JoiningTooltip}"/>
-                                                    <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
-                                                             Fill="{StaticResource AccentBlurple}"
-                                                             Visibility="{Binding SpeakingDotVisibility}"
-                                                             RenderTransformOrigin="0.5,0.5">
-                                        <Ellipse.RenderTransform>
-                                            <ScaleTransform ScaleX="1" ScaleY="1"/>
-                                        </Ellipse.RenderTransform>
-                                        <Ellipse.Style>
-                                            <Style TargetType="Ellipse">
-                                                <Style.Triggers>
-                                                    <!-- Pulses while actually speaking rather than just
-                                                         snapping the dot on/off - IsSpeaking is the raw bool
-                                                         VoiceMemberItem also derives SpeakingDotVisibility
-                                                         from, so this fires/stops in lockstep with it. -->
-                                                    <DataTrigger Binding="{Binding IsSpeaking}" Value="True">
-                                                        <DataTrigger.EnterActions>
-                                                            <BeginStoryboard x:Name="SpeakingPulseStoryboard">
-                                                                <Storyboard RepeatBehavior="Forever" AutoReverse="True">
-                                                                    <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
-                                                                                     To="1.4" Duration="0:0:0.5"/>
-                                                                    <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)"
-                                                                                     To="1.4" Duration="0:0:0.5"/>
-                                                                    <DoubleAnimation Storyboard.TargetProperty="Opacity"
-                                                                                     From="1" To="0.6" Duration="0:0:0.5"/>
-                                                                </Storyboard>
-                                                            </BeginStoryboard>
-                                                        </DataTrigger.EnterActions>
-                                                        <DataTrigger.ExitActions>
-                                                            <StopStoryboard BeginStoryboardName="SpeakingPulseStoryboard"/>
-                                                        </DataTrigger.ExitActions>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Ellipse.Style>
-                                    </Ellipse>
                                                     <StackPanel.ContextMenu>
                                                         <ContextMenu>
                                                             <MenuItem Header="{Binding Username}" IsEnabled="False" FontWeight="Bold"

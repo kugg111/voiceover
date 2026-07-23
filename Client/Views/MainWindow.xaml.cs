@@ -636,6 +636,13 @@ public partial class MainWindow : FluentWindow
     private VoiceService? _voice;
     private readonly IdleDetector _idleDetector = new();
 
+    // In-game voice overlay + its own dedicated global toggle hotkey (a
+    // separate GlobalHotkeyService instance from VoiceService's PTT one, so
+    // the two never fight over a single watched key). Both created in
+    // MainWindow_Loaded, torn down in MainWindow_Closed.
+    private OverlayWindow? _overlay;
+    private GlobalHotkeyService? _overlayHotkey;
+
     // Set right before any Close() call that should really tear the app
     // down (tray Exit, log out, session expiry) - otherwise
     // MainWindow_Closing redirects a plain close to hide-to-tray instead.
@@ -649,7 +656,23 @@ public partial class MainWindow : FluentWindow
 
     private int? _currentServerId;
     private int? _currentChannelId;
-    private int? _currentVoiceChannelId;
+
+    // Property, not a plain field, so every voice-state transition that
+    // assigns it (join, leave, switch channels, channel-deleted) keeps the
+    // in-game overlay's roster in sync automatically via SyncOverlayRoster,
+    // rather than having to remember to update the overlay at each of the
+    // several leave paths.
+    private int? _currentVoiceChannelIdBacking;
+    private int? _currentVoiceChannelId
+    {
+        get => _currentVoiceChannelIdBacking;
+        set
+        {
+            _currentVoiceChannelIdBacking = value;
+            SyncOverlayRoster();
+        }
+    }
+
     private int? _dmActiveUserId;
     // Set by ReplyMessageButton_Click, cleared on send/cancel/context-switch
     // (see CancelReply) - the message SendCurrentMessage attaches as
@@ -1531,6 +1554,12 @@ public partial class MainWindow : FluentWindow
         foreach (var viewer in _screenShareViewers.Values.ToList())
             viewer.Close();
 
+        // Same OnLastWindowClose reasoning again - a still-open (even if
+        // hidden) overlay window would keep the process alive. Its global
+        // keyboard hook must be released too.
+        _overlayHotkey?.Dispose();
+        _overlay?.Close();
+
         if (_voice is not null)
             await _voice.DisposeAsync();
         await _hub.DisconnectAsync();
@@ -1574,6 +1603,8 @@ public partial class MainWindow : FluentWindow
         _idleDetector.IdleChanged += isIdle => _ = OnIdleChangedAsync(isIdle);
         _idleDetector.Start();
 
+        InitializeOverlay();
+
         // Explicit and awaited, rather than relying on the server's own
         // OnConnectedAsync having already finished by the time StartAsync()
         // returns - that's not a guarantee, and without this, clicking into
@@ -1612,6 +1643,52 @@ public partial class MainWindow : FluentWindow
         if (isIdle && _currentVoiceChannelId is not null) return;
         await SetPresenceStateSafeAsync(isIdle ? "Away" : "Online");
     }
+
+    // --- In-game voice overlay ---
+
+    private void InitializeOverlay()
+    {
+        var settings = OverlaySettingsStorage.Load();
+
+        _overlay = new OverlayWindow();
+        _overlay.SetUserEnabled(settings.Enabled);
+        _overlay.SetBackgroundOpacity(settings.BackgroundOpacity);
+        // In case a voice channel is somehow already joined by now (e.g. a
+        // reconnect flow), seed the roster immediately.
+        SyncOverlayRoster();
+
+        // A dedicated hotkey listener for the toggle, independent of PTT.
+        _overlayHotkey = new GlobalHotkeyService { WatchedKey = settings.ToggleKey };
+        _overlayHotkey.KeyDown += () => Dispatcher.Invoke(() => _overlay?.ToggleVisibility());
+        _overlayHotkey.Start();
+    }
+
+    // Points the overlay at the live Members collection of whichever voice
+    // channel is currently joined (or null when not in voice). Because it's
+    // the same ObservableCollection instance the sidebar roster uses, later
+    // joins/leaves/speaking changes flow to the overlay with no extra work.
+    // Called automatically from the _currentVoiceChannelId setter.
+    private void SyncOverlayRoster()
+    {
+        if (_overlay is null) return;
+
+        var members = _currentVoiceChannelIdBacking is { } id
+            ? FindVoiceChannelItem(id)?.Members
+            : null;
+        _overlay.SetRoster(members);
+    }
+
+    // Called by SettingsPage when the user changes the overlay enable toggle,
+    // rebinds the toggle key, or adjusts the background transparency.
+    public void ApplyOverlaySettings(bool enabled, System.Windows.Input.Key? toggleKey, double backgroundOpacity)
+    {
+        OverlaySettingsStorage.Save(new SavedOverlaySettings(enabled, toggleKey, backgroundOpacity));
+        _overlay?.SetUserEnabled(enabled);
+        _overlay?.SetBackgroundOpacity(backgroundOpacity);
+        if (_overlayHotkey is not null) _overlayHotkey.WatchedKey = toggleKey;
+    }
+
+    public SavedOverlaySettings CurrentOverlaySettings => OverlaySettingsStorage.Load();
 
     private void OnPresenceChanged(int userId, string state)
     {
