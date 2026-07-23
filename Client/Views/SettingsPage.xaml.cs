@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using Microsoft.Win32;
 using Voiceover.Client.Models;
@@ -21,6 +22,16 @@ public partial class SettingsPage : UserControl
     private VersionInfo? _latestVersion;
     private readonly ObservableCollection<BlockedUserItem> _blockedUsers = new();
 
+    // Overlay toggle-hotkey recording state - mirrors VoiceSettingsPanel's own
+    // PTT hotkey picker (records a single key via the host window's
+    // PreviewKeyDown while _recordingOverlayHotkey is true).
+    private Key? _overlayToggleKey;
+    private bool _recordingOverlayHotkey;
+
+    // Suppresses the enable/transparency change handlers from writing settings
+    // back while the constructor is still prefilling those controls from disk.
+    private bool _loadingOverlaySettings;
+
     public SettingsPage(MainWindow mainWindow, ApiService api, VoiceService? voice)
     {
         InitializeComponent();
@@ -37,6 +48,17 @@ public partial class SettingsPage : UserControl
 
         MinimizeToTrayCheck.IsChecked = TraySettingsStorage.MinimizeToTrayEnabled;
 
+        _loadingOverlaySettings = true;
+        var overlaySettings = _mainWindow.CurrentOverlaySettings;
+        OverlayEnabledCheck.IsChecked = overlaySettings.Enabled;
+        _overlayToggleKey = overlaySettings.ToggleKey;
+        OverlayHotkeyButton.Content = FormatOverlayKey();
+        // Slider shows transparency (inverse of the stored opacity), so 0.15
+        // opacity displays as 85%.
+        OverlayTransparencySlider.Value = (1.0 - overlaySettings.BackgroundOpacity) * 100.0;
+        OverlayTransparencyText.Text = $"{(int)OverlayTransparencySlider.Value}%";
+        _loadingOverlaySettings = false;
+
         RefreshTwoFactorStatus();
 
         UpdateStatusText.Text = $"You're on version {UpdateChecker.CurrentVersion}" +
@@ -49,13 +71,76 @@ public partial class SettingsPage : UserControl
         // My Account may have just changed the avatar - refresh MainWindow's
         // own copy once this page leaves the PageHost, the same timing the
         // old Window-based version refreshed it after ShowDialog() returned.
-        Unloaded += (_, _) => _mainWindow.RefreshMyAvatarView();
+        // Also detach a half-finished overlay-hotkey recording so it can't
+        // leak a PreviewKeyDown handler onto the main window.
+        Unloaded += (_, _) =>
+        {
+            _mainWindow.PreviewKeyDown -= OverlayHotkey_PreviewKeyDown;
+            _mainWindow.RefreshMyAvatarView();
+        };
 
         Loaded += async (_, _) => await LoadBlockedUsersAsync();
     }
 
     private void MinimizeToTrayCheck_Changed(object sender, RoutedEventArgs e) =>
         TraySettingsStorage.MinimizeToTrayEnabled = MinimizeToTrayCheck.IsChecked == true;
+
+    private void OverlayEnabledCheck_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_loadingOverlaySettings) return;
+        SaveOverlaySettings();
+    }
+
+    private void OverlayTransparencySlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (OverlayTransparencyText is not null)
+            OverlayTransparencyText.Text = $"{(int)e.NewValue}%";
+        if (_loadingOverlaySettings) return;
+        SaveOverlaySettings();
+    }
+
+    // Slider is transparency; storage wants opacity, so invert. All three
+    // overlay settings are saved together every time any one changes.
+    private void SaveOverlaySettings()
+    {
+        var opacity = (100.0 - OverlayTransparencySlider.Value) / 100.0;
+        _mainWindow.ApplyOverlaySettings(OverlayEnabledCheck.IsChecked == true, _overlayToggleKey, opacity);
+    }
+
+    // Records a single key for the overlay toggle - same host-window
+    // PreviewKeyDown approach VoiceSettingsPanel uses for the PTT hotkey (a
+    // page hosted in PageHost has no window of its own to hang KeyDown off).
+    private void OverlayHotkeyButton_Click(object sender, RoutedEventArgs e)
+    {
+        _recordingOverlayHotkey = true;
+        OverlayHotkeyButton.Content = "Press a key... (Esc to cancel)";
+        _mainWindow.PreviewKeyDown += OverlayHotkey_PreviewKeyDown;
+    }
+
+    private void OverlayHotkey_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (!_recordingOverlayHotkey) return;
+
+        e.Handled = true;
+        _recordingOverlayHotkey = false;
+        _mainWindow.PreviewKeyDown -= OverlayHotkey_PreviewKeyDown;
+
+        // System keys (F10, Alt combos) arrive as Key.System with the real key
+        // in SystemKey - same normalization any robust key picker needs.
+        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+
+        if (key == Key.Escape) // cancel - leave the existing binding untouched
+        {
+            OverlayHotkeyButton.Content = FormatOverlayKey();
+            return;
+        }
+
+        _overlayToggleKey = key;
+        OverlayHotkeyButton.Content = FormatOverlayKey();
+        SaveOverlaySettings();
+    }
+
+    private string FormatOverlayKey() => _overlayToggleKey is { } key ? key.ToString() : "None";
 
     private void RefreshTwoFactorStatus()
     {
@@ -147,30 +232,43 @@ public partial class SettingsPage : UserControl
 
     private void AccountTabButton_Click(object sender, RoutedEventArgs e) => ShowAccountTab();
     private void VoiceTabButton_Click(object sender, RoutedEventArgs e) => ShowVoiceTab();
+    private void OverlayTabButton_Click(object sender, RoutedEventArgs e) => ShowOverlayTab();
     private void UpdateTabButton_Click(object sender, RoutedEventArgs e) => ShowUpdateTab();
 
     private void ShowAccountTab()
     {
         AccountTabContent.Visibility = Visibility.Visible;
         VoiceTabContent.Visibility = Visibility.Collapsed;
+        OverlayTabContent.Visibility = Visibility.Collapsed;
         UpdateTabContent.Visibility = Visibility.Collapsed;
-        SetActiveTab(AccountTabButton, VoiceTabButton, UpdateTabButton);
+        SetActiveTab(AccountTabButton, VoiceTabButton, OverlayTabButton, UpdateTabButton);
     }
 
     private void ShowVoiceTab()
     {
         AccountTabContent.Visibility = Visibility.Collapsed;
         VoiceTabContent.Visibility = Visibility.Visible;
+        OverlayTabContent.Visibility = Visibility.Collapsed;
         UpdateTabContent.Visibility = Visibility.Collapsed;
-        SetActiveTab(VoiceTabButton, AccountTabButton, UpdateTabButton);
+        SetActiveTab(VoiceTabButton, AccountTabButton, OverlayTabButton, UpdateTabButton);
+    }
+
+    private void ShowOverlayTab()
+    {
+        AccountTabContent.Visibility = Visibility.Collapsed;
+        VoiceTabContent.Visibility = Visibility.Collapsed;
+        OverlayTabContent.Visibility = Visibility.Visible;
+        UpdateTabContent.Visibility = Visibility.Collapsed;
+        SetActiveTab(OverlayTabButton, AccountTabButton, VoiceTabButton, UpdateTabButton);
     }
 
     private void ShowUpdateTab()
     {
         AccountTabContent.Visibility = Visibility.Collapsed;
         VoiceTabContent.Visibility = Visibility.Collapsed;
+        OverlayTabContent.Visibility = Visibility.Collapsed;
         UpdateTabContent.Visibility = Visibility.Visible;
-        SetActiveTab(UpdateTabButton, AccountTabButton, VoiceTabButton);
+        SetActiveTab(UpdateTabButton, AccountTabButton, VoiceTabButton, OverlayTabButton);
     }
 
     private void SetActiveTab(Button active, params Button[] inactive)
