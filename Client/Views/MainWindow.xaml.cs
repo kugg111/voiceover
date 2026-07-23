@@ -910,9 +910,7 @@ public partial class MainWindow : FluentWindow
     private void SetConnectionStatusText(string text, bool isAlert, bool isError = false)
     {
         ConnectionStatusText.Text = text;
-        ConnectionStatusText.Foreground = isError
-            ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xF2, 0x3F, 0x42))
-            : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xF0, 0xB2, 0x32));
+        ConnectionStatusText.Foreground = isError ? ThemeBrushes.Danger : ThemeBrushes.Away;
         ConnectionStatusText.FontWeight = isAlert ? FontWeights.Bold : FontWeights.Normal;
     }
 
@@ -1107,7 +1105,7 @@ public partial class MainWindow : FluentWindow
         (Brush background, Brush foreground) = style switch
         {
             ModalButtonStyle.Primary => ((Brush)FindResource("AccentBlurple"), (Brush)Brushes.White),
-            ModalButtonStyle.Destructive => ((Brush)new SolidColorBrush(Color.FromRgb(0xF2, 0x3F, 0x42)), (Brush)Brushes.White),
+            ModalButtonStyle.Destructive => (ThemeBrushes.Danger, (Brush)Brushes.White),
             _ => ((Brush)Brushes.Transparent, (Brush)FindResource("TextNormal"))
         };
         var button = new Button
@@ -2205,9 +2203,7 @@ public partial class MainWindow : FluentWindow
 
         MuteMicButton.Content = _voice.IsMicMuted ? "🔇" : "🎤";
         MuteMicButton.ToolTip = _voice.IsMicMuted ? "Unmute Mic" : "Mute Mic";
-        MuteMicButton.Background = _voice.IsMicMuted
-            ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xF2, 0x3F, 0x42))
-            : System.Windows.Media.Brushes.Transparent;
+        MuteMicButton.Background = _voice.IsMicMuted ? ThemeBrushes.Danger : System.Windows.Media.Brushes.Transparent;
     }
 
     private void DeafenButton_Click(object sender, RoutedEventArgs e)
@@ -2234,9 +2230,7 @@ public partial class MainWindow : FluentWindow
         // and ignore the Button's Foreground brush.
         DeafenButton.Content = "🎧";
         DeafenButton.ToolTip = _voice.IsDeafened ? "Undeafen" : "Deafen";
-        DeafenButton.Background = _voice.IsDeafened
-            ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xF2, 0x3F, 0x42))
-            : System.Windows.Media.Brushes.Transparent;
+        DeafenButton.Background = _voice.IsDeafened ? ThemeBrushes.Danger : System.Windows.Media.Brushes.Transparent;
     }
 
     private void VoiceMemberVolumeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)

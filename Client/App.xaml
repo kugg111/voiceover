@@ -25,6 +25,12 @@
                  (see VoiceMemberItem.IsJoining) - light blue so it reads as "in
                  progress" rather than the flat gray every other row uses. -->
             <SolidColorBrush x:Key="TextJoining" Color="#8AB4F8"/>
+            <!-- Destructive/error red (delete/leave buttons, error text, mute-active
+                 icon) and the away/idle gold. Single source of truth: XAML consumes
+                 these via {StaticResource}, C# via ThemeBrushes - previously each was
+                 hand-copied as a hex literal in XAML and Color.FromRgb(...) in code. -->
+            <SolidColorBrush x:Key="DangerRed" Color="#F23F42"/>
+            <SolidColorBrush x:Key="AwayYellow" Color="#F0B232"/>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

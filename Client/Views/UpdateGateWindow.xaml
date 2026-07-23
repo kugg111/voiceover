@@ -34,7 +34,7 @@
                        Foreground="{StaticResource TextMuted}" HorizontalAlignment="Center"
                        Margin="0,0,0,4" TextWrapping="Wrap" TextAlignment="Center"/>
             <TextBlock x:Name="MandatoryText" Text="This update is required to continue." FontSize="12"
-                       Foreground="#F23F42" HorizontalAlignment="Center"
+                       Foreground="{StaticResource DangerRed}" HorizontalAlignment="Center"
                        Margin="0,0,0,4" TextWrapping="Wrap" TextAlignment="Center"
                        Visibility="Collapsed"/>
 

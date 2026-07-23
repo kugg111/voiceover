@@ -27,9 +27,9 @@
                     <DataTemplate>
                         <StackPanel Orientation="Horizontal" Margin="0,2">
                             <Grid Width="24" Height="24" Margin="0,0,8,0">
-                                <!-- Green speaking ring (Discord's speaking color),
+                                <!-- Blurple speaking ring (the app's AccentBlurple #5865F2),
                                      shown + pulsing only while IsSpeaking. -->
-                                <Ellipse Width="24" Height="24" Stroke="#3BA55D" StrokeThickness="2"
+                                <Ellipse Width="24" Height="24" Stroke="#5865F2" StrokeThickness="2"
                                          Fill="Transparent" Visibility="{Binding SpeakingDotVisibility}"
                                          RenderTransformOrigin="0.5,0.5">
                                     <Ellipse.RenderTransform>
@@ -57,7 +57,8 @@
                                         </Style>
                                     </Ellipse.Style>
                                 </Ellipse>
-                                <local:AvatarView Size="20" DisplayName="{Binding Username}" ImageUrl="{Binding AvatarUrl}"/>
+                                <local:AvatarView Size="20" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                  DisplayName="{Binding Username}" ImageUrl="{Binding AvatarUrl}"/>
                             </Grid>
                             <TextBlock Text="{Binding Username}" Foreground="White" FontSize="12"
                                        VerticalAlignment="Center"/>

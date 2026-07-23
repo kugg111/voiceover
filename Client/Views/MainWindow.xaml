@@ -218,7 +218,7 @@
                         </Button>
                         <Button x:Name="LeaveVoiceButton" Content="📞" FontSize="14" ToolTip="Disconnect"
                                 Style="{StaticResource VoiceControlIconButtonStyle}"
-                                Foreground="White" Background="#F23F42"
+                                Foreground="White" Background="{StaticResource DangerRed}"
                                 Click="LeaveVoiceButton_Click"/>
                     </UniformGrid>
                 </Border>
@@ -384,11 +384,12 @@
                                                             </BeginStoryboard>
                                                         </EventTrigger>
                                                     </StackPanel.Triggers>
-                                                    <Grid Width="20" Height="20" Margin="0,0,4,0">
-                                                        <!-- Green speaking ring around the avatar, pulsing while
-                                                             IsSpeaking - the same indicator the in-game overlay
-                                                             uses, so both surfaces show "speaking" identically. -->
-                                                        <Ellipse Width="20" Height="20" Stroke="#3BA55D" StrokeThickness="2"
+                                                    <Grid Width="20" Height="20" Margin="0,0,4,0" VerticalAlignment="Center">
+                                                        <!-- Blurple speaking ring around the avatar (app accent
+                                                             color), pulsing while IsSpeaking - the same indicator
+                                                             the in-game overlay uses, so both surfaces show
+                                                             "speaking" identically. -->
+                                                        <Ellipse Width="20" Height="20" Stroke="{StaticResource AccentBlurple}" StrokeThickness="2"
                                                                  Fill="Transparent" Visibility="{Binding SpeakingDotVisibility}"
                                                                  RenderTransformOrigin="0.5,0.5">
                                                             <Ellipse.CacheMode>
@@ -431,7 +432,8 @@
                                                                 </Style>
                                                             </Ellipse.Style>
                                                         </Ellipse>
-                                                        <local:AvatarView Size="16" DisplayName="{Binding Username}" ImageUrl="{Binding AvatarUrl}"/>
+                                                        <local:AvatarView Size="16" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                                          DisplayName="{Binding Username}" ImageUrl="{Binding AvatarUrl}"/>
                                                     </Grid>
                                                     <TextBlock Text="🔇" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0"
                                                                Visibility="{Binding MutedIconVisibility}" ToolTip="Muted"/>
@@ -672,7 +674,7 @@
                                                 <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
                                                          Fill="#3BA55D" Visibility="{Binding OnlineDotVisibility}" ToolTip="Online"/>
                                                 <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
-                                                         Fill="#F0B232" Visibility="{Binding AwayDotVisibility}" ToolTip="Away"/>
+                                                         Fill="{StaticResource AwayYellow}" Visibility="{Binding AwayDotVisibility}" ToolTip="Away"/>
                                                 <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
                                                          Fill="#80848E" Visibility="{Binding OfflineDotVisibility}" ToolTip="Offline"/>
                                             </StackPanel>
@@ -703,7 +705,7 @@
             <Border Grid.Row="0" Background="{StaticResource BgDark}" BorderBrush="{StaticResource BgDarker}" BorderThickness="0,0,0,1">
                 <DockPanel>
                     <TextBlock x:Name="ConnectionStatusText" DockPanel.Dock="Right" Text=""
-                               Foreground="#F0B232" FontSize="12" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                               Foreground="{StaticResource AwayYellow}" FontSize="12" VerticalAlignment="Center" Margin="0,0,12,0"/>
                     <Button x:Name="DmCallButton" DockPanel.Dock="Right" Content="📞" ToolTip="Call" Margin="0,0,12,0"
                             Background="Transparent" Foreground="{StaticResource TextMuted}"
                             BorderThickness="0" Cursor="Hand" Visibility="Collapsed"
@@ -1076,7 +1078,7 @@
                 <Border x:Name="VoiceMessageRecordingBanner" Background="{StaticResource BgSidebar}" CornerRadius="4"
                         Padding="10,6" Margin="0,0,0,6" Visibility="Collapsed">
                     <TextBlock x:Name="VoiceMessageRecordingText" Text="Recording... 0:00" FontSize="12"
-                               Foreground="#F23F42" FontWeight="Bold"/>
+                               Foreground="{StaticResource DangerRed}" FontWeight="Bold"/>
                 </Border>
                 <Grid AllowDrop="True" DragOver="MessageInputArea_DragOver" Drop="MessageInputArea_Drop">
                     <Grid.ColumnDefinitions>
@@ -1156,7 +1158,7 @@
                                         <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
                                                  Fill="#3BA55D" Visibility="{Binding OnlineDotVisibility}" ToolTip="Online"/>
                                         <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
-                                                 Fill="#F0B232" Visibility="{Binding AwayDotVisibility}" ToolTip="Away"/>
+                                                 Fill="{StaticResource AwayYellow}" Visibility="{Binding AwayDotVisibility}" ToolTip="Away"/>
                                         <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
                                                  Fill="#80848E" Visibility="{Binding OfflineDotVisibility}" ToolTip="Offline"/>
                                     </StackPanel>

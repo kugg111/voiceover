@@ -40,7 +40,7 @@
             <CheckBox x:Name="RememberMeBox" Content="Remember me" IsChecked="True"
                       Foreground="{StaticResource TextMuted}" Margin="0,0,0,14"/>
 
-            <TextBlock x:Name="StatusText" Foreground="#F23F42" FontSize="12"
+            <TextBlock x:Name="StatusText" Foreground="{StaticResource DangerRed}" FontSize="12"
                        Margin="0,0,0,10" TextWrapping="Wrap" Visibility="Collapsed"/>
 
             <Button x:Name="LoginButton" Content="Log In" Height="40" Width="200"
@@ -71,7 +71,7 @@
                      Background="{StaticResource BgDarker}" Foreground="{StaticResource TextNormal}"
                      BorderThickness="0" Margin="0,0,0,14" KeyDown="TotpCodeBox_KeyDown"/>
 
-            <TextBlock x:Name="TotpStatusText" Foreground="#F23F42" FontSize="12"
+            <TextBlock x:Name="TotpStatusText" Foreground="{StaticResource DangerRed}" FontSize="12"
                        Margin="0,0,0,10" TextWrapping="Wrap" Visibility="Collapsed"/>
 
             <Button x:Name="TotpVerifyButton" Content="Verify" Height="40" Width="200"

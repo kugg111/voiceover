@@ -34,7 +34,7 @@
                         Background="#3BA55D" Foreground="White" FontWeight="Bold"
                         BorderThickness="0" Cursor="Hand" Click="AcceptButton_Click"/>
                 <Button x:Name="EndButton" Content="Decline" Width="100" Height="36"
-                        Background="#F23F42" Foreground="White" FontWeight="Bold"
+                        Background="{StaticResource DangerRed}" Foreground="White" FontWeight="Bold"
                         BorderThickness="0" Cursor="Hand" Click="EndButton_Click"/>
             </StackPanel>
 
@@ -75,7 +75,7 @@
                             Background="Transparent" Foreground="{StaticResource TextMuted}"
                             BorderThickness="0" Cursor="Hand" Click="DeafenToggleButton_Click"/>
                     <Button Content="Hang Up" Width="92" Height="32"
-                            Background="#F23F42" Foreground="White" FontWeight="Bold"
+                            Background="{StaticResource DangerRed}" Foreground="White" FontWeight="Bold"
                             BorderThickness="0" Cursor="Hand" Click="EndButton_Click"/>
                 </StackPanel>
 

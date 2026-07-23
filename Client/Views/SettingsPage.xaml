@@ -71,7 +71,7 @@
                             Background="{StaticResource AccentBlurple}" Foreground="White" BorderThickness="0"/>
                     <Button x:Name="Disable2FaButton" Content="Disable 2FA" Height="40" Width="160"
                             HorizontalAlignment="Left" Click="Disable2FaButton_Click" Visibility="Collapsed"
-                            Background="#F23F42" Foreground="White" BorderThickness="0"/>
+                            Background="{StaticResource DangerRed}" Foreground="White" BorderThickness="0"/>
 
                     <Border Height="1" Background="{StaticResource BgSidebar}" Margin="0,24,0,20"/>
 
@@ -112,7 +112,7 @@
 
                     <Button x:Name="DeleteAccountButton" Content="Delete My Account" Height="40" Width="180"
                             HorizontalAlignment="Left" Click="DeleteAccountButton_Click"
-                            Background="#F23F42" Foreground="White" BorderThickness="0"/>
+                            Background="{StaticResource DangerRed}" Foreground="White" BorderThickness="0"/>
                     <TextBlock Text="Permanently deletes your account and everything tied to it. You'll be blocked from doing this while you still own a server - transfer ownership or delete it first."
                                FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}" Margin="0,4,0,0"/>
                 </StackPanel>

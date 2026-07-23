@@ -290,13 +290,13 @@ public partial class CallWindow : FluentWindow
     private void UpdateMuteVisual(bool isMuted)
     {
         MuteButton.Content = isMuted ? "🔇 Unmute" : "🎤 Mute";
-        MuteButton.Foreground = isMuted ? new SolidColorBrush(Color.FromRgb(0xF2, 0x3F, 0x42)) : (Brush)FindResource("TextMuted");
+        MuteButton.Foreground = isMuted ? ThemeBrushes.Danger : (Brush)FindResource("TextMuted");
     }
 
     private void UpdateDeafenVisual(bool isDeafened)
     {
         DeafenToggleButton.Content = isDeafened ? "🎧 Undeafen" : "🎧 Deafen";
-        DeafenToggleButton.Foreground = isDeafened ? new SolidColorBrush(Color.FromRgb(0xF2, 0x3F, 0x42)) : (Brush)FindResource("TextMuted");
+        DeafenToggleButton.Foreground = isDeafened ? ThemeBrushes.Danger : (Brush)FindResource("TextMuted");
     }
 
     // Used when MainWindow is closing this window itself in reaction to a
