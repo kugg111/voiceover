@@ -119,9 +119,21 @@ public partial class UpdateGateWindow : FluentWindow
     // gesture, same as it would be for any other first-window-of-the-
     // session; letting it fall through to login instead would silently
     // override that.
+    //
+    // While an update is actively downloading/applying, the close must be
+    // blocked outright (e.Cancel = true) rather than just skipped - simply
+    // returning here let the window close anyway while leaving _resultTcs
+    // unresolved, which left CheckAndShowIfNeededAsync's own await hanging
+    // forever: the process stayed alive with no window and no further
+    // feedback, indistinguishable from a crash. This is the one point in
+    // the flow the user could reach that state from, mandatory or not.
     private void Window_Closing(object sender, CancelEventArgs e)
     {
-        if (_isUpdating) return;
+        if (_isUpdating)
+        {
+            e.Cancel = true;
+            return;
+        }
         _resultTcs.TrySetResult(false);
     }
 }

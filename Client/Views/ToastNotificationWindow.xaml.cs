@@ -1,5 +1,7 @@
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
 
@@ -14,6 +16,24 @@ namespace Voiceover.Client.Views;
 // of how the app was installed.
 public partial class ToastNotificationWindow : Window
 {
+    // WS_EX_NOACTIVATE - without this, Show() both reorders this Topmost
+    // window above whatever's currently in front AND takes window
+    // activation, which is exactly what makes Windows forcibly minimize an
+    // exclusive-fullscreen game the instant a voice join/leave or new
+    // message pops a toast while the user is mid-game. Same fix/same
+    // reasoning as OverlayWindow's own WS_EX_NOACTIVATE (see its
+    // OnSourceInitialized) - this window still takes mouse clicks fine
+    // (Window_MouseLeftButtonDown below) since NOACTIVATE only blocks
+    // activation, not input.
+    private const int GWL_EXSTYLE = -20;
+    private const int WS_EX_NOACTIVATE = 0x08000000;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+
     private readonly DispatcherTimer _dismissTimer;
     private bool _dismissing;
 
@@ -22,6 +42,13 @@ public partial class ToastNotificationWindow : Window
         InitializeComponent();
         TitleText.Text = title;
         MessageText.Text = message;
+
+        SourceInitialized += (_, _) =>
+        {
+            var hwnd = new WindowInteropHelper(this).Handle;
+            var ex = GetWindowLong(hwnd, GWL_EXSTYLE);
+            SetWindowLong(hwnd, GWL_EXSTYLE, ex | WS_EX_NOACTIVATE);
+        };
 
         Opacity = 0;
         Loaded += (_, _) =>

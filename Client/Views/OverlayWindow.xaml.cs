@@ -148,6 +148,20 @@ public partial class OverlayWindow : Window
         Evaluate();
     }
 
+    // Same fix as MainWindow's identical "SidebarSpeakingPulse" - see that
+    // handler's own comment for the full explanation. This overlay renders
+    // the exact same speaking-ring pulse pattern (OverlayWindow.xaml's
+    // "OverlaySpeakingPulse"), so it's exposed to the identical
+    // RepeatBehavior="Forever" + forced-container-removal race.
+    private void SpeakingRing_Unloaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is System.Windows.Shapes.Ellipse { RenderTransform: ScaleTransform scale })
+        {
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+            scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+        }
+    }
+
     // Fired by the global toggle hotkey.
     public void ToggleVisibility()
     {

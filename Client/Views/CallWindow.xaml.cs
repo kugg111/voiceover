@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
@@ -52,11 +54,35 @@ public partial class CallWindow : FluentWindow
     private DispatcherTimer? _durationTimer;
     private DateTime _activeStartUtc;
 
+    // WS_EX_NOACTIVATE - same fix/same reasoning as ToastNotificationWindow
+    // and OverlayWindow: an incoming call is pushed straight off a SignalR
+    // event (OnIncomingCall), and without this, Show()-ing this Topmost
+    // window steals activation, which is exactly what makes Windows
+    // forcibly minimize an exclusive-fullscreen game the instant a call
+    // comes in while the user is mid-game. NOACTIVATE only blocks automatic
+    // activation on Show() - the user can still click into the window
+    // normally to Accept/Decline.
+    private const int GWL_EXSTYLE = -20;
+    private const int WS_EX_NOACTIVATE = 0x08000000;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+
     public CallWindow(string callId, int otherUserId, string otherUsername, string? otherAvatarUrl, bool isOutgoing,
         string selfUsername, string? selfAvatarUrl, VoiceService voice)
     {
         InitializeComponent();
         CallId = callId;
+
+        SourceInitialized += (_, _) =>
+        {
+            var hwnd = new WindowInteropHelper(this).Handle;
+            var ex = GetWindowLong(hwnd, GWL_EXSTYLE);
+            SetWindowLong(hwnd, GWL_EXSTYLE, ex | WS_EX_NOACTIVATE);
+        };
         OtherPartyUserId = otherUserId;
         OtherPartyUsername = otherUsername;
         _voice = voice;

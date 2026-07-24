@@ -127,7 +127,15 @@ public partial class MainWindow
         if (_currentVoiceChannelId.HasValue)
         {
             await _hub.LeaveVoiceChannelAsync(_currentVoiceChannelId.Value);
-            await _voice.LeaveAllAsync();
+            // Off the UI thread, same as JoinChannelAsync's own Task.Run
+            // wrapping - LeaveAllAsync synchronously tears down the old
+            // MicCaptureSource/NoiseSuppressionProcessor, including a
+            // native Denoiser_Destroy call into LibTorch if Facebook
+            // Denoiser was active. Calling it directly here (as before)
+            // meant that teardown could run straight on the dispatcher
+            // thread on a channel switch, stalling the app's own UI for
+            // however long native disposal took.
+            await Task.Run(() => _voice.LeaveAllAsync());
             RemoveSelfFromVoiceRoster(_currentVoiceChannelId.Value);
         }
 
@@ -734,6 +742,29 @@ public partial class MainWindow
             var member = item?.Members.FirstOrDefault(m => m.UserId == userId);
             if (member is not null) member.IsSpeaking = isSpeaking;
         });
+    }
+
+    // The speaking ring's pulse (MainWindow.xaml, the "SidebarSpeakingPulse"
+    // BeginStoryboard) is RepeatBehavior="Forever" - if the member it
+    // belongs to leaves the voice channel while still mid-speech, the row's
+    // container gets torn down and removed from the visual tree, but
+    // there's no guarantee WPF runs the DataTrigger's ExitActions
+    // (StopStoryboard) first - a forcibly-removed container isn't the same
+    // as the bound property naturally flipping IsSpeaking back to false.
+    // The still-ticking "Forever" clock then keeps trying to apply its next
+    // value to this Ellipse's RenderTransform after the container's local
+    // value has already been torn down, which throws "Cannot animate ...
+    // on an immutable object instance" on every tick - explains the
+    // cascade of repeated error dialogs on join-then-leave. Explicitly
+    // detaching the animation here, on Unloaded, guarantees the clock stops
+    // regardless of whether the trigger's own ExitActions ran.
+    private void SpeakingRing_Unloaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is System.Windows.Shapes.Ellipse { RenderTransform: ScaleTransform scale })
+        {
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+            scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+        }
     }
 
     // Fired from VoiceService's background audio-level detection, so this

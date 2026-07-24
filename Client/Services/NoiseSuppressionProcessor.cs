@@ -32,6 +32,11 @@ internal class NoiseSuppressionProcessor : IDisposable
             {
                 if (_backend == value) return;
                 _backend = value;
+                // No-ops if this backend was already loaded (either at
+                // construction, or from a previous switch to it earlier in
+                // this call) - see EnsureBackendLoaded's own comment for
+                // why this is lazy at all.
+                EnsureBackendLoaded(value);
                 // Drop whatever's mid-flight in the delay lines - they hold
                 // raw samples captured while a since-deselected backend was
                 // active, which would otherwise get blended against fresh
@@ -83,26 +88,30 @@ internal class NoiseSuppressionProcessor : IDisposable
     public double LastFacebookDenoiserMs { get; private set; }
 
     // --- RNNoise (lightweight RNN denoiser) ---
-    private readonly Denoiser? _rnnoise;
+    private Denoiser? _rnnoise;
+    private bool _rnnoiseAttempted;
 
     // --- NSNet2 (ONNX-based denoiser - see its own header for why it's
     // meaningfully different in cost/architecture from RNNoise). CPU-only -
     // see Nsnet2Processor.cs for why the GPU/DirectML path was removed. ---
-    private readonly Nsnet2Processor? _nsnet2;
+    private Nsnet2Processor? _nsnet2;
+    private bool _nsnet2Attempted;
 
     // --- Facebook Denoiser (real incremental streaming inference via
     // LibTorch - see FacebookDenoiserProcessor.cs's own header). The
     // heaviest backend by a wide margin (a genuine deep model, not a
     // lightweight RNN or a magnitude-masking STFT approach), but
     // meaningfully more aggressive on real background noise in testing. ---
-    private readonly FacebookDenoiserProcessor? _facebookDenoiser;
+    private FacebookDenoiserProcessor? _facebookDenoiser;
+    private bool _facebookDenoiserAttempted;
 
     // --- Silero VAD pre-gate: mutes confirmed-silence stretches after
     // suppression runs, catching residual noise (fan hum, breathing) a
     // suppressor alone lets through. Off by default - newest, least-proven
     // piece of this pipeline. See ApplyVadPreRollGate for the pre-roll
     // buffering that keeps this from clipping word onsets. ---
-    private readonly SileroVadProcessor? _vad;
+    private SileroVadProcessor? _vad;
+    private bool _vadAttempted;
 
     private bool _vadGateEnabled;
     public bool VadGateEnabled
@@ -114,6 +123,10 @@ internal class NoiseSuppressionProcessor : IDisposable
             {
                 if (_vadGateEnabled == value) return;
                 _vadGateEnabled = value;
+                // No-ops if already loaded - lazy, same reasoning as
+                // EnsureBackendLoaded above. Loads on the first time this
+                // is switched on, not unconditionally at construction.
+                if (value) EnsureVad();
                 // Stale state/context from before a gap (gate was off, or
                 // this is the first time it's ever been on) would
                 // otherwise bias the next few decisions - same reasoning
@@ -177,23 +190,74 @@ internal class NoiseSuppressionProcessor : IDisposable
 
     public NoiseSuppressionProcessor()
     {
-        // Wrapped in try/catch - both are newer, less-proven native
-        // dependencies (a NuGet package still on 0.x, and a from-scratch
-        // ONNX inference pipeline), so a failure to load either (missing
-        // file, wrong arch, AV quarantine) must not break voice capture
-        // entirely for people who never even select them. The
-        // corresponding Apply* method no-ops if its engine stayed null.
+        // Only the backend actually selected at construction time (always
+        // RNNoise, the default - Backend/VadGateEnabled aren't touched via
+        // an object initializer anywhere, they're set afterward via their
+        // own setters if a saved value differs) gets loaded here. The
+        // other three, and VAD, load lazily the first time something
+        // actually switches to them - see EnsureRNNoise/EnsureNsnet2/
+        // EnsureFacebookDenoiser/EnsureVad below. Previously all four
+        // loaded unconditionally on every construction (i.e. every voice
+        // join, since a new instance is created per join) regardless of
+        // which one was selected - RNNoise plus Silero VAD (ONNX) plus
+        // NSNet2 (ONNX, 24MB model) plus Facebook Denoiser (LibTorch, a
+        // 291MB native DLL and a 75MB TorchScript model) back to back,
+        // even for someone who only ever uses the lightweight default.
+        // That was a real, repeatable CPU spike at the exact moment of
+        // joining voice.
+        EnsureBackendLoaded(_backend);
+    }
+
+    // Wrapped in try/catch, same reasoning as before this was lazy: RNNoise
+    // and Silero VAD are newer, less-proven native dependencies (a NuGet
+    // package still on 0.x, and a from-scratch ONNX inference pipeline),
+    // and NSNet2/Facebook Denoiser can fail to load too (missing file,
+    // wrong arch, AV quarantine) - a failure to load must not break voice
+    // capture entirely for an engine nobody even selected. The
+    // corresponding Apply* method no-ops if its engine stayed null.
+    // _*Attempted guards against retrying a failed load on every frame -
+    // construction is attempted exactly once per engine, ever, for the
+    // lifetime of this processor.
+    private void EnsureRNNoise()
+    {
+        if (_rnnoiseAttempted) return;
+        _rnnoiseAttempted = true;
         try { _rnnoise = new Denoiser(); }
         catch { _rnnoise = null; }
+    }
 
-        try { _vad = new SileroVadProcessor(Path.Combine(AppContext.BaseDirectory, "silero_vad.onnx")); }
-        catch { _vad = null; }
-
+    private void EnsureNsnet2()
+    {
+        if (_nsnet2Attempted) return;
+        _nsnet2Attempted = true;
         try { _nsnet2 = new Nsnet2Processor(Path.Combine(AppContext.BaseDirectory, "nsnet2-20ms-48k-baseline.onnx")); }
         catch { _nsnet2 = null; }
+    }
 
+    private void EnsureFacebookDenoiser()
+    {
+        if (_facebookDenoiserAttempted) return;
+        _facebookDenoiserAttempted = true;
         try { _facebookDenoiser = new FacebookDenoiserProcessor(Path.Combine(AppContext.BaseDirectory, "denoiser_dns48_streaming.pt")); }
         catch { _facebookDenoiser = null; }
+    }
+
+    private void EnsureVad()
+    {
+        if (_vadAttempted) return;
+        _vadAttempted = true;
+        try { _vad = new SileroVadProcessor(Path.Combine(AppContext.BaseDirectory, "silero_vad.onnx")); }
+        catch { _vad = null; }
+    }
+
+    private void EnsureBackendLoaded(NoiseSuppressionBackend backend)
+    {
+        switch (backend)
+        {
+            case NoiseSuppressionBackend.RNNoise: EnsureRNNoise(); break;
+            case NoiseSuppressionBackend.Nsnet2: EnsureNsnet2(); break;
+            case NoiseSuppressionBackend.FacebookDenoiser: EnsureFacebookDenoiser(); break;
+        }
     }
 
     // Processes exactly one 20ms/960-sample frame in place - gain first,

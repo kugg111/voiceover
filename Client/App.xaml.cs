@@ -27,6 +27,28 @@ public partial class App : Application
 
     public App()
     {
+        // Must happen before anything ever touches denoiser_wrapper.dll
+        // (the Facebook Denoiser LibTorch backend) - OpenMP reads these once,
+        // at the native DLL's own first-load initialization, so setting them
+        // any later than "as early in the process as possible" wouldn't take
+        // effect. Without this, LibTorch's default OpenMP thread pool spins
+        // up one worker per physical core with busy-spin waiting - the exact
+        // failure mode this codebase already found and fixed for the NSNet2/
+        // Silero ONNX backends (see their own IntraOpNumThreads/
+        // InterOpNumThreads = 1 and the comment explaining why), just never
+        // addressed for this one. A CPU-bound native thread pool competes
+        // for cycles with every other process on the machine - including a
+        // game's render thread - regardless of which .NET thread starts it,
+        // which is what produces the brief FPS stall some users see right
+        // when joining voice with this backend selected. 2 (not 1, unlike
+        // the ONNX backends) leaves this real-time, 20ms-cadence model some
+        // headroom to actually finish inference within its budget on slower
+        // CPUs, while still capping it well below "one thread per core."
+        // MKL_NUM_THREADS covers the case where the vendored LibTorch build
+        // uses MKL instead of/alongside OpenMP for its CPU backend.
+        Environment.SetEnvironmentVariable("OMP_NUM_THREADS", "2");
+        Environment.SetEnvironmentVariable("MKL_NUM_THREADS", "2");
+
         // Most event handlers in this app are `async void` (WPF's Click/etc. signatures
         // require it), which means an exception inside one - e.g. the server being
         // unreachable during a network call - can't be caught by the caller and would

@@ -391,7 +391,7 @@
                                                              "speaking" identically. -->
                                                         <Ellipse Width="20" Height="20" Stroke="{StaticResource AccentBlurple}" StrokeThickness="2"
                                                                  Fill="Transparent" Visibility="{Binding SpeakingDotVisibility}"
-                                                                 RenderTransformOrigin="0.5,0.5">
+                                                                 RenderTransformOrigin="0.5,0.5" Unloaded="SpeakingRing_Unloaded">
                                                             <Ellipse.CacheMode>
                                                                 <!-- Caches the ring as a GPU texture so the pulse is a cheap
                                                                      composition-thread scale of that texture, decoupled from

@@ -31,7 +31,7 @@
                                      shown + pulsing only while IsSpeaking. -->
                                 <Ellipse Width="24" Height="24" Stroke="#5865F2" StrokeThickness="2"
                                          Fill="Transparent" Visibility="{Binding SpeakingDotVisibility}"
-                                         RenderTransformOrigin="0.5,0.5">
+                                         RenderTransformOrigin="0.5,0.5" Unloaded="SpeakingRing_Unloaded">
                                     <Ellipse.RenderTransform>
                                         <ScaleTransform ScaleX="1" ScaleY="1"/>
                                     </Ellipse.RenderTransform>
