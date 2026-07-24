@@ -37,31 +37,12 @@ internal class NoiseSuppressionProcessor : IDisposable
                 // this call) - see EnsureBackendLoaded's own comment for
                 // why this is lazy at all.
                 EnsureBackendLoaded(value);
-                // Drop whatever's mid-flight in the delay lines - they hold
+                // Drop whatever's mid-flight in the delay line - it holds
                 // raw samples captured while a since-deselected backend was
                 // active, which would otherwise get blended against fresh
                 // audio after a backend switch (a stale, wrong-content blip
                 // instead of a clean one).
                 _nsnet2DryDelayLine.Clear();
-                _facebookDenoiserDryDelayLine.Clear();
-
-                // Reset only when entering this backend, not on every
-                // switch regardless of direction (including switches that
-                // never touch it at all) - both because it's pointless work
-                // otherwise, and because this is the one call in this whole
-                // setter that crosses into LibTorch's native runtime via
-                // denoiser_wrapper.dll, so it's wrapped: a failure here
-                // must not take the setter (and whatever UI code called it)
-                // down, and previously calling it unconditionally on every
-                // switch - including switching AWAY from this backend -
-                // could leave the native side in a bad state that then
-                // broke whichever backend ran next, regardless of which one
-                // that was.
-                if (value == NoiseSuppressionBackend.FacebookDenoiser)
-                {
-                    try { _facebookDenoiser?.Reset(); }
-                    catch { /* best-effort - see ApplyFacebookDenoiser's own null-engine fallback */ }
-                }
             }
         }
     }
@@ -85,7 +66,6 @@ internal class NoiseSuppressionProcessor : IDisposable
     // re-tests.
     public double LastRNNoiseMs { get; private set; }
     public double LastNsnet2Ms { get; private set; }
-    public double LastFacebookDenoiserMs { get; private set; }
 
     // --- RNNoise (lightweight RNN denoiser) ---
     private Denoiser? _rnnoise;
@@ -96,14 +76,6 @@ internal class NoiseSuppressionProcessor : IDisposable
     // see Nsnet2Processor.cs for why the GPU/DirectML path was removed. ---
     private Nsnet2Processor? _nsnet2;
     private bool _nsnet2Attempted;
-
-    // --- Facebook Denoiser (real incremental streaming inference via
-    // LibTorch - see FacebookDenoiserProcessor.cs's own header). The
-    // heaviest backend by a wide margin (a genuine deep model, not a
-    // lightweight RNN or a magnitude-masking STFT approach), but
-    // meaningfully more aggressive on real background noise in testing. ---
-    private FacebookDenoiserProcessor? _facebookDenoiser;
-    private bool _facebookDenoiserAttempted;
 
     // --- Silero VAD pre-gate: mutes confirmed-silence stretches after
     // suppression runs, catching residual noise (fan hum, breathing) a
@@ -164,28 +136,6 @@ internal class NoiseSuppressionProcessor : IDisposable
     private readonly Queue<short> _nsnet2DryDelayLine = new();
     private short[] _nsnet2DelayedDryScratch = Array.Empty<short>();
 
-    // Facebook Denoiser's own fixed algorithmic delay, in 48kHz samples -
-    // derived from known, verified constants rather than empirically
-    // measured through the model itself (an impulse-response test - the
-    // approach Nsnet2DelaySamples above used - isn't reliable for this
-    // backend specifically: it's a full waveform-domain model whose whole
-    // job is suppressing anything that doesn't look like speech, and a
-    // single-sample impulse embedded in silence is about as "not speech"
-    // as a test signal gets, so its peak isn't trustworthy to locate).
-    // Composed of: the exported model's own TotalLength=661 hop-buffering
-    // delay (see FacebookDenoiserProcessor - this number came from the
-    // reference DemucsStreamer's own documented streaming latency, and
-    // was confirmed bit-exact against that reference implementation
-    // during export, not guessed), expressed in 48kHz samples (661 * 3 =
-    // 1983, exact since 48000/16000 is an integer ratio), plus each
-    // resampler's own linear-phase FIR group delay ((taps-1)/2 = 31
-    // samples at their default 63 taps, one on the way down to 16kHz, one
-    // on the way back up to 48kHz - both operate at the 48kHz sample
-    // rate, so no additional unit conversion needed for those two terms).
-    private const int FacebookDenoiserDelaySamples = 1983 + 31 + 31;
-    private readonly Queue<short> _facebookDenoiserDryDelayLine = new();
-    private short[] _facebookDenoiserDelayedDryScratch = Array.Empty<short>();
-
     private readonly Stopwatch _stopwatch = new();
 
     public NoiseSuppressionProcessor()
@@ -193,31 +143,22 @@ internal class NoiseSuppressionProcessor : IDisposable
         // Only the backend actually selected at construction time (always
         // RNNoise, the default - Backend/VadGateEnabled aren't touched via
         // an object initializer anywhere, they're set afterward via their
-        // own setters if a saved value differs) gets loaded here. The
-        // other three, and VAD, load lazily the first time something
-        // actually switches to them - see EnsureRNNoise/EnsureNsnet2/
-        // EnsureFacebookDenoiser/EnsureVad below. Previously all four
-        // loaded unconditionally on every construction (i.e. every voice
-        // join, since a new instance is created per join) regardless of
-        // which one was selected - RNNoise plus Silero VAD (ONNX) plus
-        // NSNet2 (ONNX, 24MB model) plus Facebook Denoiser (LibTorch, a
-        // 291MB native DLL and a 75MB TorchScript model) back to back,
-        // even for someone who only ever uses the lightweight default.
-        // That was a real, repeatable CPU spike at the exact moment of
-        // joining voice.
+        // own setters if a saved value differs) gets loaded here. NSNet2
+        // and VAD load lazily the first time something actually switches
+        // to them - see EnsureRNNoise/EnsureNsnet2/EnsureVad below.
         EnsureBackendLoaded(_backend);
     }
 
     // Wrapped in try/catch, same reasoning as before this was lazy: RNNoise
     // and Silero VAD are newer, less-proven native dependencies (a NuGet
     // package still on 0.x, and a from-scratch ONNX inference pipeline),
-    // and NSNet2/Facebook Denoiser can fail to load too (missing file,
-    // wrong arch, AV quarantine) - a failure to load must not break voice
-    // capture entirely for an engine nobody even selected. The
-    // corresponding Apply* method no-ops if its engine stayed null.
-    // _*Attempted guards against retrying a failed load on every frame -
-    // construction is attempted exactly once per engine, ever, for the
-    // lifetime of this processor.
+    // and NSNet2 can fail to load too (missing file, wrong arch, AV
+    // quarantine) - a failure to load must not break voice capture
+    // entirely for an engine nobody even selected. The corresponding
+    // Apply* method no-ops if its engine stayed null. _*Attempted guards
+    // against retrying a failed load on every frame - construction is
+    // attempted exactly once per engine, ever, for the lifetime of this
+    // processor.
     private void EnsureRNNoise()
     {
         if (_rnnoiseAttempted) return;
@@ -234,14 +175,6 @@ internal class NoiseSuppressionProcessor : IDisposable
         catch { _nsnet2 = null; }
     }
 
-    private void EnsureFacebookDenoiser()
-    {
-        if (_facebookDenoiserAttempted) return;
-        _facebookDenoiserAttempted = true;
-        try { _facebookDenoiser = new FacebookDenoiserProcessor(Path.Combine(AppContext.BaseDirectory, "denoiser_dns48_streaming.pt")); }
-        catch { _facebookDenoiser = null; }
-    }
-
     private void EnsureVad()
     {
         if (_vadAttempted) return;
@@ -256,7 +189,6 @@ internal class NoiseSuppressionProcessor : IDisposable
         {
             case NoiseSuppressionBackend.RNNoise: EnsureRNNoise(); break;
             case NoiseSuppressionBackend.Nsnet2: EnsureNsnet2(); break;
-            case NoiseSuppressionBackend.FacebookDenoiser: EnsureFacebookDenoiser(); break;
         }
     }
 
@@ -303,21 +235,6 @@ internal class NoiseSuppressionProcessor : IDisposable
                     }
                     if (blending) dryReference = _nsnet2DelayedDryScratch;
                 }
-                else if (Backend == NoiseSuppressionBackend.FacebookDenoiser)
-                {
-                    // Same reasoning as the NSNet2 delay line above - kept
-                    // fed unconditionally so toggling the mix slider mid-call
-                    // never hits a cold start.
-                    if (_facebookDenoiserDelayedDryScratch.Length < pcm.Length) _facebookDenoiserDelayedDryScratch = new short[pcm.Length];
-                    for (int i = 0; i < pcm.Length; i++)
-                    {
-                        _facebookDenoiserDryDelayLine.Enqueue(pcm[i]);
-                        _facebookDenoiserDelayedDryScratch[i] = _facebookDenoiserDryDelayLine.Count > FacebookDenoiserDelaySamples
-                            ? _facebookDenoiserDryDelayLine.Dequeue()
-                            : (short)0;
-                    }
-                    if (blending) dryReference = _facebookDenoiserDelayedDryScratch;
-                }
                 else if (blending)
                 {
                     if (_mixOriginalScratch.Length < pcm.Length) _mixOriginalScratch = new short[pcm.Length];
@@ -329,9 +246,6 @@ internal class NoiseSuppressionProcessor : IDisposable
                 {
                     case NoiseSuppressionBackend.Nsnet2:
                         ApplyNsnet2(pcm);
-                        break;
-                    case NoiseSuppressionBackend.FacebookDenoiser:
-                        ApplyFacebookDenoiser(pcm);
                         break;
                     default:
                         ApplyRNNoise(pcm);
@@ -441,16 +355,6 @@ internal class NoiseSuppressionProcessor : IDisposable
             pcm[i] = (short)(SoftClip(_nsnet2Scratch[i]) * short.MaxValue);
     }
 
-    private void ApplyFacebookDenoiser(short[] pcm)
-    {
-        if (_facebookDenoiser is null) return;
-
-        _stopwatch.Restart();
-        _facebookDenoiser.Process(pcm);
-        _stopwatch.Stop();
-        LastFacebookDenoiserMs = Ema(LastFacebookDenoiserMs, _stopwatch.Elapsed.TotalMilliseconds);
-    }
-
     private static double Ema(double previous, double sample) =>
         previous <= 0 ? sample : previous * 0.9 + sample * 0.1;
 
@@ -479,7 +383,6 @@ internal class NoiseSuppressionProcessor : IDisposable
         {
             _rnnoise?.Dispose();
             _nsnet2?.Dispose();
-            _facebookDenoiser?.Dispose();
             _vad?.Dispose();
         }
     }

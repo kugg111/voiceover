@@ -20,8 +20,7 @@ public enum VoiceInputMode
 public enum NoiseSuppressionBackend
 {
     RNNoise,
-    Nsnet2,
-    FacebookDenoiser
+    Nsnet2
 }
 
 // Connects to the self-hosted LiveKit SFU (see REDEPLOY.txt) for voice

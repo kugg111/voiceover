@@ -48,9 +48,6 @@ public partial class VoiceSettingsPanel : UserControl
             case NoiseSuppressionBackend.Nsnet2:
                 Nsnet2Radio.IsChecked = true;
                 break;
-            case NoiseSuppressionBackend.FacebookDenoiser:
-                FacebookDenoiserRadio.IsChecked = true;
-                break;
             default:
                 RNNoiseRadio.IsChecked = true;
                 break;
@@ -132,7 +129,6 @@ public partial class VoiceSettingsPanel : UserControl
         _voice!.NoiseSuppressionBackend = sender switch
         {
             _ when sender == Nsnet2Radio => NoiseSuppressionBackend.Nsnet2,
-            _ when sender == FacebookDenoiserRadio => NoiseSuppressionBackend.FacebookDenoiser,
             _ => NoiseSuppressionBackend.RNNoise
         };
         UpdateSuppressionMixAvailability();
@@ -230,7 +226,6 @@ public partial class VoiceSettingsPanel : UserControl
                 return processor.Backend switch
                 {
                     NoiseSuppressionBackend.Nsnet2 => $"NSNet2: ~{processor.LastNsnet2Ms:0.0}ms/frame (20ms budget)",
-                    NoiseSuppressionBackend.FacebookDenoiser => $"Facebook Denoiser: ~{processor.LastFacebookDenoiserMs:0.0}ms/frame (20ms budget)",
                     _ => $"RNNoise: ~{processor.LastRNNoiseMs:0.0}ms/frame (20ms budget)"
                 };
             });

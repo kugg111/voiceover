@@ -25,10 +25,7 @@
             <RadioButton x:Name="Nsnet2Radio" Content="NSNet2" GroupName="NoiseBackend"
                          Foreground="{StaticResource TextNormal}" Margin="0,0,0,4"
                          Checked="NoiseSuppressionBackendRadio_Changed"/>
-            <RadioButton x:Name="FacebookDenoiserRadio" Content="Facebook Denoiser" GroupName="NoiseBackend"
-                         Foreground="{StaticResource TextNormal}" Margin="0,0,0,4"
-                         Checked="NoiseSuppressionBackendRadio_Changed"/>
-            <TextBlock Text="RNNoise is a lightweight neural denoiser - lighter on CPU, sometimes more aggressive on background noise. NSNet2 is a heavier ML denoiser that re-analyzes a short rolling window on every frame rather than carrying state forward, so it costs more CPU than RNNoise. Facebook Denoiser is the heaviest of the three by a wide margin (a full deep model, not a lightweight RNN or a rolling-window re-analysis) but was noticeably more aggressive on real background noise in testing - worth trying if the other two aren't cutting it. Try all three and pick whichever sounds better on your mic."
+            <TextBlock Text="RNNoise is a lightweight neural denoiser - lighter on CPU, sometimes more aggressive on background noise. NSNet2 is a heavier ML denoiser that re-analyzes a short rolling window on every frame rather than carrying state forward, so it costs more CPU than RNNoise. Try both and pick whichever sounds better on your mic."
                        FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}" Margin="0,0,0,8"/>
 
             <TextBlock Text="Suppression Mix" FontWeight="Bold"

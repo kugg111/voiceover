@@ -56,11 +56,11 @@ grab the Windows installer or a portable ZIP from the
 - **Screen sharing**: share a window or monitor in a voice channel or a
   private call, with selectable resolution/framerate presets and your
   system audio (WASAPI loopback) published alongside the video
-- **Noise suppression**: three selectable engines — RNNoise, [NSNet2](https://github.com/microsoft/DNS-Challenge),
-  and a streaming port of Meta's [Denoiser](https://github.com/facebookresearch/denoiser)
-  (Demucs-based, running via LibTorch) — real denoisers, not a hand-rolled
-  volume gate. NSNet2 can run on the GPU (DirectML, any DX12 adapter,
-  selectable when more than one is installed) instead of the CPU, and an
+- **Noise suppression**: two selectable engines — RNNoise and
+  [NSNet2](https://github.com/microsoft/DNS-Challenge) — real denoisers,
+  not a hand-rolled volume gate. NSNet2 can run on the GPU (DirectML, any
+  DX12 adapter, selectable when more than one is installed) instead of the
+  CPU, and an
   optional Silero VAD pre-roll gate mutes confidently-silent stretches
   before they reach the denoiser
 - **Voice messages**: record and send a short voice clip directly in a
@@ -149,16 +149,14 @@ Client/                  WPF desktop app
                          VoiceService + MicCaptureSource/ScreenCaptureSource/
                          ScreenAudioCaptureSource (LiveKit audio/video,
                          noise suppression, screen share), NoiseSuppressionProcessor
-                         (RNNoise/NSNet2/Facebook Denoiser + GPU backend +
+                         (RNNoise/NSNet2 + GPU backend +
                          Silero VAD pre-roll gate), E2eeService,
                          CustomEmojiRegistry, DraftStorage, IdleDetector,
                          NotificationMuteStorage, SelfUpdateService
   Models/                Client-side DTOs
   installer/             Inno Setup script for the Windows installer
   native/                Vendored native runtime deps (NSNet2/Silero VAD
-                         ONNX models, Facebook Denoiser's LibTorch runtime +
-                         exported TorchScript model) - tracked via Git LFS,
-                         see .gitattributes
+                         ONNX models)
 ```
 
 ## Running it locally
@@ -198,10 +196,9 @@ system-wide, if you haven't already).
   auth, BCrypt, Serilog (console + Postgres sink)
 - **Client**: WPF (.NET 8), WPF-UI (Fluent Design), NAudio (device/loopback
   capture), LiveKit's .NET client SDK, Windows.Graphics.Capture (screen share)
-- **Voice/video**: self-hosted LiveKit SFU; RNNoise / NSNet2 / a streaming
-  port of Meta's Denoiser (ONNX Runtime and LibTorch, NSNet2 optionally
-  DirectML GPU-accelerated) for noise suppression, with a Silero VAD
-  (ONNX Runtime) pre-gate
+- **Voice/video**: self-hosted LiveKit SFU; RNNoise / NSNet2 (ONNX Runtime,
+  NSNet2 optionally DirectML GPU-accelerated) for noise suppression, with a
+  Silero VAD (ONNX Runtime) pre-gate
 - **Encryption**: ECDH (P-256) + HKDF + AES-256-GCM, entirely client-side
 - **Deployment**: server on [Railway](https://railway.app/) with a managed
   Postgres add-on; client installer/ZIP hosted as GitHub Releases

@@ -129,12 +129,11 @@ public partial class MainWindow
             await _hub.LeaveVoiceChannelAsync(_currentVoiceChannelId.Value);
             // Off the UI thread, same as JoinChannelAsync's own Task.Run
             // wrapping - LeaveAllAsync synchronously tears down the old
-            // MicCaptureSource/NoiseSuppressionProcessor, including a
-            // native Denoiser_Destroy call into LibTorch if Facebook
-            // Denoiser was active. Calling it directly here (as before)
-            // meant that teardown could run straight on the dispatcher
-            // thread on a channel switch, stalling the app's own UI for
-            // however long native disposal took.
+            // MicCaptureSource/NoiseSuppressionProcessor, including native
+            // model disposal. Calling it directly here (as before) meant
+            // that teardown could run straight on the dispatcher thread on
+            // a channel switch, stalling the app's own UI for however long
+            // native disposal took.
             await Task.Run(() => _voice.LeaveAllAsync());
             RemoveSelfFromVoiceRoster(_currentVoiceChannelId.Value);
         }
