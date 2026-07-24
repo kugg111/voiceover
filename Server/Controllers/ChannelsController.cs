@@ -46,6 +46,7 @@ public class ChannelsController : ControllerBase
         if (PaginationLimits.Clamp(take) is { } clampedTake) query = query.Take(clampedTake);
 
         var channels = await query
+            .AsNoTracking()
             .Select(c => new ChannelResponse(c.Id, c.Name, c.Type.ToString(), c.GuildServerId, c.Position, c.SlowModeSeconds, c.CategoryId))
             .ToListAsync();
 

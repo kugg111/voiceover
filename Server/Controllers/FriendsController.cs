@@ -44,13 +44,14 @@ public class FriendsController : ControllerBase
             .Skip(skip ?? 0);
         if (PaginationLimits.Clamp(take) is { } clampedTake) query = query.Take(clampedTake);
 
-        var friendships = await query.ToListAsync();
+        var friendships = await query.AsNoTracking().ToListAsync();
 
         var otherUserIds = friendships
             .Select(f => f.RequesterId == CurrentUserId ? f.AddresseeId : f.RequesterId)
             .ToList();
 
         var userInfo = await _db.Users
+            .AsNoTracking()
             .Where(u => otherUserIds.Contains(u.Id))
             .ToDictionaryAsync(u => u.Id, u => new { u.Username, u.AvatarUrl, u.CustomStatus });
 
@@ -78,13 +79,14 @@ public class FriendsController : ControllerBase
             .Skip(skip ?? 0);
         if (PaginationLimits.Clamp(take) is { } clampedTake) query = query.Take(clampedTake);
 
-        var pending = await query.ToListAsync();
+        var pending = await query.AsNoTracking().ToListAsync();
 
         var otherUserIds = pending
             .Select(f => f.RequesterId == CurrentUserId ? f.AddresseeId : f.RequesterId)
             .ToList();
 
         var userInfo = await _db.Users
+            .AsNoTracking()
             .Where(u => otherUserIds.Contains(u.Id))
             .ToDictionaryAsync(u => u.Id, u => new { u.Username, u.AvatarUrl });
 
@@ -225,12 +227,14 @@ public class FriendsController : ControllerBase
     public async Task<ActionResult<List<BlockedUserResponse>>> GetBlocked()
     {
         var blocks = await _db.Blocks
+            .AsNoTracking()
             .Where(b => b.BlockerId == CurrentUserId)
             .OrderByDescending(b => b.CreatedAt)
             .ToListAsync();
 
         var userIds = blocks.Select(b => b.BlockedId).ToList();
         var userInfo = await _db.Users
+            .AsNoTracking()
             .Where(u => userIds.Contains(u.Id))
             .ToDictionaryAsync(u => u.Id, u => new { u.Username, u.AvatarUrl });
 

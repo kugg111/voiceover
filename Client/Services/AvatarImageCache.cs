@@ -20,6 +20,18 @@ namespace Voiceover.Client.Services;
 // new content at the old one.
 public static class AvatarImageCache
 {
+    // "Cache forever" above is about correctness (no staleness to worry
+    // about), not memory - a long-running session spent browsing a large
+    // community server, or many servers, can still rack up more distinct
+    // avatars than are worth keeping resident forever. Same bounded-FIFO
+    // eviction as AttachmentImageCache, just a higher cap - these decode at
+    // 160px vs. that cache's 360px, so each entry is roughly a fifth the
+    // pixel footprint, and avatars render in far more places (every member/
+    // message/friend/DM/server-icon row) so evicting too eagerly would mean
+    // constantly re-downloading avatars for people still visible on screen.
+    private const int MaxCachedImages = 500;
+    private static readonly ConcurrentQueue<string> InsertionOrder = new();
+
     private static readonly ConcurrentDictionary<string, BitmapImage> MemoryCache = new();
 
     // Coalesces concurrent requests for the same not-yet-cached URL (e.g.
@@ -95,6 +107,10 @@ public static class AvatarImageCache
             bitmap.Freeze();
 
             MemoryCache[url] = bitmap;
+            InsertionOrder.Enqueue(url);
+            while (MemoryCache.Count > MaxCachedImages && InsertionOrder.TryDequeue(out var oldest))
+                MemoryCache.TryRemove(oldest, out _);
+
             return bitmap;
         }
         catch

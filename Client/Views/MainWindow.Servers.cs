@@ -241,6 +241,15 @@ public partial class MainWindow
     private async Task RefreshEmojisAsync(int serverId)
     {
         var emojis = await _api.GetServerEmojisAsync(serverId);
+
+        // Unregisters ids that were in the previous list but aren't in this
+        // one - otherwise a deleted emoji's entry lingers in
+        // CustomEmojiRegistry forever, since Register below only ever adds/
+        // overwrites, never removes.
+        if (_serverEmojis.TryGetValue(serverId, out var previous))
+            foreach (var emoji in previous.Where(p => emojis.All(e => e.Id != p.Id)))
+                CustomEmojiRegistry.Unregister(emoji.Id);
+
         _serverEmojis[serverId] = emojis;
         foreach (var emoji in emojis)
         {
@@ -872,6 +881,15 @@ public partial class MainWindow
 
     private async Task LeaveServerLocallyIfCurrentlyViewing(int serverId)
     {
+        // Not gated on serverId == _currentServerId below - _serverEmojis
+        // caches entries for any server viewed this session (see
+        // RefreshEmojisAsync's call site at the bottom of this file), not
+        // just the currently-open one, so this needs to run for every
+        // server-removal path (kick/ban/delete/leave) regardless of which
+        // server is on screen right now.
+        if (_serverEmojis.Remove(serverId, out var emojis))
+            foreach (var emoji in emojis) CustomEmojiRegistry.Unregister(emoji.Id);
+
         if (serverId == _currentServerId)
         {
             _currentServerId = null;

@@ -104,14 +104,17 @@ public class ChatHub : Hub
         var channel = await _db.Channels.AsNoTracking().FirstOrDefaultAsync(c => c.Id == channelId);
         if (channel is null) return;
 
-        // Membership check - same reasoning as JoinChannel above (a banned
-        // user has no Membership row, so this alone also excludes them).
-        if (!await _permissions.IsMemberAsync(CurrentUserId, channel.GuildServerId)) return;
+        // One membership lookup covers both the membership check (a banned
+        // user has no Membership row, so this alone also excludes them, same
+        // reasoning as JoinChannel above) and the slow-mode exemption check
+        // below - avoids querying the same Memberships row twice on every
+        // message sent in a slow-moded channel.
+        var membership = await _permissions.GetMembershipAsync(CurrentUserId, channel.GuildServerId);
+        if (membership is null) return;
 
         if (channel.SlowModeSeconds > 0)
         {
-            var membership = await _permissions.GetMembershipAsync(CurrentUserId, channel.GuildServerId);
-            var isExempt = membership is not null && membership.Role is MemberRole.Owner or MemberRole.Moderator;
+            var isExempt = membership.Role is MemberRole.Owner or MemberRole.Moderator;
             if (!isExempt && !_slowMode.TryAcquire(channelId, CurrentUserId, channel.SlowModeSeconds)) return;
         }
 

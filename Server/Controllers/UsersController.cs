@@ -188,21 +188,24 @@ public class UsersController : ControllerBase
     [HttpGet("me/owned-servers-needing-transfer")]
     public async Task<ActionResult<List<OwnedServerNeedingTransferResponse>>> GetOwnedServersNeedingTransfer()
     {
-        var owned = await _db.GuildServers.Where(g => g.OwnerId == CurrentUserId).ToListAsync();
-        var result = new List<OwnedServerNeedingTransferResponse>();
+        var owned = await _db.GuildServers.AsNoTracking().Where(g => g.OwnerId == CurrentUserId).ToListAsync();
 
-        foreach (var server in owned)
-        {
-            var others = await _db.Memberships.Include(m => m.User)
-                .Where(m => m.GuildServerId == server.Id && m.UserId != CurrentUserId)
-                .ToListAsync();
+        // One query for every owned server's other members, not one query
+        // per server in a loop - a lookup (not a dictionary) since a server
+        // with zero other members legitimately has no entry, and ILookup's
+        // indexer returns an empty sequence rather than throwing for that.
+        var ownedServerIds = owned.Select(s => s.Id).ToList();
+        var othersByServer = (await _db.Memberships.AsNoTracking().Include(m => m.User)
+                .Where(m => ownedServerIds.Contains(m.GuildServerId) && m.UserId != CurrentUserId)
+                .ToListAsync())
+            .ToLookup(m => m.GuildServerId);
 
-            if (others.Count > 1)
-            {
-                result.Add(new OwnedServerNeedingTransferResponse(server.Id, server.Name,
-                    others.Select(m => new OwnershipCandidate(m.UserId, m.User!.Username, m.User.AvatarUrl)).ToList()));
-            }
-        }
+        var result = owned
+            .Select(server => (server, others: othersByServer[server.Id].ToList()))
+            .Where(x => x.others.Count > 1)
+            .Select(x => new OwnedServerNeedingTransferResponse(x.server.Id, x.server.Name,
+                x.others.Select(m => new OwnershipCandidate(m.UserId, m.User!.Username, m.User.AvatarUrl)).ToList()))
+            .ToList();
 
         return Ok(result);
     }
@@ -226,9 +229,19 @@ public class UsersController : ControllerBase
         var chosenTransfers = request?.Transfers?.ToDictionary(t => t.ServerId, t => t.NewOwnerUserId) ?? new Dictionary<int, int>();
 
         var ownedServers = await _db.GuildServers.Where(g => g.OwnerId == CurrentUserId).ToListAsync();
+
+        // One query for every owned server's other members, not one query
+        // per server in a loop - stays tracked (no AsNoTracking) since
+        // successor.Role gets mutated below.
+        var ownedServerIds = ownedServers.Select(s => s.Id).ToList();
+        var othersByServer = (await _db.Memberships
+                .Where(m => ownedServerIds.Contains(m.GuildServerId) && m.UserId != CurrentUserId)
+                .ToListAsync())
+            .ToLookup(m => m.GuildServerId);
+
         foreach (var server in ownedServers)
         {
-            var others = await _db.Memberships.Where(m => m.GuildServerId == server.Id && m.UserId != CurrentUserId).ToListAsync();
+            var others = othersByServer[server.Id].ToList();
 
             if (others.Count == 0)
             {

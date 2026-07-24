@@ -77,10 +77,12 @@ public class DirectMessagesController : ControllerBase
                     ) tagged
                     ORDER BY other_user_id, ""SentAt"" DESC
                 ) latest")
+            .AsNoTracking()
             .ToListAsync();
 
         var otherUserIds = latestMessages.Select(m => m.SenderId == currentUserId ? m.RecipientId : m.SenderId).ToList();
         var userInfo = await _db.Users
+            .AsNoTracking()
             .Where(u => otherUserIds.Contains(u.Id))
             .ToDictionaryAsync(u => u.Id, u => new { u.Username, u.AvatarUrl });
 
@@ -115,6 +117,7 @@ public class DirectMessagesController : ControllerBase
         if (beforeId.HasValue) query = query.Where(m => m.Id < beforeId.Value);
 
         var messages = await query
+            .AsNoTracking()
             .OrderByDescending(m => m.Id)
             .Take(take)
             .OrderBy(m => m.Id)
@@ -137,6 +140,7 @@ public class DirectMessagesController : ControllerBase
         if (messageIds.Count == 0) return new();
 
         var rows = await _db.DirectMessageReactions
+            .AsNoTracking()
             .Where(r => messageIds.Contains(r.DirectMessageId))
             .ToListAsync();
 
@@ -156,6 +160,7 @@ public class DirectMessagesController : ControllerBase
         if (replyToIds.Count == 0) return new();
 
         return await _db.DirectMessages
+            .AsNoTracking()
             .Where(m => replyToIds.Contains(m.Id))
             .ToDictionaryAsync(m => m.Id, m => m.SenderId);
     }

@@ -57,6 +57,7 @@ public class ServersController : ControllerBase
         if (PaginationLimits.Clamp(take) is { } clampedTake) query = query.Take(clampedTake);
 
         var servers = await query
+            .AsNoTracking()
             .Select(m => m.GuildServer!)
             .Select(s => new GuildServerResponse(s.Id, s.Name, s.IconUrl, s.OwnerId, s.IsPublic, s.Description))
             .ToListAsync();
@@ -79,6 +80,7 @@ public class ServersController : ControllerBase
         if (PaginationLimits.Clamp(take) is { } clampedTake) query = query.Take(clampedTake);
 
         var servers = await query
+            .AsNoTracking()
             .Select(s => new DiscoverServerResponse(s.Id, s.Name, s.IconUrl, s.Description, s.Memberships.Count))
             .ToListAsync();
 
@@ -150,6 +152,7 @@ public class ServersController : ControllerBase
         if (PaginationLimits.Clamp(take) is { } clampedTake) query = query.Take(clampedTake);
 
         var members = await query
+            .AsNoTracking()
             .Select(m => new { m.UserId, m.User!.Username, Role = m.Role.ToString(), m.User!.AvatarUrl, m.User!.CustomStatus, m.Permissions })
             .ToListAsync();
 
@@ -288,13 +291,13 @@ public class ServersController : ControllerBase
             .Skip(skip ?? 0);
         if (PaginationLimits.Clamp(take) is { } clampedTake) query = query.Take(clampedTake);
 
-        var bans = await query.ToListAsync();
+        var bans = await query.AsNoTracking().ToListAsync();
 
         // Usernames looked up separately (BannedUser has no FK navigation -
         // see that class's own comment for why) rather than a join, since
         // ban lists are expected to stay small.
         var userIds = bans.Select(b => b.UserId).Concat(bans.Select(b => b.BannedByUserId)).Distinct().ToList();
-        var usernames = await _db.Users.Where(u => userIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.Username);
+        var usernames = await _db.Users.AsNoTracking().Where(u => userIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.Username);
 
         var result = bans
             .Select(b => new BannedUserResponse(
@@ -323,6 +326,7 @@ public class ServersController : ControllerBase
         if (PaginationLimits.Clamp(take) is { } clampedTake) query = query.Take(clampedTake);
 
         var result = await query
+            .AsNoTracking()
             .Select(m => new ModerationLogEntryResponse(m.Id, m.ActorUsername, m.Action, m.TargetUsername, m.Details, m.CreatedAt))
             .ToListAsync();
 

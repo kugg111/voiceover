@@ -19,6 +19,13 @@ public static class CustomEmojiRegistry
 
     public static void Register(int emojiId, string url) => UrlById[emojiId] = url;
 
+    // Called when a server is left/kicked/banned/deleted (see
+    // MainWindow.LeaveServerLocallyIfCurrentlyViewing) - not strictly
+    // necessary today (server-side emoji-per-server is capped at 100, so
+    // this dictionary stays small even unbounded), but there's no reason to
+    // keep entries around for a server this session no longer has access to.
+    public static void Unregister(int emojiId) => UrlById.TryRemove(emojiId, out _);
+
     public static bool TryGetUrl(string token, out string url)
     {
         url = string.Empty;
