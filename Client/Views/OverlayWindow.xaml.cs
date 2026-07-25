@@ -155,7 +155,11 @@ public partial class OverlayWindow : Window
     // RepeatBehavior="Forever" + forced-container-removal race.
     private void SpeakingRing_Unloaded(object sender, RoutedEventArgs e)
     {
-        if (sender is System.Windows.Shapes.Ellipse { RenderTransform: ScaleTransform scale })
+        // A recycled virtualized container can already have RenderTransform
+        // reset to WPF's shared frozen default Transform by the time Unloaded
+        // fires - BeginAnimation on that shared singleton throws "sealed or
+        // frozen", so only touch it while it's still our own live instance.
+        if (sender is System.Windows.Shapes.Ellipse { RenderTransform: ScaleTransform { IsFrozen: false } scale })
         {
             scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
             scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
