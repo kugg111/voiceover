@@ -65,6 +65,15 @@
          Split License, not MIT/Apache like everything else in this
          project - worth flagging since this repo is public. -->
     <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
+    <!-- Opt-in distributed mode: only constructed when REDIS_URL is set (see
+         Program.cs) - a single-instance deployment (today's default) never
+         touches either package at runtime. StackExchange.Redis backs the
+         Redis*Store/Redis*RateLimiter classes in Services/; the SignalR
+         package adds a Redis backplane so Clients.User(...)/Group(...) can
+         reach a connection on a different replica, which multi-instance
+         real-time features can't work at all without. -->
+    <PackageReference Include="StackExchange.Redis" Version="2.8.16" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" Version="8.0.10" />
   </ItemGroup>
 
   <ItemGroup>

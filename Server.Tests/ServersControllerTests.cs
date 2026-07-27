@@ -31,7 +31,7 @@ public class ServersControllerTests
         var controller = new ServersController(
             db,
             new PermissionService(db),
-            new PresenceService(),
+            new InMemoryPresenceStore(),
             new ModerationLogService(db, new NoOpHubContext()),
             new ServerDeletionService(db),
             new NoOpHubContext());

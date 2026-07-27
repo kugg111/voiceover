@@ -32,7 +32,7 @@ public class LiveKitTokenService
     public string CreateJoinToken(int userId, string username, int channelId) =>
         CreateJoinToken(userId, username, $"voice-{channelId}");
 
-    // Generalized form - private calls (see CallSignalingService) use their
+    // Generalized form - private calls (see ICallSignalingStore) use their
     // generated call id directly as the room name, since there's no DB
     // "channel" backing a call the way there is for server voice channels.
     public string CreateJoinToken(int userId, string username, string roomName)

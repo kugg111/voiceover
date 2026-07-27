@@ -27,12 +27,12 @@ public class CleanupService : BackgroundService
     private static readonly TimeSpan SlowModeEntryMaxAge = TimeSpan.FromHours(1);
 
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly SlowModeLimiter _slowModeLimiter;
-    private readonly MessageRateLimiter _messageRateLimiter;
+    private readonly ISlowModeLimiter _slowModeLimiter;
+    private readonly IMessageRateLimiter _messageRateLimiter;
     private readonly ILogger<CleanupService> _logger;
 
-    public CleanupService(IServiceScopeFactory scopeFactory, SlowModeLimiter slowModeLimiter,
-        MessageRateLimiter messageRateLimiter, ILogger<CleanupService> logger)
+    public CleanupService(IServiceScopeFactory scopeFactory, ISlowModeLimiter slowModeLimiter,
+        IMessageRateLimiter messageRateLimiter, ILogger<CleanupService> logger)
     {
         _scopeFactory = scopeFactory;
         _slowModeLimiter = slowModeLimiter;
@@ -69,8 +69,17 @@ public class CleanupService : BackgroundService
                 .Where(i => i.ExpiresAt != null && i.ExpiresAt < now)
                 .ExecuteDeleteAsync(ct);
 
-            var evictedSlowMode = _slowModeLimiter.EvictOlderThan(SlowModeEntryMaxAge);
-            var evictedRateLimit = _messageRateLimiter.EvictInactive();
+            // Only the in-memory implementations need this - a Redis-backed
+            // limiter (multi-instance mode, see Program.cs) self-expires via
+            // TTL and has no manual eviction pass at all. Pattern-matched
+            // rather than injected as their concrete types so this class
+            // doesn't care which mode is active.
+            var evictedSlowMode = _slowModeLimiter is InMemorySlowModeLimiter memSlowMode
+                ? memSlowMode.EvictOlderThan(SlowModeEntryMaxAge)
+                : 0;
+            var evictedRateLimit = _messageRateLimiter is InMemoryMessageRateLimiter memRateLimit
+                ? memRateLimit.EvictInactive()
+                : 0;
 
             if (deletedTokens > 0 || deletedInvites > 0)
                 _logger.LogInformation(

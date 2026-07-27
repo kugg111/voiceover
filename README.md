@@ -118,11 +118,13 @@ Server/                 ASP.NET Core Web API + SignalR
                          ModerationLogEntry, RefreshToken, CallRecord,
                          StoredFile, TotpRecoveryCode, AdminAuditLogEntry)
   Data/                 AppDbContext + migrations
-  Services/             PermissionService, PresenceService, VoicePresenceService,
-                         LiveKitTokenService, CallSignalingService,
-                         MessageRateLimiter, SlowModeLimiter, CallRateLimiter,
-                         UserAvatarCache, ModerationLogService,
-                         ServerDeletionService, CleanupService, AdminService
+  Services/             PermissionService, LiveKitTokenService, UserAvatarCache,
+                         ModerationLogService, ServerDeletionService,
+                         CleanupService, AdminService
+                         IPresenceStore/IVoicePresenceStore/ICallSignalingStore
+                         and IMessageRateLimiter/ISlowModeLimiter/ICallRateLimiter
+                         each have an in-memory (default) and a Redis-backed
+                         (opt-in via REDIS_URL, for multi-instance) implementation
   Controllers/          Auth, Servers, Channels, Categories, Messages,
                          Emojis, Invites, Users, Friends, DirectMessages,
                          Upload, Calls, Admin

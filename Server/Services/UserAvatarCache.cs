@@ -7,8 +7,8 @@ namespace Voiceover.Server.Services;
 // field that almost never changes. Avatars change rarely (UsersController.
 // SetAvatar is the only writer) compared to how often messages get sent, so
 // a cache with a single explicit invalidation point is a clear win over a
-// per-message lookup - same "in-memory, no DB involvement" tradeoff
-// PresenceService already makes for online/away state.
+// per-message lookup - same "no per-request DB round trip" tradeoff
+// IPresenceStore already makes for online/away state.
 public class UserAvatarCache
 {
     private readonly ConcurrentDictionary<int, string?> _avatarUrls = new();

@@ -18,9 +18,9 @@ public class FriendsController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly IHubContext<ChatHub> _hub;
-    private readonly PresenceService _presence;
+    private readonly IPresenceStore _presence;
 
-    public FriendsController(AppDbContext db, IHubContext<ChatHub> hub, PresenceService presence)
+    public FriendsController(AppDbContext db, IHubContext<ChatHub> hub, IPresenceStore presence)
     {
         _db = db;
         _hub = hub;
@@ -55,11 +55,12 @@ public class FriendsController : ControllerBase
             .Where(u => otherUserIds.Contains(u.Id))
             .ToDictionaryAsync(u => u.Id, u => new { u.Username, u.AvatarUrl, u.CustomStatus });
 
+        var states = await _presence.GetStatesAsync(otherUserIds);
         var result = otherUserIds
             .Select(id =>
             {
                 var info = userInfo.GetValueOrDefault(id);
-                return new FriendResponse(id, info?.Username ?? "Unknown", info?.AvatarUrl, _presence.GetState(id), info?.CustomStatus);
+                return new FriendResponse(id, info?.Username ?? "Unknown", info?.AvatarUrl, states.GetValueOrDefault(id, "Offline"), info?.CustomStatus);
             })
             .ToList();
 

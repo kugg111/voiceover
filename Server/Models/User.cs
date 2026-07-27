@@ -15,8 +15,8 @@ public class User
     public bool IsAdmin { get; set; } = false;
 
     // Free-text custom status ("brb", "working", etc.) - unlike
-    // PresenceState (Online/Away, entirely in-memory - see
-    // PresenceService) this is account data the user sets deliberately, so
+    // PresenceState (Online/Away, ephemeral - see IPresenceStore) this is
+    // account data the user sets deliberately, so
     // it's persisted and survives reconnects/logins like AvatarUrl does.
     public string? CustomStatus { get; set; }
 

@@ -27,12 +27,12 @@ public class ServersController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly PermissionService _permissions;
-    private readonly PresenceService _presence;
+    private readonly IPresenceStore _presence;
     private readonly ModerationLogService _modLog;
     private readonly ServerDeletionService _serverDeletion;
     private readonly IHubContext<ChatHub> _hub;
 
-    public ServersController(AppDbContext db, PermissionService permissions, PresenceService presence, ModerationLogService modLog, ServerDeletionService serverDeletion, IHubContext<ChatHub> hub)
+    public ServersController(AppDbContext db, PermissionService permissions, IPresenceStore presence, ModerationLogService modLog, ServerDeletionService serverDeletion, IHubContext<ChatHub> hub)
     {
         _db = db;
         _permissions = permissions;
@@ -141,10 +141,11 @@ public class ServersController : ControllerBase
         if (!await _permissions.IsMemberAsync(CurrentUserId, serverId))
             return Forbid();
 
-        // PresenceService is in-memory (not queryable in SQL), so the
-        // presence lookup happens after materializing the DB rows rather
-        // than inside the EF projection above. Ordered by Id for stable
-        // pagination (Skip/Take need a deterministic order).
+        // IPresenceStore isn't queryable in SQL (in-memory or Redis, either
+        // way - see Program.cs), so the presence lookup happens after
+        // materializing the DB rows rather than inside the EF projection
+        // above. Ordered by Id for stable pagination (Skip/Take need a
+        // deterministic order).
         var query = _db.Memberships
             .Where(m => m.GuildServerId == serverId)
             .OrderBy(m => m.Id)
@@ -156,8 +157,9 @@ public class ServersController : ControllerBase
             .Select(m => new { m.UserId, m.User!.Username, Role = m.Role.ToString(), m.User!.AvatarUrl, m.User!.CustomStatus, m.Permissions })
             .ToListAsync();
 
+        var states = await _presence.GetStatesAsync(members.Select(m => m.UserId));
         var result = members
-            .Select(m => new MemberResponse(m.UserId, m.Username, m.Role, m.AvatarUrl, _presence.GetState(m.UserId), m.CustomStatus, (int)m.Permissions))
+            .Select(m => new MemberResponse(m.UserId, m.Username, m.Role, m.AvatarUrl, states.GetValueOrDefault(m.UserId, "Offline"), m.CustomStatus, (int)m.Permissions))
             .ToList();
 
         return Ok(result);

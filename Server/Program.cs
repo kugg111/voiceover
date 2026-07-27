@@ -10,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
 using Npgsql;
 using NpgsqlTypes;
+using StackExchange.Redis;
 using Serilog;
 using Serilog.Events;
 using Serilog.Formatting.Compact;
@@ -31,6 +32,18 @@ var databaseUrl = builder.Configuration["DATABASE_URL"]
         "DATABASE_URL is not configured. Set it as an env var (Railway) or via " +
         "`dotnet user-secrets set DATABASE_URL \"...\"` for local dev - see DEPLOYMENT.txt.");
 var npgsqlConnectionString = BuildNpgsqlConnectionString(databaseUrl);
+
+// Opt-in multi-instance mode. Absent (today's default, every existing
+// single-Railway-instance deployment) - presence/voice/call state and the
+// SignalR backplane stay exactly what they were before this was added:
+// in-process only, single instance. Present (a Redis addon attached to the
+// Railway project, standard env var name for that) - the app switches to
+// the Redis-backed stores/rate limiters and a Redis SignalR backplane below,
+// so Clients.User(...)/Group(...) reach a connection on any replica, not
+// just the one that handled the call. See Program.cs's own DI registrations
+// further down for exactly what flips.
+var redisUrl = builder.Configuration["REDIS_URL"];
+var isDistributed = !string.IsNullOrWhiteSpace(redisUrl);
 
 // Two sinks: Console (one compact JSON object per line - CLEF format - so
 // Railway's log viewer/export gets actual queryable fields instead of plain
@@ -100,21 +113,48 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 
 builder.Services.AddSingleton(new UploadsPathOptions(uploadsDir));
 builder.Services.AddSingleton<JwtTokenService>();
-// VoicePresenceService, PresenceService, CallSignalingService,
-// PresenceAudienceCache, UserAvatarCache below, plus MessageRateLimiter/
-// SlowModeLimiter/CallRateLimiter further down, all hold in-process state
-// with no shared store behind them - correct for this app's current single
-// Railway instance, but a second replica would see a split view of
-// presence/voice rosters and an effectively-doubled rate-limit budget
-// (each instance enforces its own copy independently). Same caveat applies
-// to AddSignalR() below - its groups/Clients.User() only reach connections
-// on the same process. Scaling to 2+ replicas needs a SignalR backplane
-// (e.g. Redis) and moving this state to a shared store first; out of scope
-// while this runs as a single instance.
-builder.Services.AddSingleton<VoicePresenceService>();
-builder.Services.AddSingleton<PresenceService>();
+
+// IPresenceStore/IVoicePresenceStore/ICallSignalingStore and IMessageRateLimiter/
+// ISlowModeLimiter/ICallRateLimiter each have two implementations - see
+// Services/InMemory*.cs (single instance, no shared store, exactly today's
+// behavior) and Services/Redis*.cs (multi-instance, every replica reads/
+// writes the same Redis keys). isDistributed picks which one gets
+// registered; nothing else in the app knows or cares which mode is active,
+// it only ever depends on the interface.
+if (isDistributed)
+{
+    builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
+        ConnectionMultiplexer.Connect(BuildRedisOptions(redisUrl!)));
+    builder.Services.AddSingleton<IPresenceStore, RedisPresenceStore>();
+    builder.Services.AddSingleton<IVoicePresenceStore, RedisVoicePresenceStore>();
+    builder.Services.AddSingleton<ICallSignalingStore, RedisCallSignalingStore>();
+    // Same limit/window pairing as the in-memory registrations below - only
+    // where the budget is enforced changes (shared across replicas via
+    // Redis, instead of per-process).
+    builder.Services.AddSingleton<IMessageRateLimiter>(sp =>
+        new RedisMessageRateLimiter(sp.GetRequiredService<IConnectionMultiplexer>(), limit: 10, window: TimeSpan.FromSeconds(10)));
+    builder.Services.AddSingleton<ISlowModeLimiter, RedisSlowModeLimiter>();
+    builder.Services.AddSingleton<ICallRateLimiter>(sp =>
+        new RedisCallRateLimiter(sp.GetRequiredService<IConnectionMultiplexer>(), limit: 5, window: TimeSpan.FromMinutes(1)));
+}
+else
+{
+    builder.Services.AddSingleton<IPresenceStore, InMemoryPresenceStore>();
+    builder.Services.AddSingleton<IVoicePresenceStore, InMemoryVoicePresenceStore>();
+    builder.Services.AddSingleton<ICallSignalingStore, InMemoryCallSignalingStore>();
+    // SendMessage/SendDirectMessage anti-spam - see IMessageRateLimiter for
+    // why this can't just be the HTTP rate limiter below (SignalR hub calls
+    // don't go through the HTTP middleware pipeline at all).
+    builder.Services.AddSingleton<IMessageRateLimiter>(new InMemoryMessageRateLimiter(limit: 10, window: TimeSpan.FromSeconds(10)));
+    // Per-channel slow-mode - same reasoning as IMessageRateLimiter above.
+    builder.Services.AddSingleton<ISlowModeLimiter, InMemorySlowModeLimiter>();
+    // InitiateCall anti-spam - a much tighter budget than messages since a
+    // ring is far more disruptive than a chat message (sound + popup on the
+    // callee's screen, not just an unread badge).
+    builder.Services.AddSingleton<ICallRateLimiter>(new InMemoryCallRateLimiter(limit: 5, window: TimeSpan.FromMinutes(1)));
+}
+
 builder.Services.AddSingleton<UserAvatarCache>();
-builder.Services.AddSingleton<CallSignalingService>();
 builder.Services.AddSingleton<PresenceAudienceCache>();
 builder.Services.AddSingleton<LiveKitTokenService>();
 builder.Services.AddScoped<PermissionService>();
@@ -122,23 +162,17 @@ builder.Services.AddScoped<ModerationLogService>();
 builder.Services.AddScoped<ServerDeletionService>();
 builder.Services.AddScoped<AdminService>();
 builder.Services.AddScoped<TwoFactorService>();
-// SendMessage/SendDirectMessage anti-spam - see MessageRateLimiter for why
-// this can't just be the HTTP rate limiter below (SignalR hub calls don't
-// go through the HTTP middleware pipeline at all).
-builder.Services.AddSingleton(new MessageRateLimiter(limit: 10, window: TimeSpan.FromSeconds(10)));
-// Per-channel slow-mode - same reasoning as MessageRateLimiter above.
-builder.Services.AddSingleton<SlowModeLimiter>();
-// InitiateCall anti-spam - a much tighter budget than messages since a ring
-// is far more disruptive than a chat message (sound + popup on the callee's
-// screen, not just an unread badge).
-builder.Services.AddSingleton(new CallRateLimiter(limit: 5, window: TimeSpan.FromMinutes(1)));
 // Periodic purge of expired RefreshTokens/Invites - see CleanupService.
 builder.Services.AddHostedService<CleanupService>();
 
 builder.Services.AddControllers();
-// See the in-process-state caveat above the singleton registrations - this
-// has no backplane, so it only reaches connections on this one instance.
-builder.Services.AddSignalR();
+// Without AddStackExchangeRedis, Clients.User(...)/Group(...) only reach
+// connections on this same process - fine for a single instance, silently
+// wrong for 2+ (a hub call handled by instance A can't reach a client
+// connected to instance B). isDistributed gates the same signal the stores
+// above use, so both flip together.
+var signalRBuilder = builder.Services.AddSignalR();
+if (isDistributed) signalRBuilder.AddStackExchangeRedis(redisUrl!);
 builder.Services.AddHealthChecks().AddDbContextCheck<AppDbContext>();
 
 builder.Services.AddRateLimiter(options =>
@@ -388,6 +422,24 @@ static string BuildNpgsqlConnectionString(string databaseUrl)
         // cert validation could reject.
         SslMode = SslMode.Require
     }.ConnectionString;
+}
+
+// Converts a redis:// or rediss:// URI (Railway's Redis addon format, same
+// "PaaS injects a URI" pattern as DATABASE_URL above) into the
+// ConfigurationOptions StackExchange.Redis actually expects - it doesn't
+// parse the URI scheme directly either.
+static ConfigurationOptions BuildRedisOptions(string redisUrl)
+{
+    var uri = new Uri(redisUrl);
+    var userInfo = uri.UserInfo.Split(':', 2);
+    var options = new ConfigurationOptions
+    {
+        EndPoints = { { uri.Host, uri.Port } },
+        Password = userInfo.Length > 1 ? userInfo[1] : null,
+        Ssl = uri.Scheme == "rediss",
+        AbortOnConnectFail = false
+    };
+    return options;
 }
 
 public record UploadsPathOptions(string Path);

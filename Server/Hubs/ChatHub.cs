@@ -13,18 +13,18 @@ namespace Voiceover.Server.Hubs;
 public class ChatHub : Hub
 {
     private readonly AppDbContext _db;
-    private readonly VoicePresenceService _voicePresence;
+    private readonly IVoicePresenceStore _voicePresence;
     private readonly LiveKitTokenService _liveKitTokens;
-    private readonly PresenceService _presence;
-    private readonly MessageRateLimiter _messageRateLimiter;
+    private readonly IPresenceStore _presence;
+    private readonly IMessageRateLimiter _messageRateLimiter;
     private readonly UserAvatarCache _avatarCache;
-    private readonly CallSignalingService _callSignaling;
-    private readonly CallRateLimiter _callRateLimiter;
+    private readonly ICallSignalingStore _callSignaling;
+    private readonly ICallRateLimiter _callRateLimiter;
     private readonly PresenceAudienceCache _presenceAudience;
-    private readonly SlowModeLimiter _slowMode;
+    private readonly ISlowModeLimiter _slowMode;
     private readonly PermissionService _permissions;
 
-    public ChatHub(AppDbContext db, VoicePresenceService voicePresence, LiveKitTokenService liveKitTokens, PresenceService presence, MessageRateLimiter messageRateLimiter, UserAvatarCache avatarCache, CallSignalingService callSignaling, CallRateLimiter callRateLimiter, PresenceAudienceCache presenceAudience, SlowModeLimiter slowMode, PermissionService permissions)
+    public ChatHub(AppDbContext db, IVoicePresenceStore voicePresence, LiveKitTokenService liveKitTokens, IPresenceStore presence, IMessageRateLimiter messageRateLimiter, UserAvatarCache avatarCache, ICallSignalingStore callSignaling, ICallRateLimiter callRateLimiter, PresenceAudienceCache presenceAudience, ISlowModeLimiter slowMode, PermissionService permissions)
     {
         _db = db;
         _voicePresence = voicePresence;
@@ -96,7 +96,7 @@ public class ChatHub : Hub
         // never arrive rather than a HubException the client isn't set up
         // to show useful feedback for (see SetPresenceState's history with
         // exactly that failure mode).
-        if (!_messageRateLimiter.TryAcquire(CurrentUserId)) return;
+        if (!await _messageRateLimiter.TryAcquireAsync(CurrentUserId)) return;
 
         // Slow-mode only applies to plain Members - Moderators/Owners are
         // exempt (standard convention). Skips the extra queries entirely
@@ -115,7 +115,7 @@ public class ChatHub : Hub
         if (channel.SlowModeSeconds > 0)
         {
             var isExempt = membership.Role is MemberRole.Owner or MemberRole.Moderator;
-            if (!isExempt && !_slowMode.TryAcquire(channelId, CurrentUserId, channel.SlowModeSeconds)) return;
+            if (!isExempt && !await _slowMode.TryAcquireAsync(channelId, CurrentUserId, channel.SlowModeSeconds)) return;
         }
 
         var message = new Message
@@ -177,11 +177,16 @@ public class ChatHub : Hub
         // longer be one shared Group broadcast the way it was under the old
         // shared-server-key scheme. Clients.User(...) reaches every
         // device/session that member has open, same as DMs already do.
-        foreach (var key in validKeys)
+        // Fired off in parallel rather than one at a time - on a server with
+        // hundreds of members this was hundreds of sequential round trips to
+        // SignalR's transport before the hub call returned, all for
+        // independent per-recipient sends that don't depend on each other.
+        var sends = validKeys.Select(key =>
         {
             var response = new MessageResponse(message.Id, message.Content, channelId, CurrentUserId, CurrentUsername, message.SentAt, message.AttachmentUrl, authorAvatarUrl, ReplyToMessageId: message.ReplyToMessageId, ReplyToAuthorId: replyToAuthorId, ForwardedFromAuthorUsername: message.ForwardedFromAuthorUsername, WrappedKeyForMe: key.WrappedKey);
-            await Clients.User(key.UserId.ToString()).SendAsync("ReceiveMessage", response);
-        }
+            return Clients.User(key.UserId.ToString()).SendAsync("ReceiveMessage", response);
+        });
+        await Task.WhenAll(sends);
     }
 
     // Membership-gated, same reasoning as JoinChannel/SendMessage above - this
@@ -213,7 +218,7 @@ public class ChatHub : Hub
     {
         if (string.IsNullOrWhiteSpace(emoji) || emoji.Length > MaxEmojiTokenLength) return;
         if (!await IsValidEmojiTokenAsync(emoji)) return;
-        if (!_messageRateLimiter.TryAcquire(CurrentUserId)) return;
+        if (!await _messageRateLimiter.TryAcquireAsync(CurrentUserId)) return;
 
         var message = await _db.Messages.Include(m => m.Channel).FirstOrDefaultAsync(m => m.Id == messageId);
         if (message is null) return;
@@ -246,7 +251,7 @@ public class ChatHub : Hub
     {
         if (string.IsNullOrWhiteSpace(emoji) || emoji.Length > MaxEmojiTokenLength) return;
         if (!await IsValidEmojiTokenAsync(emoji)) return;
-        if (!_messageRateLimiter.TryAcquire(CurrentUserId)) return;
+        if (!await _messageRateLimiter.TryAcquireAsync(CurrentUserId)) return;
 
         var message = await _db.DirectMessages.FirstOrDefaultAsync(m => m.Id == messageId);
         if (message is null || (message.SenderId != CurrentUserId && message.RecipientId != CurrentUserId)) return;
@@ -305,7 +310,7 @@ public class ChatHub : Hub
         // Shares the same per-user budget as SendMessage above - one spam
         // allowance across channels and DMs, not double the throughput by
         // splitting between the two.
-        if (!_messageRateLimiter.TryAcquire(CurrentUserId)) return;
+        if (!await _messageRateLimiter.TryAcquireAsync(CurrentUserId)) return;
 
         // A bad/stale/typo'd recipient id would otherwise silently create a
         // permanent, undeliverable row (DirectMessage has no FK on
@@ -376,8 +381,8 @@ public class ChatHub : Hub
     }
 
     // --- Private calls (1:1, friends-only, outside any server/channel -
-    // see CallSignalingService for the in-memory ringing/active tracking
-    // this all sits on top of). Audio itself flows through the same
+    // see ICallSignalingStore for the ringing/active tracking this all sits
+    // on top of). Audio itself flows through the same
     // self-hosted LiveKit deployment as server voice channels, just under
     // a room named after the generated call id instead of a channel id -
     // this hub only ever brokers who's calling whom, never touches media. ---
@@ -387,7 +392,7 @@ public class ChatHub : Hub
     // rather than assuming it's ringing.
     public async Task<string?> InitiateCall(int calleeId)
     {
-        if (!_callRateLimiter.TryAcquire(CurrentUserId)) return null;
+        if (!await _callRateLimiter.TryAcquireAsync(CurrentUserId)) return null;
 
         var areFriends = await _db.Friendships.AnyAsync(f =>
             f.Status == FriendshipStatus.Accepted &&
@@ -395,7 +400,7 @@ public class ChatHub : Hub
              (f.RequesterId == calleeId && f.AddresseeId == CurrentUserId)));
         if (!areFriends) return null;
 
-        var session = _callSignaling.Create(CurrentUserId, calleeId);
+        var session = await _callSignaling.CreateAsync(CurrentUserId, calleeId);
         if (session is null) return null;
 
         if (!_avatarCache.TryGet(CurrentUserId, out var avatarUrl))
@@ -410,10 +415,10 @@ public class ChatHub : Hub
 
     public async Task<bool> AcceptCall(string callId)
     {
-        var session = _callSignaling.Get(callId);
+        var session = await _callSignaling.GetAsync(callId);
         if (session is null || session.CalleeId != CurrentUserId) return false;
 
-        _callSignaling.Accept(callId);
+        await _callSignaling.AcceptAsync(callId);
         await Clients.User(session.CallerId.ToString()).SendAsync("CallAccepted", callId);
         return true;
     }
@@ -426,11 +431,11 @@ public class ChatHub : Hub
 
     private async Task EndCallInternalAsync(string callId, string eventName)
     {
-        var session = _callSignaling.Get(callId);
+        var session = await _callSignaling.GetAsync(callId);
         if (session is null) return;
         if (session.CallerId != CurrentUserId && session.CalleeId != CurrentUserId) return;
 
-        _callSignaling.Remove(callId);
+        await _callSignaling.RemoveAsync(callId);
         await RecordCallEndedAsync(session, eventName, CurrentUserId);
         var otherUserId = session.CallerId == CurrentUserId ? session.CalleeId : session.CallerId;
         await Clients.User(otherUserId.ToString()).SendAsync(eventName, callId);
@@ -465,14 +470,14 @@ public class ChatHub : Hub
 
     // Mints a LiveKit token for this specific call's room - only callable by
     // one of the call's two participants.
-    public Task<LiveKitJoinResponse> GetCallToken(string callId)
+    public async Task<LiveKitJoinResponse> GetCallToken(string callId)
     {
-        var session = _callSignaling.Get(callId);
+        var session = await _callSignaling.GetAsync(callId);
         if (session is null || (session.CallerId != CurrentUserId && session.CalleeId != CurrentUserId))
             throw new HubException("Not a participant of this call.");
 
         var token = _liveKitTokens.CreateJoinToken(CurrentUserId, CurrentUsername, callId);
-        return Task.FromResult(new LiveKitJoinResponse(token, _liveKitTokens.ServerUrl ?? string.Empty));
+        return new LiveKitJoinResponse(token, _liveKitTokens.ServerUrl ?? string.Empty);
     }
 
     // --- Voice channel presence (roster/mute/deafen/speaking signaling only -
@@ -501,7 +506,7 @@ public class ChatHub : Hub
             _avatarCache.Set(CurrentUserId, avatarUrl);
         }
 
-        var existingMembers = _voicePresence.Join(Context.ConnectionId, channelId, channel.GuildServerId, CurrentUserId, CurrentUsername, avatarUrl);
+        var existingMembers = await _voicePresence.JoinAsync(Context.ConnectionId, channelId, channel.GuildServerId, CurrentUserId, CurrentUsername, avatarUrl);
         await Groups.AddToGroupAsync(Context.ConnectionId, HubGroups.Voice(channelId));
         await Clients.OthersInGroup(HubGroups.Voice(channelId)).SendAsync("VoiceUserJoined", CurrentUserId, CurrentUsername, channelId, avatarUrl);
 
@@ -534,7 +539,7 @@ public class ChatHub : Hub
 
     public async Task LeaveVoiceChannel(int channelId)
     {
-        var left = _voicePresence.Leave(Context.ConnectionId);
+        var left = await _voicePresence.LeaveAsync(Context.ConnectionId);
         await Groups.RemoveFromGroupAsync(Context.ConnectionId, HubGroups.Voice(channelId));
         await Clients.Group(HubGroups.Voice(channelId)).SendAsync("VoiceUserLeft", CurrentUserId, CurrentUsername, channelId);
 
@@ -548,15 +553,15 @@ public class ChatHub : Hub
     public async Task NotifySpeaking(int channelId, bool isSpeaking)
     {
         // Confirms the caller's own connection actually joined this voice
-        // channel (see VoicePresenceService.IsInChannel) before trusting a
+        // channel (see IVoicePresenceStore.IsInChannelAsync) before trusting a
         // self-reported state enough to broadcast it - otherwise any
         // authenticated user could spoof this event into a channel they
         // never joined.
-        if (!_voicePresence.IsInChannel(Context.ConnectionId, channelId)) return;
+        if (!await _voicePresence.IsInChannelAsync(Context.ConnectionId, channelId)) return;
 
         await Clients.OthersInGroup(HubGroups.Voice(channelId)).SendAsync("UserSpeaking", CurrentUserId, channelId, isSpeaking);
 
-        var serverId = _voicePresence.GetServerId(Context.ConnectionId);
+        var serverId = await _voicePresence.GetServerIdAsync(Context.ConnectionId);
         if (serverId is not null)
             await Clients.OthersInGroup(HubGroups.ServerPresence(serverId.Value)).SendAsync("UserSpeaking", CurrentUserId, channelId, isSpeaking);
     }
@@ -569,11 +574,11 @@ public class ChatHub : Hub
     public async Task NotifyMuted(int channelId, bool isMuted)
     {
         // Same gate as NotifySpeaking above.
-        if (!_voicePresence.IsInChannel(Context.ConnectionId, channelId)) return;
+        if (!await _voicePresence.IsInChannelAsync(Context.ConnectionId, channelId)) return;
 
         await Clients.OthersInGroup(HubGroups.Voice(channelId)).SendAsync("UserMuted", CurrentUserId, channelId, isMuted);
 
-        var serverId = _voicePresence.GetServerId(Context.ConnectionId);
+        var serverId = await _voicePresence.GetServerIdAsync(Context.ConnectionId);
         if (serverId is not null)
             await Clients.OthersInGroup(HubGroups.ServerPresence(serverId.Value)).SendAsync("UserMuted", CurrentUserId, channelId, isMuted);
     }
@@ -581,11 +586,11 @@ public class ChatHub : Hub
     public async Task NotifyDeafened(int channelId, bool isDeafened)
     {
         // Same gate as NotifySpeaking above.
-        if (!_voicePresence.IsInChannel(Context.ConnectionId, channelId)) return;
+        if (!await _voicePresence.IsInChannelAsync(Context.ConnectionId, channelId)) return;
 
         await Clients.OthersInGroup(HubGroups.Voice(channelId)).SendAsync("UserDeafened", CurrentUserId, channelId, isDeafened);
 
-        var serverId = _voicePresence.GetServerId(Context.ConnectionId);
+        var serverId = await _voicePresence.GetServerIdAsync(Context.ConnectionId);
         if (serverId is not null)
             await Clients.OthersInGroup(HubGroups.ServerPresence(serverId.Value)).SendAsync("UserDeafened", CurrentUserId, channelId, isDeafened);
     }
@@ -593,7 +598,7 @@ public class ChatHub : Hub
     // Pushes a forced-mute instruction to a specific other user's client(s)
     // via Clients.User(...) (reaches every connection that user has open,
     // regardless of SignalR group membership - same mechanism already used
-    // for ServerKeyProvisioned/YouWereBanned) - VoicePresenceService has no
+    // for ServerKeyProvisioned/YouWereBanned) - IVoicePresenceStore has no
     // userId-to-connectionId index to add a specific member's connection to
     // a group directly. The client sets its own IsMicMuted and re-broadcasts
     // via its own NotifyMuted call, so other participants see the mute icon
@@ -608,7 +613,7 @@ public class ChatHub : Hub
         if (!await _permissions.HasPermissionAsync(CurrentUserId, channel.GuildServerId, ServerPermission.MuteMembers))
             return;
 
-        if (!_voicePresence.GetRoster(channelId).Any(p => p.UserId == targetUserId))
+        if (!(await _voicePresence.GetRosterAsync(channelId)).Any(p => p.UserId == targetUserId))
             return;
 
         await Clients.User(targetUserId.ToString()).SendAsync("ForceMuted", channelId);
@@ -630,9 +635,9 @@ public class ChatHub : Hub
         // (closes a race with this hub's own OnConnectedAsync - see
         // MainWindow.MainWindow_Loaded), which would otherwise re-broadcast
         // a no-op change on every single login.
-        if (_presence.GetState(CurrentUserId) == state) return;
+        if (await _presence.GetStateAsync(CurrentUserId) == state) return;
 
-        _presence.SetState(CurrentUserId, state);
+        await _presence.SetStateAsync(CurrentUserId, state);
         await BroadcastPresenceChangeAsync(CurrentUserId, state);
     }
 
@@ -667,7 +672,7 @@ public class ChatHub : Hub
 
     public override async Task OnConnectedAsync()
     {
-        if (_presence.Connect(CurrentUserId, Context.ConnectionId))
+        if (await _presence.ConnectAsync(CurrentUserId, Context.ConnectionId))
             await BroadcastPresenceChangeAsync(CurrentUserId, "Online");
 
         await base.OnConnectedAsync();
@@ -696,8 +701,9 @@ public class ChatHub : Hub
             .Select(c => c.Id)
             .ToListAsync();
 
+        var rosters = await _voicePresence.GetRostersAsync(voiceChannelIds);
         return voiceChannelIds
-            .Select(id => new ChannelVoiceRoster(id, _voicePresence.GetRoster(id)))
+            .Select(id => new ChannelVoiceRoster(id, rosters[id]))
             .ToList();
     }
 
@@ -707,16 +713,16 @@ public class ChatHub : Hub
         // notify whoever was on the other end of any call this user was
         // in, ringing or active, the same way JoinVoiceChannel's cleanup
         // below doesn't wait for an explicit LeaveVoiceChannel either.
-        var activeCall = _callSignaling.GetActiveCallForUser(CurrentUserId);
+        var activeCall = await _callSignaling.GetActiveCallForUserAsync(CurrentUserId);
         if (activeCall is not null)
         {
-            _callSignaling.Remove(activeCall.CallId);
+            await _callSignaling.RemoveAsync(activeCall.CallId);
             await RecordCallEndedAsync(activeCall, "CallEnded", CurrentUserId);
             var otherUserId = activeCall.CallerId == CurrentUserId ? activeCall.CalleeId : activeCall.CallerId;
             await Clients.User(otherUserId.ToString()).SendAsync("CallEnded", activeCall.CallId);
         }
 
-        var left = _voicePresence.Leave(Context.ConnectionId);
+        var left = await _voicePresence.LeaveAsync(Context.ConnectionId);
         if (left is not null)
         {
             var (channelId, serverId, userId, username) = left.Value;
@@ -724,7 +730,7 @@ public class ChatHub : Hub
             await Clients.Group(HubGroups.ServerPresence(serverId)).SendAsync("VoiceUserLeft", userId, username, channelId);
         }
 
-        var disconnected = _presence.Disconnect(Context.ConnectionId);
+        var disconnected = await _presence.DisconnectAsync(Context.ConnectionId);
         if (disconnected is { WasLastConnection: true } d)
             await BroadcastPresenceChangeAsync(d.UserId, "Offline");
 

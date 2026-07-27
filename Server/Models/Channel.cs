@@ -15,7 +15,7 @@ public class Channel
     public int Position { get; set; }
 
     // 0 = off. Only enforced for MemberRole.Member senders (see
-    // ChatHub.SendMessage/SlowModeLimiter) - Moderators/Owners are exempt,
+    // ChatHub.SendMessage/ISlowModeLimiter) - Moderators/Owners are exempt,
     // the standard convention for this feature.
     public int SlowModeSeconds { get; set; }
 
