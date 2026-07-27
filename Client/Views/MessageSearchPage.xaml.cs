@@ -53,15 +53,15 @@ public partial class MessageSearchPage : UserControl
     }
 
     // The whole conversation (channel or DM) this search is scoped to is
-    // already open behind this page (MessageSearchPage is only ever reached
-    // via its own conversation's search button) - GoBack reveals it again,
-    // then JumpToMessageAsync scrolls/highlights the target row, walking
-    // "load older" pages first if it isn't loaded yet.
+    // already visible behind this dropdown (MessageSearchPage is only ever
+    // reached via its own conversation's search button) - closing the
+    // dropdown reveals it again, then JumpToMessageAsync scrolls/highlights
+    // the target row, walking "load older" pages first if it isn't loaded yet.
     private async void SearchResult_Click(object sender, MouseButtonEventArgs e)
     {
         if (sender is not FrameworkElement { DataContext: SearchResultItem result }) return;
 
-        _mainWindow.GoBack();
+        _mainWindow.CloseActiveDropdown();
         await _mainWindow.JumpToMessageAsync(result.Id);
     }
 

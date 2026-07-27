@@ -299,7 +299,7 @@ public partial class CallWindow : FluentWindow
 
     private void UpdateScreenShareButtonVisual(bool isSharing)
     {
-        ScreenShareButton.Content = isSharing ? "🖥️ Stop Sharing" : "🖥️ Share Screen";
+        ScreenShareButtonText.Text = isSharing ? "Stop Sharing" : "Share Screen";
         ScreenShareButton.Foreground = isSharing
             ? (Brush)FindResource("AccentBlurple")
             : (Brush)FindResource("TextMuted");
@@ -315,13 +315,15 @@ public partial class CallWindow : FluentWindow
 
     private void UpdateMuteVisual(bool isMuted)
     {
-        MuteButton.Content = isMuted ? "🔇 Unmute" : "🎤 Mute";
+        MuteButtonIcon.Source = isMuted ? IconImages.MicMute : IconImages.Mic;
+        MuteButtonText.Text = isMuted ? "Unmute" : "Mute";
         MuteButton.Foreground = isMuted ? ThemeBrushes.Danger : (Brush)FindResource("TextMuted");
     }
 
     private void UpdateDeafenVisual(bool isDeafened)
     {
-        DeafenToggleButton.Content = isDeafened ? "🎧 Undeafen" : "🎧 Deafen";
+        DeafenToggleButtonIcon.Source = isDeafened ? IconImages.DeafenOn : IconImages.DeafenOff;
+        DeafenToggleButtonText.Text = isDeafened ? "Undeafen" : "Deafen";
         DeafenToggleButton.Foreground = isDeafened ? ThemeBrushes.Danger : (Brush)FindResource("TextMuted");
     }
 

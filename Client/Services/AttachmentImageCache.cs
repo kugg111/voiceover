@@ -60,19 +60,7 @@ public static class AttachmentImageCache
     {
         try
         {
-            Directory.CreateDirectory(CacheDir);
-            var cacheFile = Path.Combine(CacheDir, ToCacheFileName(url));
-
-            byte[] bytes;
-            if (File.Exists(cacheFile))
-            {
-                bytes = await File.ReadAllBytesAsync(cacheFile);
-            }
-            else
-            {
-                bytes = await FetchAsync(url);
-                await File.WriteAllBytesAsync(cacheFile, bytes);
-            }
+            var bytes = await GetCachedBytesAsync(url);
 
             using var stream = new MemoryStream(bytes);
             var bitmap = new BitmapImage();
@@ -102,6 +90,49 @@ public static class AttachmentImageCache
             // treat null as "don't show a preview."
             return null;
         }
+    }
+
+    // Full-resolution decode for the image lightbox (ImageLightboxWindow) -
+    // deliberately bypasses DecodePixelWidth so zooming in past the 360px
+    // inline-preview size doesn't just upscale a blurry thumbnail. Shares
+    // the same on-disk cache file as the inline preview (same URL, same
+    // bytes), so opening the lightbox after the preview already loaded
+    // costs no extra download - just re-decodes the already-cached bytes
+    // at full size. Not stored in MemoryCache: that cache exists to keep
+    // scroll-recycled inline previews cheap, not full-resolution decodes
+    // that only exist while one lightbox window is open.
+    public static async Task<BitmapImage?> GetFullResolutionAsync(string url)
+    {
+        try
+        {
+            var bytes = await GetCachedBytesAsync(url);
+
+            using var stream = new MemoryStream(bytes);
+            var bitmap = new BitmapImage();
+            bitmap.BeginInit();
+            bitmap.CacheOption = BitmapCacheOption.OnLoad;
+            bitmap.StreamSource = stream;
+            bitmap.EndInit();
+            bitmap.Freeze();
+            return bitmap;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static async Task<byte[]> GetCachedBytesAsync(string url)
+    {
+        Directory.CreateDirectory(CacheDir);
+        var cacheFile = Path.Combine(CacheDir, ToCacheFileName(url));
+
+        if (File.Exists(cacheFile))
+            return await File.ReadAllBytesAsync(cacheFile);
+
+        var bytes = await FetchAsync(url);
+        await File.WriteAllBytesAsync(cacheFile, bytes);
+        return bytes;
     }
 
     private static string ToCacheFileName(string url)

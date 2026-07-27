@@ -27,9 +27,9 @@
                     <DataTemplate>
                         <StackPanel Orientation="Horizontal" Margin="0,2">
                             <Grid Width="24" Height="24" Margin="0,0,8,0">
-                                <!-- Blurple speaking ring (the app's AccentBlurple #5865F2),
+                                <!-- Speaking ring (the app's AccentBlurple #4DA9FF),
                                      shown + pulsing only while IsSpeaking. -->
-                                <Ellipse Width="24" Height="24" Stroke="#5865F2" StrokeThickness="2"
+                                <Ellipse Width="24" Height="24" Stroke="#4DA9FF" StrokeThickness="2"
                                          Fill="Transparent" Visibility="{Binding SpeakingDotVisibility}"
                                          RenderTransformOrigin="0.5,0.5" Unloaded="SpeakingRing_Unloaded">
                                     <Ellipse.RenderTransform>
@@ -62,10 +62,10 @@
                             </Grid>
                             <TextBlock Text="{Binding Username}" Foreground="White" FontSize="12"
                                        VerticalAlignment="Center"/>
-                            <TextBlock Text="🔇" FontSize="10" VerticalAlignment="Center" Margin="6,0,0,0"
-                                       Visibility="{Binding MutedIconVisibility}" ToolTip="Muted"/>
-                            <TextBlock Text="🎧" FontSize="10" VerticalAlignment="Center" Margin="4,0,0,0"
-                                       Visibility="{Binding DeafenedIconVisibility}" ToolTip="Deafened"/>
+                            <Image Source="/Assets/Icons/mic-mute.png" Width="10" Height="10" VerticalAlignment="Center" Margin="6,0,0,0"
+                                   Visibility="{Binding MutedIconVisibility}" ToolTip="Muted"/>
+                            <Image Source="/Assets/Icons/deafen-on.png" Width="10" Height="10" VerticalAlignment="Center" Margin="4,0,0,0"
+                                   Visibility="{Binding DeafenedIconVisibility}" ToolTip="Deafened"/>
                         </StackPanel>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>

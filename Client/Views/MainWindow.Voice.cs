@@ -83,7 +83,14 @@ public partial class MainWindow
     private async void VoiceChannelChatButton_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not FrameworkElement { Tag: int channelId }) return;
+        await SelectVoiceChannelChatAsync(channelId);
+    }
 
+    // Extracted from VoiceChannelChatButton_Click so ServerButton_Click can
+    // also auto-select a voice channel's text chat as the fallback when a
+    // server has no text channels at all, without a fake sender.
+    private async Task SelectVoiceChannelChatAsync(int channelId)
+    {
         SaveCurrentDraft();
 
         _currentChannelId = channelId;
@@ -209,7 +216,7 @@ public partial class MainWindow
     {
         if (_voice is null) return;
 
-        MuteMicButton.Content = _voice.IsMicMuted ? "🔇" : "🎤";
+        MuteMicIcon.Source = _voice.IsMicMuted ? IconImages.MicMute : IconImages.Mic;
         MuteMicButton.ToolTip = _voice.IsMicMuted ? "Unmute Mic" : "Mute Mic";
         MuteMicButton.Background = _voice.IsMicMuted ? ThemeBrushes.Danger : System.Windows.Media.Brushes.Transparent;
     }
@@ -229,14 +236,7 @@ public partial class MainWindow
     {
         if (_voice is null) return;
 
-        // Icon stays 🎧 in both states - reusing 🔇 here would make it
-        // indistinguishable from the Mute Mic button's own active-state
-        // icon, which is a genuinely different action (can't be heard vs.
-        // can't hear anyone). Active/inactive is instead signaled by the
-        // button's own Background fill (see VoiceControlIconButtonStyle),
-        // since color emoji glyphs render from their own embedded palette
-        // and ignore the Button's Foreground brush.
-        DeafenButton.Content = "🎧";
+        DeafenIcon.Source = _voice.IsDeafened ? IconImages.DeafenOn : IconImages.DeafenOff;
         DeafenButton.ToolTip = _voice.IsDeafened ? "Undeafen" : "Deafen";
         DeafenButton.Background = _voice.IsDeafened ? ThemeBrushes.Danger : System.Windows.Media.Brushes.Transparent;
     }
@@ -589,11 +589,12 @@ public partial class MainWindow
     {
         if (_voice is null) return;
 
-        ScreenShareButton.Content = "🖥️";
         ScreenShareButton.ToolTip = _voice.IsScreenSharing ? "Stop Sharing" : "Share Screen";
-        ScreenShareButton.Background = _voice.IsScreenSharing
-            ? (System.Windows.Media.Brush)FindResource("AccentBlurple")
-            : System.Windows.Media.Brushes.Transparent;
+        // A ring, not a full accent-color fill - matches the button's
+        // resting look (transparent, icon-only) instead of turning the
+        // whole 36x36 circle solid blue while sharing.
+        ScreenShareButton.BorderBrush = (System.Windows.Media.Brush)FindResource("AccentBlurple");
+        ScreenShareButton.BorderThickness = new Thickness(_voice.IsScreenSharing ? 2 : 0);
     }
 
     private void OnRemoteScreenShareStarted(int userId, RemoteVideoPlayback playback)

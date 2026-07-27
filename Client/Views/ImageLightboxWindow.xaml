@@ -1,0 +1,51 @@
+<ui:FluentWindow x:Class="Voiceover.Client.Views.ImageLightboxWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+        Title="Voiceover" Width="900" Height="700" MinWidth="320" MinHeight="240"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource BgDarker}"
+        Icon="/Assets/AppIcon.png"
+        ExtendsContentIntoTitleBar="True"
+        WindowBackdropType="Mica"
+        WindowCornerPreference="Round"
+        PreviewKeyDown="ImageLightboxWindow_PreviewKeyDown">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <ui:TitleBar x:Name="LightboxTitleBar" Title="Image" Grid.Row="0"/>
+
+        <!-- Scroll wheel is dedicated entirely to zoom (see
+             ImageScrollViewer_PreviewMouseWheel) rather than the
+             ScrollViewer's default vertical-scroll behavior - this window
+             only ever shows one image, so there's nothing else to scroll
+             to. Panning once zoomed in works via the resulting
+             scrollbars/click-drag. LayoutTransform (not RenderTransform)
+             on the Image so the ScrollViewer's scrollable extent actually
+             grows with zoom instead of just visually overflowing. -->
+        <ScrollViewer x:Name="ImageScrollViewer" Grid.Row="1"
+                      HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                      PreviewMouseWheel="ImageScrollViewer_PreviewMouseWheel">
+            <Grid x:Name="ImageHost" Background="Transparent" MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=ScrollViewer}}"
+                  MinHeight="{Binding ActualHeight, RelativeSource={RelativeSource AncestorType=ScrollViewer}}">
+                <TextBlock x:Name="LoadingText" Text="Loading..." Foreground="{StaticResource TextMuted}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                <Image x:Name="LightboxImage" Stretch="None" RenderOptions.BitmapScalingMode="HighQuality"
+                       HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <Image.LayoutTransform>
+                        <ScaleTransform x:Name="ZoomTransform" ScaleX="1" ScaleY="1"/>
+                    </Image.LayoutTransform>
+                </Image>
+            </Grid>
+        </ScrollViewer>
+
+        <Border Grid.Row="1" Background="#B3000000" CornerRadius="4" Padding="10,5"
+                HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,16,16"
+                IsHitTestVisible="False">
+            <TextBlock x:Name="ZoomLevelText" Text="100%" Foreground="{StaticResource TextNormal}" FontSize="12"/>
+        </Border>
+    </Grid>
+</ui:FluentWindow>

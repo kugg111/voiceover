@@ -193,7 +193,11 @@ public partial class MainWindow
         }
 
         _voiceMessageRecorder = recorder;
-        RecordVoiceMessageButton.Content = "⏹";
+        // No dedicated "stop" icon exists yet (see the icon gap list) - the
+        // already-visible VoiceMessageRecordingBanner text makes the active
+        // state clear, same as Mic/Deafen signal their active state via
+        // Background rather than swapping to a second icon.
+        RecordVoiceMessageButton.Background = ThemeBrushes.Danger;
         VoiceMessageRecordingBanner.Visibility = Visibility.Visible;
         VoiceMessageRecordingText.Text = "Recording... 0:00";
     }
@@ -209,7 +213,7 @@ public partial class MainWindow
         var tempFile = recorder.Stop();
         recorder.Dispose();
 
-        RecordVoiceMessageButton.Content = "🎤";
+        RecordVoiceMessageButton.Background = (Brush)Application.Current.FindResource("BgSidebar");
         VoiceMessageRecordingBanner.Visibility = Visibility.Collapsed;
 
         // Reuses the exact same upload+send path AttachButton_Click/
@@ -294,6 +298,17 @@ public partial class MainWindow
     {
         if (sender is not FrameworkElement { Tag: string relativeUrl }) return;
         OpenAttachmentUrl(relativeUrl);
+    }
+
+    // Left-click on an inline image preview opens the in-app zoomable
+    // lightbox - Tag here is AttachmentFullUrl (already absolute), unlike
+    // OpenImageMenuItem_Click's AttachmentUrl (still relative), since
+    // ImageLightboxWindow loads straight through AttachmentImageCache the
+    // same way the inline preview itself does.
+    private void AttachmentImage_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string fullUrl }) return;
+        new ImageLightboxWindow(fullUrl) { Owner = this }.Show();
     }
 
     private static void OpenAttachmentUrl(string relativeUrl)
@@ -571,15 +586,15 @@ public partial class MainWindow
     private void PinnedMessagesButton_Click(object sender, RoutedEventArgs e)
     {
         if (!_currentChannelId.HasValue || !_currentServerId.HasValue) return;
-        NavigateTo(new PinnedMessagesPage(_api, _currentServerId.Value, _currentChannelId.Value, _canManageCurrentServer), "Pinned Messages");
+        ShowHeaderDropdown(PinnedMessagesButton, new PinnedMessagesPage(_api, _currentServerId.Value, _currentChannelId.Value, _canManageCurrentServer));
     }
 
     private void SearchMessagesButton_Click(object sender, RoutedEventArgs e)
     {
         if (_currentChannelId.HasValue && _currentServerId.HasValue)
-            NavigateTo(new MessageSearchPage(this, _api, _currentServerId.Value, _currentChannelId.Value, null, ""), "Search Messages");
+            ShowHeaderDropdown(SearchMessagesButton, new MessageSearchPage(this, _api, _currentServerId.Value, _currentChannelId.Value, null, ""));
         else if (_dmActiveUserId.HasValue)
-            NavigateTo(new MessageSearchPage(this, _api, null, null, _dmActiveUserId.Value, _dmActiveUsername ?? "them"), "Search Messages");
+            ShowHeaderDropdown(SearchMessagesButton, new MessageSearchPage(this, _api, null, null, _dmActiveUserId.Value, _dmActiveUsername ?? "them"));
     }
 
     private async void SaveMessageEditButton_Click(object sender, RoutedEventArgs e)

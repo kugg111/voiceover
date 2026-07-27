@@ -284,6 +284,16 @@ public partial class MainWindow
         await RefreshEmojisAsync(serverId);
         await LoadVoiceRostersAsync(serverId);
         await LoadMembersPanelAsync(serverId);
+
+        // Auto-select something to look at on opening a server, same as
+        // Discord: first text channel, or the first voice channel's text
+        // chat if there's no text channel at all. If the server has neither,
+        // this deliberately does nothing - same "# select-a-channel"
+        // placeholder state as before this existed.
+        if (_textChannels.Count > 0)
+            await SelectTextChannelAsync(_textChannels[0].Id);
+        else if (_voiceChannels.Count > 0)
+            await SelectVoiceChannelChatAsync(_voiceChannels[0].Id);
     }
 
     private async Task LoadMembersPanelAsync(int serverId)
@@ -415,13 +425,13 @@ public partial class MainWindow
     private void ModerationLogButton_Click(object sender, RoutedEventArgs e)
     {
         if (_currentServerId is null) return;
-        NavigateTo(new ModerationLogPage(_api, _currentServerId.Value, _hub), "Moderation Log");
+        ShowHeaderDropdown(ModerationLogButton, new ModerationLogPage(_api, _currentServerId.Value, _hub));
     }
 
     private void BanListButton_Click(object sender, RoutedEventArgs e)
     {
         if (_currentServerId is null) return;
-        NavigateTo(new BanListPage(_api, _currentServerId.Value, _hub), "Banned Users");
+        ShowHeaderDropdown(BanListButton, new BanListPage(_api, _currentServerId.Value, _hub));
     }
 
     // Populates each voice channel's member list from a server-wide snapshot,
@@ -432,7 +442,14 @@ public partial class MainWindow
     private async void ChannelButton_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not FrameworkElement { Tag: int channelId }) return;
+        await SelectTextChannelAsync(channelId);
+    }
 
+    // Extracted from ChannelButton_Click so ServerButton_Click can also
+    // auto-select the first text channel on opening a server, without
+    // needing a fake FrameworkElement sender just to satisfy the Tag pattern.
+    private async Task SelectTextChannelAsync(int channelId)
+    {
         SaveCurrentDraft();
 
         // Deliberately doesn't leave the previous channel's group - all text

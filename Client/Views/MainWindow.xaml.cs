@@ -960,6 +960,50 @@ public partial class MainWindow : FluentWindow
         }
     }
 
+    // Anchor + close time of whatever HeaderDropdownPopup last closed - a
+    // Popup with StaysOpen="False" auto-closes on the PreviewMouseDown that
+    // reaches it BEFORE the Click event fires on whatever was clicked, so
+    // clicking the same trigger button that's currently showing its own
+    // dropdown would otherwise just look like "closed, then immediately
+    // reopened" instead of a toggle-off. This short-lived memory lets
+    // ShowHeaderDropdown recognize that case and treat it as toggle-off.
+    private UIElement? _lastDropdownAnchor;
+    private DateTime _lastDropdownCloseTimeUtc;
+
+    // Discord-style anchored flyout shared by the header's Search/Pinned/
+    // Moderation Log/Banned Users buttons (see MainWindow.xaml) - shows the
+    // same content that used to be a full PageHost page without leaving the
+    // current channel/DM view. Only one is ever open at a time.
+    public void ShowHeaderDropdown(UIElement anchor, UserControl content)
+    {
+        if (ReferenceEquals(_lastDropdownAnchor, anchor) &&
+            (DateTime.UtcNow - _lastDropdownCloseTimeUtc).TotalMilliseconds < 200)
+        {
+            _lastDropdownAnchor = null;
+            return;
+        }
+
+        HeaderDropdownContent.Content = null;
+        HeaderDropdownPopup.PlacementTarget = anchor;
+        HeaderDropdownContent.Content = content;
+        HeaderDropdownPopup.IsOpen = true;
+    }
+
+    public void CloseActiveDropdown() => HeaderDropdownPopup.IsOpen = false;
+
+    private void HeaderDropdownPopup_Closed(object sender, EventArgs e)
+    {
+        _lastDropdownAnchor = HeaderDropdownPopup.PlacementTarget;
+        _lastDropdownCloseTimeUtc = DateTime.UtcNow;
+
+        // Clearing Content (rather than leaving the popup's old child alive
+        // off-screen) is what actually fires Unloaded on the hosted page -
+        // BanListPage/ModerationLogPage rely on their own Unloaded handler
+        // to unsubscribe from live hub events, same as they did when GoBack
+        // cleared PageHostContent.Content for the same reason.
+        HeaderDropdownContent.Content = null;
+    }
+
     private void ShowMessagesSidebar()
     {
         CrossfadeSidebarPanel(MessagesSidebarPanel);

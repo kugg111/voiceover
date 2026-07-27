@@ -20,7 +20,7 @@ public class CallHistoryItem
     // string, but it's an implicit fallback rather than an explicit
     // IValueConverter - if this binding is ever rewritten to go through one,
     // this needs to become a real Brush at that point instead.
-    public string SummaryColor { get; set; } = "#B9BBBE";
+    public string SummaryColor { get; set; } = "#8AA0BE";
     public string TimeDisplay { get; set; } = string.Empty;
 }
 
@@ -108,11 +108,11 @@ public partial class CallHistoryPage : UserControl
         var direction = c.WasIncoming ? "Incoming" : "Outgoing";
         var (summary, color) = c.Outcome switch
         {
-            "Completed" => ($"{direction} · {FormatDuration(c.DurationSeconds)}", "#43B581"),
-            "Missed" => ("Missed call", "#F04747"),
-            "Declined" => ($"{direction} · Declined", "#F04747"),
-            "Cancelled" => ($"{direction} · Cancelled", "#B9BBBE"),
-            _ => (direction, "#B9BBBE")
+            "Completed" => ($"{direction} · {FormatDuration(c.DurationSeconds)}", "#3DD68C"),
+            "Missed" => ("Missed call", "#E5484D"),
+            "Declined" => ($"{direction} · Declined", "#E5484D"),
+            "Cancelled" => ($"{direction} · Cancelled", "#8AA0BE"),
+            _ => (direction, "#8AA0BE")
         };
 
         return new CallHistoryItem

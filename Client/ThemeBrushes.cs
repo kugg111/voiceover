@@ -14,12 +14,16 @@ public static class ThemeBrushes
 {
     private static Brush? _danger;
     private static Brush? _away;
+    private static Brush? _live;
 
     // Destructive/error red - App.xaml "DangerRed".
     public static Brush Danger => _danger ??= Resource("DangerRed");
 
     // Away/idle gold - App.xaml "AwayYellow".
     public static Brush Away => _away ??= Resource("AwayYellow");
+
+    // Success/online/live green - App.xaml "LiveGreen".
+    public static Brush Live => _live ??= Resource("LiveGreen");
 
     private static Brush Resource(string key) => (Brush)Application.Current.FindResource(key);
 }

@@ -60,7 +60,7 @@
                                             </Viewbox>
                                             <Viewbox Width="16" Height="16" Visibility="{Binding CheckIconVisibility}">
                                                 <Canvas Width="24" Height="24">
-                                                    <Polyline Points="3,13 9,19 21,5" Stroke="#3BA55D" StrokeThickness="2.5"
+                                                    <Polyline Points="3,13 9,19 21,5" Stroke="{StaticResource LiveGreen}" StrokeThickness="2.5"
                                                               StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Fill="Transparent"/>
                                                 </Canvas>
                                             </Viewbox>

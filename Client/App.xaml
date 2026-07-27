@@ -14,7 +14,14 @@
                 <ui:ControlsDictionary />
             </ResourceDictionary.MergedDictionaries>
 
-            <!-- Discord-accurate palette - the app's only theme. -->
+            <!-- Discord-accurate palette, same as before the mockup reskin -
+                 backgrounds, accent, and text/danger were all tried at the
+                 mockup's navy/sky-blue tokens, then reverted on feedback that
+                 they didn't read as well as the original neutral-gray-plus-
+                 blurple scheme. Icon PNGs (Assets/Icons) were rasterized at
+                 the mockup's blue and were kept that way rather than
+                 re-tinted back to blurple - a deliberate, known minor color
+                 mismatch, not an oversight. -->
             <SolidColorBrush x:Key="BgDark" Color="#2B2D31"/>
             <SolidColorBrush x:Key="BgDarker" Color="#1E1F22"/>
             <SolidColorBrush x:Key="BgSidebar" Color="#232428"/>
@@ -31,6 +38,11 @@
                  hand-copied as a hex literal in XAML and Color.FromRgb(...) in code. -->
             <SolidColorBrush x:Key="DangerRed" Color="#F23F42"/>
             <SolidColorBrush x:Key="AwayYellow" Color="#F0B232"/>
+            <!-- Consolidates several previously-inconsistent hardcoded greens
+                 (#3BA55D, #43B581) that were never routed through a shared
+                 resource - kept from the reskin batch since it's a genuine
+                 cleanup, not a mockup-specific color choice. -->
+            <SolidColorBrush x:Key="LiveGreen" Color="#3DD68C"/>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

@@ -42,7 +42,15 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}" CornerRadius="18">
+                        <!-- BorderBrush/Thickness are TemplateBound (unlike the old
+                             template) so a button can show an accent RING for its
+                             active state - set via Button.BorderBrush/BorderThickness
+                             directly (see UpdateScreenShareButtonVisual) - instead of
+                             (or as well as) an opaque Background fill. -->
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="18">
                             <Grid>
                                 <Border x:Name="HoverOverlay" Background="#22FFFFFF" CornerRadius="18" Opacity="0"/>
                                 <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
@@ -99,9 +107,11 @@
         <!-- SERVER RAIL -->
         <Border Grid.Column="0" Background="{StaticResource BgDarker}">
             <DockPanel>
-                <Button DockPanel.Dock="Bottom" Content="⎋" FontSize="18" Height="32" Width="48"
+                <Button DockPanel.Dock="Bottom" Height="32" Width="48"
                         Margin="12,0,12,12" Background="Transparent" Foreground="{StaticResource TextMuted}"
-                        BorderThickness="0" Click="LogOutButton_Click" ToolTip="Log out"/>
+                        BorderThickness="0" Click="LogOutButton_Click" ToolTip="Log out">
+                    <Image Source="/Assets/Icons/logout.png" Width="18" Height="18"/>
+                </Button>
                 <Border DockPanel.Dock="Bottom" Height="48" Width="48" Margin="12,0,12,4"
                         Background="Transparent" Cursor="Hand"
                         MouseLeftButtonUp="MyAvatarBorder_MouseLeftButtonUp" ToolTip="Settings">
@@ -125,9 +135,11 @@
                     </Border>
                 </Popup>
                 <Grid DockPanel.Dock="Top" Margin="12,12,12,4">
-                    <Button x:Name="MessagesButton" Content="💬" FontSize="18" Height="48" Width="48"
+                    <Button x:Name="MessagesButton" Height="48" Width="48"
                             Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
-                            BorderThickness="0" Click="MessagesButton_Click" ToolTip="Messages"/>
+                            BorderThickness="0" Click="MessagesButton_Click" ToolTip="Messages">
+                        <Image Source="/Assets/Icons/chat.png" Width="22" Height="22"/>
+                    </Button>
                     <Border x:Name="MessagesUnreadBadge" MinWidth="16" Height="16" CornerRadius="8"
                             Background="{StaticResource AccentBlurple}" Padding="4,0"
                             HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-4,-4,0"
@@ -140,12 +152,16 @@
                                    Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
                 </Grid>
-                <Button DockPanel.Dock="Top" x:Name="FriendsButton" Content="👥" FontSize="18" Height="48" Width="48"
+                <Button DockPanel.Dock="Top" x:Name="FriendsButton" Height="48" Width="48"
                         Margin="12,0,12,8" Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
-                        BorderThickness="0" Click="FriendsButton_Click" ToolTip="Friends"/>
-                <Button DockPanel.Dock="Top" x:Name="DiscoverServersButton" Content="🧭" FontSize="18" Height="48" Width="48"
+                        BorderThickness="0" Click="FriendsButton_Click" ToolTip="Friends">
+                    <Image Source="/Assets/Icons/friends.png" Width="22" Height="22"/>
+                </Button>
+                <Button DockPanel.Dock="Top" x:Name="DiscoverServersButton" Height="48" Width="48"
                         Margin="12,0,12,8" Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
-                        BorderThickness="0" Click="DiscoverServersButton_Click" ToolTip="Discover Servers"/>
+                        BorderThickness="0" Click="DiscoverServersButton_Click" ToolTip="Discover Servers">
+                    <Image Source="/Assets/Icons/discover-servers.png" Width="22" Height="22"/>
+                </Button>
                 <Border DockPanel.Dock="Top" Height="1" Background="{StaticResource BgSidebar}" Margin="16,0,16,8"/>
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <ItemsControl x:Name="ServerList">
@@ -194,15 +210,20 @@
                 <Border DockPanel.Dock="Bottom" x:Name="VoiceControlBar" Visibility="Collapsed"
                         Background="{StaticResource BgDarker}" Margin="8,0,8,8" CornerRadius="8" Padding="6">
                     <UniformGrid Columns="4" Rows="1">
-                        <Button x:Name="MuteMicButton" Content="🎤" FontSize="15" ToolTip="Mute Mic"
+                        <Button x:Name="MuteMicButton" ToolTip="Mute Mic"
                                 Style="{StaticResource VoiceControlIconButtonStyle}"
-                                Click="MuteMicButton_Click"/>
-                        <Button x:Name="DeafenButton" Content="🎧" FontSize="15" ToolTip="Deafen"
+                                Click="MuteMicButton_Click">
+                            <Image x:Name="MuteMicIcon" Source="/Assets/Icons/mic.png" Width="20" Height="20"/>
+                        </Button>
+                        <Button x:Name="DeafenButton" ToolTip="Deafen"
                                 Style="{StaticResource VoiceControlIconButtonStyle}"
-                                Click="DeafenButton_Click"/>
-                        <Button x:Name="ScreenShareButton" Content="🖥️" FontSize="15" ToolTip="Share Screen"
+                                Click="DeafenButton_Click">
+                            <Image x:Name="DeafenIcon" Source="/Assets/Icons/deafen-off.png" Width="20" Height="20"/>
+                        </Button>
+                        <Button x:Name="ScreenShareButton" ToolTip="Share Screen"
                                 Style="{StaticResource VoiceControlIconButtonStyle}"
                                 Click="ScreenShareButton_Click">
+                            <Image Source="/Assets/Icons/screen-share.png" Width="20" Height="20"/>
                             <Button.ContextMenu>
                                 <!-- Resolution+framerate presets from the Phase 2 spike (see the plan) -
                                      480p30/720p60 are the committed tiers, Native/120fps is explicitly
@@ -216,10 +237,12 @@
                                 </ContextMenu>
                             </Button.ContextMenu>
                         </Button>
-                        <Button x:Name="LeaveVoiceButton" Content="📞" FontSize="14" ToolTip="Disconnect"
+                        <Button x:Name="LeaveVoiceButton" ToolTip="Disconnect"
                                 Style="{StaticResource VoiceControlIconButtonStyle}"
                                 Foreground="White" Background="{StaticResource DangerRed}"
-                                Click="LeaveVoiceButton_Click"/>
+                                Click="LeaveVoiceButton_Click">
+                            <Image Source="/Assets/Icons/call.png" Width="18" Height="18"/>
+                        </Button>
                     </UniformGrid>
                 </Border>
 
@@ -296,11 +319,13 @@
                                         <TextBlock Text="{Binding UnreadCountDisplay, NotifyOnTargetUpdated=True}" FontSize="10" FontWeight="Bold"
                                                    Foreground="White" HorizontalAlignment="Center"/>
                                     </Border>
-                                    <Button Grid.Column="2" Content="✕" Tag="{Binding Id}"
+                                    <Button Grid.Column="2" Tag="{Binding Id}"
                                             Click="DeleteChannelButton_Click" ToolTip="Delete channel"
                                             Width="24" Height="24" Margin="0,0,8,0"
                                             Background="Transparent" Foreground="{StaticResource TextMuted}"
-                                            BorderThickness="0"/>
+                                            BorderThickness="0">
+                                        <Image Source="/Assets/Icons/close.png" Width="14" Height="14"/>
+                                    </Button>
                                 </Grid>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
@@ -350,11 +375,13 @@
                                              the voice audio instead. Messages work in any channel
                                              regardless of Type server-side; this is purely a client
                                              entry point into that existing pipeline. -->
-                                        <Button Grid.Column="1" Content="💬" Tag="{Binding Id}"
+                                        <Button Grid.Column="1" Tag="{Binding Id}"
                                                 Click="VoiceChannelChatButton_Click" ToolTip="Text Chat"
                                                 Width="26" Height="26" Padding="0" Margin="0,0,8,0"
                                                 Background="Transparent" Foreground="{StaticResource TextMuted}"
-                                                BorderThickness="0" Cursor="Hand"/>
+                                                BorderThickness="0" Cursor="Hand">
+                                            <Image Source="/Assets/Icons/chat.png" Width="16" Height="16"/>
+                                        </Button>
                                     </Grid>
                                     <ItemsControl ItemsSource="{Binding Members}" Margin="34,0,8,4" Focusable="False">
                                         <ItemsControl.ItemTemplate>
@@ -435,25 +462,19 @@
                                                         <local:AvatarView Size="16" HorizontalAlignment="Center" VerticalAlignment="Center"
                                                                           DisplayName="{Binding Username}" ImageUrl="{Binding AvatarUrl}"/>
                                                     </Grid>
-                                                    <TextBlock Text="🔇" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0"
-                                                               Visibility="{Binding MutedIconVisibility}" ToolTip="Muted"/>
-                                                    <TextBlock Text="🎧" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0"
-                                                               Visibility="{Binding DeafenedIconVisibility}" ToolTip="Deafened"/>
-                                                    <Border Cursor="Hand" Margin="0,0,4,0" VerticalAlignment="Center"
-                                                            Visibility="{Binding ScreenSharingIconVisibility}"
-                                                            ToolTip="Sharing screen - click to view" Tag="{Binding UserId}"
-                                                            MouseLeftButtonUp="ScreenShareIcon_MouseLeftButtonUp">
-                                                        <Viewbox Width="12" Height="12">
-                                                            <Canvas Width="24" Height="24">
-                                                                <Rectangle Canvas.Left="2" Canvas.Top="3" Width="20" Height="14" RadiusX="2" RadiusY="2" Fill="{StaticResource AccentBlurple}"/>
-                                                                <Rectangle Canvas.Left="9" Canvas.Top="18" Width="6" Height="3" Fill="{StaticResource AccentBlurple}"/>
-                                                                <Rectangle Canvas.Left="6" Canvas.Top="20" Width="12" Height="2" RadiusX="1" RadiusY="1" Fill="{StaticResource AccentBlurple}"/>
-                                                            </Canvas>
-                                                        </Viewbox>
-                                                    </Border>
                                                     <TextBlock Text="{Binding Username}" FontSize="12" VerticalAlignment="Center"
                                                                Foreground="{Binding UsernameForeground}"
                                                                ToolTip="{Binding JoiningTooltip}"/>
+                                                    <Image Source="/Assets/Icons/mic-mute.png" Width="12" Height="12" Margin="4,0,0,0" VerticalAlignment="Center"
+                                                           Visibility="{Binding MutedIconVisibility}" ToolTip="Muted"/>
+                                                    <Image Source="/Assets/Icons/deafen-on.png" Width="12" Height="12" Margin="4,0,0,0" VerticalAlignment="Center"
+                                                           Visibility="{Binding DeafenedIconVisibility}" ToolTip="Deafened"/>
+                                                    <Border Cursor="Hand" Margin="4,0,0,0" VerticalAlignment="Center"
+                                                            Visibility="{Binding ScreenSharingIconVisibility}"
+                                                            ToolTip="Sharing screen - click to view" Tag="{Binding UserId}"
+                                                            MouseLeftButtonUp="ScreenShareIcon_MouseLeftButtonUp">
+                                                        <Image Source="/Assets/Icons/screen-share.png" Width="14" Height="14"/>
+                                                    </Border>
                                                     <StackPanel.ContextMenu>
                                                         <ContextMenu>
                                                             <MenuItem Header="{Binding Username}" IsEnabled="False" FontWeight="Bold"
@@ -496,11 +517,13 @@
                     <TextBlock Grid.Column="0" Text="Direct Messages"
                                FontWeight="Bold" FontSize="15" Foreground="{StaticResource TextNormal}"
                                Padding="14,14,0,10" VerticalAlignment="Center"/>
-                    <Button Grid.Column="1" Content="📞" Width="26" Height="26" Padding="0" Margin="0,8,10,0"
+                    <Button Grid.Column="1" Width="26" Height="26" Padding="0" Margin="0,8,10,0"
                             Click="RecentCallsButton_Click" ToolTip="Recent Calls"
                             Background="Transparent" Foreground="{StaticResource TextNormal}"
-                            BorderThickness="0" FontSize="12" Cursor="Hand"
-                            HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+                            BorderThickness="0" Cursor="Hand"
+                            HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
+                        <Image Source="/Assets/Icons/call.png" Width="16" Height="16"/>
+                    </Button>
                 </Grid>
                 <TextBox DockPanel.Dock="Top" x:Name="DmSearchBox" Height="34" Margin="10,0,10,8" Padding="8,6"
                          Background="{StaticResource BgDarker}" Foreground="{StaticResource TextNormal}"
@@ -672,11 +695,11 @@
                                                            TextTrimming="CharacterEllipsis" MaxWidth="120"
                                                            Visibility="{Binding CustomStatusVisibility}"/>
                                                 <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
-                                                         Fill="#3BA55D" Visibility="{Binding OnlineDotVisibility}" ToolTip="Online"/>
+                                                         Fill="{StaticResource LiveGreen}" Visibility="{Binding OnlineDotVisibility}" ToolTip="Online"/>
                                                 <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
                                                          Fill="{StaticResource AwayYellow}" Visibility="{Binding AwayDotVisibility}" ToolTip="Away"/>
                                                 <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
-                                                         Fill="#80848E" Visibility="{Binding OfflineDotVisibility}" ToolTip="Offline"/>
+                                                         Fill="{StaticResource TextMuted}" Visibility="{Binding OfflineDotVisibility}" ToolTip="Offline"/>
                                             </StackPanel>
                                         </Button>
                                         <Button Grid.Column="1" Tag="{Binding UserId}" Click="CallFriendButton_Click"
@@ -706,30 +729,56 @@
                 <DockPanel>
                     <TextBlock x:Name="ConnectionStatusText" DockPanel.Dock="Right" Text=""
                                Foreground="{StaticResource AwayYellow}" FontSize="12" VerticalAlignment="Center" Margin="0,0,12,0"/>
-                    <Button x:Name="DmCallButton" DockPanel.Dock="Right" Content="📞" ToolTip="Call" Margin="0,0,12,0"
+                    <Button x:Name="DmCallButton" DockPanel.Dock="Right" ToolTip="Call" Margin="0,0,12,0"
                             Background="Transparent" Foreground="{StaticResource TextMuted}"
                             BorderThickness="0" Cursor="Hand" Visibility="Collapsed"
-                            Click="DmCallButton_Click"/>
-                    <Button x:Name="DmBlockUserButton" DockPanel.Dock="Right" Content="🚫" ToolTip="Block User" Margin="0,0,12,0"
+                            Click="DmCallButton_Click">
+                        <Image Source="/Assets/Icons/call.png" Width="16" Height="16"/>
+                    </Button>
+                    <Button x:Name="DmBlockUserButton" DockPanel.Dock="Right" ToolTip="Block User" Margin="0,0,12,0"
                             Background="Transparent" Foreground="{StaticResource TextMuted}"
                             BorderThickness="0" Cursor="Hand" Visibility="Collapsed"
-                            Click="DmBlockUserButton_Click"/>
-                    <Button x:Name="PinnedMessagesButton" DockPanel.Dock="Right" Content="📌" ToolTip="Pinned Messages" Margin="0,0,12,0"
+                            Click="DmBlockUserButton_Click">
+                        <Image Source="/Assets/Icons/block-user.png" Width="16" Height="16"/>
+                    </Button>
+                    <!-- 4 separate always-there icon buttons, each opening its content
+                         as a Discord-style anchored dropdown (HeaderDropdownPopup,
+                         shared by all 4 - see ShowHeaderDropdown in MainWindow.xaml.cs)
+                         instead of navigating to a full PageHost page. -->
+                    <Button x:Name="BanListButton" DockPanel.Dock="Right" ToolTip="Banned Users" Margin="0,0,12,0"
                             Background="Transparent" Foreground="{StaticResource TextMuted}"
                             BorderThickness="0" Cursor="Hand" Visibility="Collapsed"
-                            Click="PinnedMessagesButton_Click"/>
-                    <Button x:Name="SearchMessagesButton" DockPanel.Dock="Right" Content="🔍" ToolTip="Search Messages" Margin="0,0,12,0"
+                            Click="BanListButton_Click">
+                        <Image Source="/Assets/Icons/ban-hammer.png" Width="16" Height="16"/>
+                    </Button>
+                    <Button x:Name="ModerationLogButton" DockPanel.Dock="Right" ToolTip="Moderation Log" Margin="0,0,12,0"
                             Background="Transparent" Foreground="{StaticResource TextMuted}"
                             BorderThickness="0" Cursor="Hand" Visibility="Collapsed"
-                            Click="SearchMessagesButton_Click"/>
-                    <Button x:Name="ModerationLogButton" DockPanel.Dock="Right" Content="📋" ToolTip="Moderation Log" Margin="0,0,12,0"
+                            Click="ModerationLogButton_Click">
+                        <Image Source="/Assets/Icons/moderation-log.png" Width="16" Height="16"/>
+                    </Button>
+                    <Button x:Name="PinnedMessagesButton" DockPanel.Dock="Right" ToolTip="Pinned Messages" Margin="0,0,12,0"
                             Background="Transparent" Foreground="{StaticResource TextMuted}"
                             BorderThickness="0" Cursor="Hand" Visibility="Collapsed"
-                            Click="ModerationLogButton_Click"/>
-                    <Button x:Name="BanListButton" DockPanel.Dock="Right" Content="🔨" ToolTip="Banned Users" Margin="0,0,12,0"
+                            Click="PinnedMessagesButton_Click">
+                        <Image Source="/Assets/Icons/pin.png" Width="16" Height="16"/>
+                    </Button>
+                    <Button x:Name="SearchMessagesButton" DockPanel.Dock="Right" ToolTip="Search Messages" Margin="0,0,12,0"
                             Background="Transparent" Foreground="{StaticResource TextMuted}"
                             BorderThickness="0" Cursor="Hand" Visibility="Collapsed"
-                            Click="BanListButton_Click"/>
+                            Click="SearchMessagesButton_Click">
+                        <Image Source="/Assets/Icons/search.png" Width="16" Height="16"/>
+                    </Button>
+                    <!-- Border colors match the reaction/emoji picker Popup elsewhere in
+                         this file - this app's other anchored flyout - rather than
+                         BgSidebar, which is a list-row color, not a popup-surface one. -->
+                    <Popup x:Name="HeaderDropdownPopup" Placement="Bottom" StaysOpen="False"
+                           AllowsTransparency="True" PopupAnimation="Fade" Closed="HeaderDropdownPopup_Closed">
+                        <Border Background="{StaticResource BgDark}" BorderBrush="{StaticResource BgDarker}"
+                                BorderThickness="1" CornerRadius="6">
+                            <ContentControl x:Name="HeaderDropdownContent" MaxHeight="480"/>
+                        </Border>
+                    </Popup>
                     <TextBlock x:Name="ChannelNameText" Text="# select-a-channel"
                                Foreground="{StaticResource TextNormal}" FontWeight="Bold"
                                VerticalAlignment="Center" Margin="16,0,0,0"/>
@@ -939,26 +988,34 @@
                                             </ScrollViewer>
                                         </Border>
                                     </Popup>
-                                    <Button Content="↩" Tag="{Binding}" Click="ReplyMessageButton_Click"
+                                    <Button Tag="{Binding}" Click="ReplyMessageButton_Click"
                                             ToolTip="Reply"
-                                            Width="26" Height="26" Padding="0" FontSize="14" Margin="0,0,4,0"
+                                            Width="26" Height="26" Padding="0" Margin="0,0,4,0"
                                             Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
-                                            BorderThickness="0" Cursor="Hand"/>
-                                    <Button Content="➡" Tag="{Binding}" Click="ForwardMessageButton_Click"
+                                            BorderThickness="0" Cursor="Hand">
+                                        <Image Source="/Assets/Icons/reply.png" Width="14" Height="14"/>
+                                    </Button>
+                                    <Button Tag="{Binding}" Click="ForwardMessageButton_Click"
                                             ToolTip="Forward"
-                                            Width="26" Height="26" Padding="0" FontSize="14" Margin="0,0,4,0"
+                                            Width="26" Height="26" Padding="0" Margin="0,0,4,0"
                                             Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
-                                            BorderThickness="0" Cursor="Hand"/>
-                                    <Button Content="✏️" Tag="{Binding Id}" Click="EditMessageMenuItem_Click"
+                                            BorderThickness="0" Cursor="Hand">
+                                        <Image Source="/Assets/Icons/forward.png" Width="14" Height="14"/>
+                                    </Button>
+                                    <Button Tag="{Binding Id}" Click="EditMessageMenuItem_Click"
                                             Visibility="{Binding EditMenuVisibility}" ToolTip="Edit"
-                                            Width="26" Height="26" Padding="0" FontSize="12" Margin="0,0,4,0"
+                                            Width="26" Height="26" Padding="0" Margin="0,0,4,0"
                                             Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
-                                            BorderThickness="0" Cursor="Hand"/>
-                                    <Button Content="🗑️" Tag="{Binding Id}" Click="DeleteMessageMenuItem_Click"
+                                            BorderThickness="0" Cursor="Hand">
+                                        <Image Source="/Assets/Icons/edit.png" Width="12" Height="12"/>
+                                    </Button>
+                                    <Button Tag="{Binding Id}" Click="DeleteMessageMenuItem_Click"
                                             Visibility="{Binding DeleteMenuVisibility}" ToolTip="Delete"
-                                            Width="26" Height="26" Padding="0" FontSize="12"
+                                            Width="26" Height="26" Padding="0"
                                             Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
-                                            BorderThickness="0" Cursor="Hand"/>
+                                            BorderThickness="0" Cursor="Hand">
+                                        <Image Source="/Assets/Icons/delete.png" Width="12" Height="12"/>
+                                    </Button>
                                 </StackPanel>
                                 <StackPanel Grid.Column="1">
                                     <TextBlock Text="{Binding ForwardedFromAuthorUsername, StringFormat='➡ Forwarded from {0}'}"
@@ -999,13 +1056,15 @@
                                                Visibility="{Binding FileAttachmentVisibility}"
                                                MouseLeftButtonUp="AttachmentLink_MouseLeftButtonUp"
                                                Tag="{Binding AttachmentUrl}"/>
-                                    <!-- Inline preview for image attachments - right-click to open the
-                                         full image in the default viewer instead of always forcing a
-                                         click-through-a-link-first flow. -->
+                                    <!-- Inline preview for image attachments - left-click opens the
+                                         in-app zoomable lightbox (ImageLightboxWindow), right-click
+                                         still offers opening it in the system's default viewer. -->
                                     <Image local:AttachmentImageBehavior.Url="{Binding AttachmentFullUrl}"
                                            Visibility="{Binding ImageAttachmentVisibility}"
                                            MaxWidth="360" MaxHeight="360" Stretch="Uniform"
-                                           HorizontalAlignment="Left" Margin="0,4,0,0">
+                                           HorizontalAlignment="Left" Margin="0,4,0,0" Cursor="Hand"
+                                           Tag="{Binding AttachmentFullUrl}"
+                                           MouseLeftButtonUp="AttachmentImage_MouseLeftButtonUp">
                                         <Image.ContextMenu>
                                             <ContextMenu>
                                                 <MenuItem Header="Open Image" Tag="{Binding AttachmentUrl}" Click="OpenImageMenuItem_Click"/>
@@ -1041,7 +1100,7 @@
                                                             <Setter Property="Foreground" Value="{StaticResource TextNormal}"/>
                                                             <Style.Triggers>
                                                                 <DataTrigger Binding="{Binding ReactedByMe}" Value="True">
-                                                                    <Setter Property="Background" Value="#3A3F8F"/>
+                                                                    <Setter Property="Background" Value="#122036"/>
                                                                     <Setter Property="BorderBrush" Value="{StaticResource AccentBlurple}"/>
                                                                 </DataTrigger>
                                                             </Style.Triggers>
@@ -1069,10 +1128,12 @@
                         </Grid.ColumnDefinitions>
                         <TextBlock Grid.Column="0" x:Name="ReplyBannerText" FontSize="12"
                                    Foreground="{StaticResource TextNormal}" TextTrimming="CharacterEllipsis"/>
-                        <Button Grid.Column="1" Content="✕" Click="CancelReplyButton_Click" ToolTip="Cancel reply"
-                                Width="20" Height="20" Padding="0" FontSize="11"
+                        <Button Grid.Column="1" Click="CancelReplyButton_Click" ToolTip="Cancel reply"
+                                Width="20" Height="20" Padding="0"
                                 Background="Transparent" Foreground="{StaticResource TextMuted}"
-                                BorderThickness="0" Cursor="Hand"/>
+                                BorderThickness="0" Cursor="Hand">
+                            <Image Source="/Assets/Icons/close.png" Width="12" Height="12"/>
+                        </Button>
                     </Grid>
                 </Border>
                 <Border x:Name="VoiceMessageRecordingBanner" Background="{StaticResource BgSidebar}" CornerRadius="4"
@@ -1087,12 +1148,16 @@
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <Button Grid.Column="0" Content="📎" Width="40" Height="40" Margin="0,0,8,0"
+                    <Button Grid.Column="0" Width="40" Height="40" Margin="0,0,8,0"
                             Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
-                            BorderThickness="0" Click="AttachButton_Click" ToolTip="Attach a file"/>
-                    <Button Grid.Column="1" x:Name="RecordVoiceMessageButton" Content="🎤" Width="40" Height="40" Margin="0,0,8,0"
+                            BorderThickness="0" Click="AttachButton_Click" ToolTip="Attach a file">
+                        <Image Source="/Assets/Icons/attachment.png" Width="18" Height="18"/>
+                    </Button>
+                    <Button Grid.Column="1" x:Name="RecordVoiceMessageButton" Width="40" Height="40" Margin="0,0,8,0"
                             Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
-                            BorderThickness="0" Click="RecordVoiceMessageButton_Click" ToolTip="Record a voice message"/>
+                            BorderThickness="0" Click="RecordVoiceMessageButton_Click" ToolTip="Record a voice message">
+                        <Image Source="/Assets/Icons/record-voice.png" Width="18" Height="18"/>
+                    </Button>
                     <TextBox Grid.Column="2" x:Name="MessageInput" Height="40" Padding="10,10" VerticalContentAlignment="Center"
                              Background="{StaticResource BgSidebar}" Foreground="{StaticResource TextNormal}"
                              BorderThickness="0" KeyDown="MessageInput_KeyDown" TextChanged="MessageInput_TextChanged"
@@ -1156,11 +1221,11 @@
                                     <StackPanel Orientation="Horizontal">
                                         <TextBlock Text="{Binding Username}" Foreground="{StaticResource TextNormal}" FontSize="13"/>
                                         <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
-                                                 Fill="#3BA55D" Visibility="{Binding OnlineDotVisibility}" ToolTip="Online"/>
+                                                 Fill="{StaticResource LiveGreen}" Visibility="{Binding OnlineDotVisibility}" ToolTip="Online"/>
                                         <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
                                                  Fill="{StaticResource AwayYellow}" Visibility="{Binding AwayDotVisibility}" ToolTip="Away"/>
                                         <Ellipse Width="8" Height="8" Margin="6,0,0,0" VerticalAlignment="Center"
-                                                 Fill="#80848E" Visibility="{Binding OfflineDotVisibility}" ToolTip="Offline"/>
+                                                 Fill="{StaticResource TextMuted}" Visibility="{Binding OfflineDotVisibility}" ToolTip="Offline"/>
                                     </StackPanel>
                                     <TextBlock Text="{Binding Role}" Foreground="{StaticResource TextMuted}" FontSize="11"/>
                                     <TextBlock Text="{Binding CustomStatus}" Foreground="{StaticResource TextMuted}" FontSize="11"
@@ -1185,9 +1250,11 @@
             </Grid.RowDefinitions>
             <Border Grid.Row="0" Background="{StaticResource BgDark}" BorderBrush="{StaticResource BgDarker}" BorderThickness="0,0,0,1">
                 <DockPanel Margin="16,12">
-                    <Button DockPanel.Dock="Left" Content="←" FontSize="16" Width="36" Height="36" Margin="0,0,12,0"
+                    <Button DockPanel.Dock="Left" Width="36" Height="36" Margin="0,0,12,0"
                             Background="Transparent" Foreground="{StaticResource TextNormal}"
-                            BorderThickness="0" Cursor="Hand" Click="PageHostBackButton_Click" ToolTip="Back"/>
+                            BorderThickness="0" Cursor="Hand" Click="PageHostBackButton_Click" ToolTip="Back">
+                        <Image Source="/Assets/Icons/back.png" Width="16" Height="16"/>
+                    </Button>
                     <TextBlock x:Name="PageHostTitleText" VerticalAlignment="Center" FontSize="16" FontWeight="Bold"
                                Foreground="{StaticResource TextNormal}"/>
                 </DockPanel>

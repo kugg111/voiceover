@@ -6,14 +6,14 @@
         ShowActivated="False"
         Width="320" SizeToContent="Height"
         MouseLeftButtonDown="Window_MouseLeftButtonDown">
-    <Border Background="#232428" CornerRadius="10" Padding="14"
-            BorderBrush="#5865F2" BorderThickness="1">
+    <Border Background="#0A1322" CornerRadius="10" Padding="14"
+            BorderBrush="#4DA9FF" BorderThickness="1">
         <Border.Effect>
             <DropShadowEffect Color="Black" BlurRadius="16" ShadowDepth="4" Opacity="0.4"/>
         </Border.Effect>
         <StackPanel>
             <TextBlock x:Name="TitleText" FontWeight="Bold" FontSize="14" Foreground="White" TextWrapping="Wrap"/>
-            <TextBlock x:Name="MessageText" FontSize="12" Foreground="#949BA4" Margin="0,4,0,0" TextWrapping="Wrap"/>
+            <TextBlock x:Name="MessageText" FontSize="12" Foreground="#8AA0BE" Margin="0,4,0,0" TextWrapping="Wrap"/>
         </StackPanel>
     </Border>
 </Window>
