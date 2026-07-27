@@ -14,6 +14,23 @@
         WindowBackdropType="Mica"
         WindowCornerPreference="Round"
         Closing="CallWindow_Closing">
+    <ui:FluentWindow.Resources>
+        <!-- Decline/Cancel/Hang Up specifically - transparent at rest like
+             Mute/Deafen next to it, but a red ring on hover marks it as the
+             destructive one instead of an always-on red fill. -->
+        <Style x:Key="EndCallButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{StaticResource TextMuted}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="BorderBrush" Value="{StaticResource DangerRed}"/>
+                    <Setter Property="BorderThickness" Value="2"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </ui:FluentWindow.Resources>
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -34,9 +51,14 @@
                 <Button x:Name="AcceptButton" Content="Accept" Width="100" Height="36" Margin="0,0,8,0"
                         Background="{StaticResource LiveGreen}" Foreground="White" FontWeight="Bold"
                         BorderThickness="0" Cursor="Hand" Click="AcceptButton_Click"/>
-                <Button x:Name="EndButton" Content="Decline" Width="100" Height="36"
-                        Background="{StaticResource DangerRed}" Foreground="White" FontWeight="Bold"
-                        BorderThickness="0" Cursor="Hand" Click="EndButton_Click"/>
+                <Button x:Name="EndButton" Width="100" Height="36"
+                        Style="{StaticResource EndCallButtonStyle}"
+                        Click="EndButton_Click">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                        <Image Source="/Assets/Icons/call-end.png" Width="16" Height="16" Margin="0,0,6,0"/>
+                        <TextBlock x:Name="EndButtonText" Text="Decline" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
             </StackPanel>
 
             <!-- Active call state -->
@@ -85,9 +107,14 @@
                             <TextBlock x:Name="DeafenToggleButtonText" Text="Deafen" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
-                    <Button Content="Hang Up" Width="92" Height="32"
-                            Background="{StaticResource DangerRed}" Foreground="White" FontWeight="Bold"
-                            BorderThickness="0" Cursor="Hand" Click="EndButton_Click"/>
+                    <Button Width="92" Height="32"
+                            Style="{StaticResource EndCallButtonStyle}"
+                            Click="EndButton_Click">
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                            <Image Source="/Assets/Icons/call-end.png" Width="14" Height="14" Margin="0,0,6,0"/>
+                            <TextBlock Text="Hang Up" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
                 </StackPanel>
 
                 <Button x:Name="ScreenShareButton" Height="32" Margin="0,8,0,0"

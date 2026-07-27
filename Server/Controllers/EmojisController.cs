@@ -44,7 +44,7 @@ public class EmojisController : ControllerBase
         if (!await _permissions.IsMemberAsync(CurrentUserId, serverId))
             return Forbid();
 
-        var emojis = await _db.Emojis.Where(em => em.GuildServerId == serverId)
+        var emojis = await _db.Emojis.AsNoTracking().Where(em => em.GuildServerId == serverId)
             .OrderBy(em => em.Name)
             .Select(em => new EmojiResponse(em.Id, em.GuildServerId, em.Name, em.ImageUrl, em.CreatedAt))
             .ToListAsync();

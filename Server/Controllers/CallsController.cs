@@ -34,7 +34,7 @@ public class CallsController : ControllerBase
     [HttpGet("history")]
     public async Task<ActionResult<List<CallRecordResponse>>> GetHistory(int take = 50, int? beforeId = null)
     {
-        var query = _db.CallRecords.Where(c => c.CallerId == CurrentUserId || c.CalleeId == CurrentUserId);
+        var query = _db.CallRecords.AsNoTracking().Where(c => c.CallerId == CurrentUserId || c.CalleeId == CurrentUserId);
         if (beforeId.HasValue) query = query.Where(c => c.Id < beforeId.Value);
 
         var records = await query
@@ -48,6 +48,7 @@ public class CallsController : ControllerBase
             .ToList();
 
         var otherUsers = await _db.Users
+            .AsNoTracking()
             .Where(u => otherUserIds.Contains(u.Id))
             .Select(u => new { u.Id, u.Username, u.AvatarUrl })
             .ToDictionaryAsync(u => u.Id);

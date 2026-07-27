@@ -31,8 +31,12 @@
              state color (e.g. Deafen's red fill) stays visible on hover
              instead of being replaced by a neutral highlight. -->
         <Style x:Key="VoiceControlIconButtonStyle" TargetType="Button">
-            <Setter Property="Width" Value="36"/>
-            <Setter Property="Height" Value="36"/>
+            <!-- 40, not the 44 tried earlier - the channel sidebar column is a
+                 fixed 220px (VoiceControlBar's own Margin/Padding eats 28px of
+                 that), so 4 buttons + their Margins must fit inside 192px
+                 without overflowing and clipping the last (Leave) button. -->
+            <Setter Property="Width" Value="40"/>
+            <Setter Property="Height" Value="40"/>
             <Setter Property="Margin" Value="3"/>
             <Setter Property="FontSize" Value="15"/>
             <Setter Property="Background" Value="Transparent"/>
@@ -50,9 +54,9 @@
                         <Border Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="18">
+                                CornerRadius="20">
                             <Grid>
-                                <Border x:Name="HoverOverlay" Background="#22FFFFFF" CornerRadius="18" Opacity="0"/>
+                                <Border x:Name="HoverOverlay" Background="#22FFFFFF" CornerRadius="20" Opacity="0"/>
                                 <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
                                                   TextElement.Foreground="{TemplateBinding Foreground}"/>
                             </Grid>
@@ -65,6 +69,17 @@
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
+        </Style>
+        <!-- Leave/decline/hang-up specifically - same resting look as its
+             siblings (transparent, icon-only), but a red ring on hover marks
+             it as the destructive one instead of an always-on red fill. -->
+        <Style x:Key="LeaveVoiceButtonStyle" TargetType="Button" BasedOn="{StaticResource VoiceControlIconButtonStyle}">
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="BorderBrush" Value="{StaticResource DangerRed}"/>
+                    <Setter Property="BorderThickness" Value="2"/>
+                </Trigger>
+            </Style.Triggers>
         </Style>
     </ui:FluentWindow.Resources>
     <Grid>
@@ -213,17 +228,17 @@
                         <Button x:Name="MuteMicButton" ToolTip="Mute Mic"
                                 Style="{StaticResource VoiceControlIconButtonStyle}"
                                 Click="MuteMicButton_Click">
-                            <Image x:Name="MuteMicIcon" Source="/Assets/Icons/mic.png" Width="20" Height="20"/>
+                            <Image x:Name="MuteMicIcon" Source="/Assets/Icons/mic.png" Width="22" Height="22"/>
                         </Button>
                         <Button x:Name="DeafenButton" ToolTip="Deafen"
                                 Style="{StaticResource VoiceControlIconButtonStyle}"
                                 Click="DeafenButton_Click">
-                            <Image x:Name="DeafenIcon" Source="/Assets/Icons/deafen-off.png" Width="20" Height="20"/>
+                            <Image x:Name="DeafenIcon" Source="/Assets/Icons/deafen-off.png" Width="22" Height="22"/>
                         </Button>
                         <Button x:Name="ScreenShareButton" ToolTip="Share Screen"
                                 Style="{StaticResource VoiceControlIconButtonStyle}"
                                 Click="ScreenShareButton_Click">
-                            <Image Source="/Assets/Icons/screen-share.png" Width="20" Height="20"/>
+                            <Image Source="/Assets/Icons/screen-share.png" Width="22" Height="22"/>
                             <Button.ContextMenu>
                                 <!-- Resolution+framerate presets from the Phase 2 spike (see the plan) -
                                      480p30/720p60 are the committed tiers, Native/120fps is explicitly
@@ -238,10 +253,9 @@
                             </Button.ContextMenu>
                         </Button>
                         <Button x:Name="LeaveVoiceButton" ToolTip="Disconnect"
-                                Style="{StaticResource VoiceControlIconButtonStyle}"
-                                Foreground="White" Background="{StaticResource DangerRed}"
+                                Style="{StaticResource LeaveVoiceButtonStyle}"
                                 Click="LeaveVoiceButton_Click">
-                            <Image Source="/Assets/Icons/call.png" Width="18" Height="18"/>
+                            <Image Source="/Assets/Icons/call-end.png" Width="22" Height="22"/>
                         </Button>
                     </UniformGrid>
                 </Border>
@@ -517,12 +531,12 @@
                     <TextBlock Grid.Column="0" Text="Direct Messages"
                                FontWeight="Bold" FontSize="15" Foreground="{StaticResource TextNormal}"
                                Padding="14,14,0,10" VerticalAlignment="Center"/>
-                    <Button Grid.Column="1" Width="26" Height="26" Padding="0" Margin="0,8,10,0"
+                    <Button Grid.Column="1" Width="32" Height="32" Padding="0" Margin="0,8,10,0"
                             Click="RecentCallsButton_Click" ToolTip="Recent Calls"
                             Background="Transparent" Foreground="{StaticResource TextNormal}"
                             BorderThickness="0" Cursor="Hand"
                             HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
-                        <Image Source="/Assets/Icons/call.png" Width="16" Height="16"/>
+                        <Image Source="/Assets/Icons/call.png" Width="22" Height="22"/>
                     </Button>
                 </Grid>
                 <TextBox DockPanel.Dock="Top" x:Name="DmSearchBox" Height="34" Margin="10,0,10,8" Padding="8,6"
@@ -749,25 +763,25 @@
                             Background="Transparent" Foreground="{StaticResource TextMuted}"
                             BorderThickness="0" Cursor="Hand" Visibility="Collapsed"
                             Click="BanListButton_Click">
-                        <Image Source="/Assets/Icons/ban-hammer.png" Width="16" Height="16"/>
+                        <Image Source="/Assets/Icons/ban-hammer.png" Width="20" Height="20"/>
                     </Button>
                     <Button x:Name="ModerationLogButton" DockPanel.Dock="Right" ToolTip="Moderation Log" Margin="0,0,12,0"
                             Background="Transparent" Foreground="{StaticResource TextMuted}"
                             BorderThickness="0" Cursor="Hand" Visibility="Collapsed"
                             Click="ModerationLogButton_Click">
-                        <Image Source="/Assets/Icons/moderation-log.png" Width="16" Height="16"/>
+                        <Image Source="/Assets/Icons/moderation-log.png" Width="20" Height="20"/>
                     </Button>
                     <Button x:Name="PinnedMessagesButton" DockPanel.Dock="Right" ToolTip="Pinned Messages" Margin="0,0,12,0"
                             Background="Transparent" Foreground="{StaticResource TextMuted}"
                             BorderThickness="0" Cursor="Hand" Visibility="Collapsed"
                             Click="PinnedMessagesButton_Click">
-                        <Image Source="/Assets/Icons/pin.png" Width="16" Height="16"/>
+                        <Image Source="/Assets/Icons/pin.png" Width="20" Height="20"/>
                     </Button>
                     <Button x:Name="SearchMessagesButton" DockPanel.Dock="Right" ToolTip="Search Messages" Margin="0,0,12,0"
                             Background="Transparent" Foreground="{StaticResource TextMuted}"
                             BorderThickness="0" Cursor="Hand" Visibility="Collapsed"
                             Click="SearchMessagesButton_Click">
-                        <Image Source="/Assets/Icons/search.png" Width="16" Height="16"/>
+                        <Image Source="/Assets/Icons/search.png" Width="20" Height="20"/>
                     </Button>
                     <!-- Border colors match the reaction/emoji picker Popup elsewhere in
                          this file - this app's other anchored flyout - rather than

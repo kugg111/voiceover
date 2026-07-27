@@ -43,6 +43,7 @@ public class CategoriesController : ControllerBase
             return Forbid();
 
         var categories = await _db.Categories
+            .AsNoTracking()
             .Where(c => c.GuildServerId == serverId)
             .OrderBy(c => c.Position)
             .Select(c => new CategoryResponse(c.Id, c.Name, c.GuildServerId, c.Position))

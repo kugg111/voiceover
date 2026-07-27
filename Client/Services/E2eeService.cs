@@ -64,6 +64,19 @@ public class E2eeService
     // for the whole session.
     private readonly System.Collections.Concurrent.ConcurrentDictionary<int, byte[]> _channelWrapKeyCache = new();
 
+    // Member list per server, short-TTL - EncryptForChannelAsync used to
+    // re-fetch the full member list over HTTP on every single channel
+    // message send, purely to know who to wrap that message's key for. A
+    // brand-new member missing from a cache up to MemberListCacheTtl old
+    // only means they won't be wrapped for messages sent in that brief
+    // window - the same "must already be a member when the message is
+    // sent" tolerance this whole scheme already accepts (see this class's
+    // top-of-file comment) - not a security issue, since membership is
+    // still re-checked server-side on every read regardless of what this
+    // cache thinks.
+    private static readonly TimeSpan MemberListCacheTtl = TimeSpan.FromSeconds(30);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, (List<MemberResponse> Members, DateTime FetchedAtUtc)> _memberListCache = new();
+
     // Serializes the ECDH/HKDF derivation itself, not just the caches
     // above - ECDiffieHellman wraps a native crypto handle that isn't
     // documented as safe for concurrent use from multiple threads, and
@@ -207,7 +220,7 @@ public class E2eeService
     {
         if (_privateKey is null) return null;
 
-        var members = await _api.GetMembersAsync(serverId);
+        var members = await GetMembersCachedAsync(serverId);
         if (members.Count == 0) return null;
 
         var messageKey = RandomNumberGenerator.GetBytes(32);
@@ -224,6 +237,19 @@ public class E2eeService
 
         if (recipientKeys.Count == 0) return null;
         return new ChannelEncryptResult(content, recipientKeys);
+    }
+
+    private async Task<List<MemberResponse>> GetMembersCachedAsync(int serverId)
+    {
+        if (_memberListCache.TryGetValue(serverId, out var cached) &&
+            DateTime.UtcNow - cached.FetchedAtUtc < MemberListCacheTtl)
+        {
+            return cached.Members;
+        }
+
+        var members = await _api.GetMembersAsync(serverId);
+        _memberListCache[serverId] = (members, DateTime.UtcNow);
+        return members;
     }
 
     // Decrypts a channel message using this device's own wrapped copy of

@@ -130,14 +130,14 @@ public partial class CallWindow : FluentWindow
                 RingingButtonsPanel.Visibility = Visibility.Visible;
                 ActivePanel.Visibility = Visibility.Collapsed;
                 AcceptButton.Visibility = Visibility.Collapsed;
-                EndButton.Content = "Cancel";
+                EndButtonText.Text = "Cancel";
                 break;
             case CallWindowState.IncomingRinging:
                 StatusText.Text = "Incoming call...";
                 RingingButtonsPanel.Visibility = Visibility.Visible;
                 ActivePanel.Visibility = Visibility.Collapsed;
                 AcceptButton.Visibility = Visibility.Visible;
-                EndButton.Content = "Decline";
+                EndButtonText.Text = "Decline";
                 break;
             case CallWindowState.Active:
                 RingingButtonsPanel.Visibility = Visibility.Collapsed;

@@ -241,12 +241,15 @@ public class MessagesController : ControllerBase
 
         // Personalized per recipient, same reasoning as ChatHub.SendMessage -
         // each only ever sees their own wrapped copy of the (new) key, so
-        // this can no longer be one shared Group broadcast.
-        foreach (var key in validKeys)
+        // this can no longer be one shared Group broadcast. Fired off in
+        // parallel rather than one at a time, same reasoning as
+        // ChatHub.SendMessage's own fan-out.
+        var pushes = validKeys.Select(key =>
         {
             var pushResponse = new MessageResponse(message.Id, message.Content, channelId, message.AuthorId, message.Author!.Username, message.SentAt, message.AttachmentUrl, message.Author.AvatarUrl, message.EditedAt, reactions, message.PinnedAt, message.ReplyToMessageId, message.ReplyToMessageId is null ? null : replyAuthors.GetValueOrDefault(message.ReplyToMessageId.Value), message.ForwardedFromAuthorUsername, key.WrappedKey);
-            await _hub.Clients.User(key.UserId.ToString()).SendAsync("MessageEdited", pushResponse);
-        }
+            return _hub.Clients.User(key.UserId.ToString()).SendAsync("MessageEdited", pushResponse);
+        });
+        await Task.WhenAll(pushes);
 
         var ownWrappedKey = validKeys.FirstOrDefault(k => k.UserId == CurrentUserId)?.WrappedKey;
         var response = new MessageResponse(message.Id, message.Content, channelId, message.AuthorId, message.Author!.Username, message.SentAt, message.AttachmentUrl, message.Author.AvatarUrl, message.EditedAt, reactions, message.PinnedAt, message.ReplyToMessageId, message.ReplyToMessageId is null ? null : replyAuthors.GetValueOrDefault(message.ReplyToMessageId.Value), message.ForwardedFromAuthorUsername, ownWrappedKey);

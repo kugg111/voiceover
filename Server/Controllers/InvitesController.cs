@@ -64,6 +64,7 @@ public class InvitesController : ControllerBase
             return Forbid();
 
         var query = _db.Invites
+            .AsNoTracking()
             .Where(i => i.GuildServerId == serverId)
             .OrderByDescending(i => i.CreatedAt)
             .Skip(skip ?? 0);

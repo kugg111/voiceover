@@ -116,11 +116,31 @@ public partial class MainWindow
     // doesn't track unread counts the way text channels do (_unreadTextChannelCounts
     // stays text-channel-only) - a smaller, acceptable scope gap rather than
     // reworking that tracking to be type-agnostic too.
+    // Walks backward from the end and stops at the first own message, then
+    // touches only that item plus whichever one previously held the flag -
+    // not a full forward LastOrDefault(predicate) scan (LINQ has no
+    // backward-iteration fast path once a predicate's involved) followed by
+    // a second full pass resetting every item's flag. This is called on
+    // every incoming message in an open conversation, so on a long-scrolled-
+    // back DM/channel the old O(n)+O(n) pair rescanned the whole loaded
+    // history just to move one flag - usually by exactly one message.
+    private MessageListItem? _latestOwnMessageItem;
+
     private void RefreshLatestOwnMessageFlag()
     {
-        var latestOwn = _messages.LastOrDefault(m => m.IsOwnMessage);
-        foreach (var m in _messages)
-            m.IsLatestOwnMessage = ReferenceEquals(m, latestOwn);
+        MessageListItem? latestOwn = null;
+        for (var i = _messages.Count - 1; i >= 0; i--)
+        {
+            if (!_messages[i].IsOwnMessage) continue;
+            latestOwn = _messages[i];
+            break;
+        }
+
+        if (ReferenceEquals(latestOwn, _latestOwnMessageItem)) return;
+
+        if (_latestOwnMessageItem is not null) _latestOwnMessageItem.IsLatestOwnMessage = false;
+        if (latestOwn is not null) latestOwn.IsLatestOwnMessage = true;
+        _latestOwnMessageItem = latestOwn;
     }
 
     private async void AttachButton_Click(object sender, RoutedEventArgs e)
