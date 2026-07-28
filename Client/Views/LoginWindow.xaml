@@ -4,12 +4,37 @@
         xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
         Title="Voiceover - Login" Height="450" Width="360"
         WindowStartupLocation="CenterScreen"
-        Background="{StaticResource BgDark}"
         ResizeMode="NoResize"
         Icon="/Assets/AppIcon.png"
         ExtendsContentIntoTitleBar="True"
         WindowBackdropType="Mica"
         WindowCornerPreference="Round">
+    <!-- Slowly-rotating gradient instead of the old flat BgDark fill - same
+         dark navy tones as the app icon (#12182B/#0B0F1C) plus a hint of
+         its accent blue, so the color drift stays subtle enough not to
+         fight with the Mica backdrop or hurt text legibility. The rotation
+         (BgGradientRotate below) is what makes it "animated": the stops
+         themselves never change, only the gradient's angle sweeps slowly. -->
+    <ui:FluentWindow.Background>
+        <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+            <LinearGradientBrush.RelativeTransform>
+                <RotateTransform x:Name="BgGradientRotate" CenterX="0.5" CenterY="0.5" Angle="0"/>
+            </LinearGradientBrush.RelativeTransform>
+            <GradientStop Offset="0.0" Color="#12182B"/>
+            <GradientStop Offset="0.5" Color="#1B2A4A"/>
+            <GradientStop Offset="1.0" Color="#0B0F1C"/>
+        </LinearGradientBrush>
+    </ui:FluentWindow.Background>
+    <ui:FluentWindow.Triggers>
+        <EventTrigger RoutedEvent="FrameworkElement.Loaded">
+            <BeginStoryboard>
+                <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="BgGradientRotate" Storyboard.TargetProperty="Angle"
+                                     From="0" To="360" Duration="0:0:25" RepeatBehavior="Forever"/>
+                </Storyboard>
+            </BeginStoryboard>
+        </EventTrigger>
+    </ui:FluentWindow.Triggers>
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>

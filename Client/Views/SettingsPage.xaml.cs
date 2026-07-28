@@ -65,6 +65,7 @@ public partial class SettingsPage : UserControl
             (UpdateChecker.IsInstalled ? " (installed)." : " (portable).");
 
         BlockedUsersList.ItemsSource = _blockedUsers;
+        BuildAccentSwatches();
 
         ShowAccountTab();
 
@@ -233,6 +234,7 @@ public partial class SettingsPage : UserControl
     private void AccountTabButton_Click(object sender, RoutedEventArgs e) => ShowAccountTab();
     private void VoiceTabButton_Click(object sender, RoutedEventArgs e) => ShowVoiceTab();
     private void OverlayTabButton_Click(object sender, RoutedEventArgs e) => ShowOverlayTab();
+    private void AppearanceTabButton_Click(object sender, RoutedEventArgs e) => ShowAppearanceTab();
     private void UpdateTabButton_Click(object sender, RoutedEventArgs e) => ShowUpdateTab();
 
     private void ShowAccountTab()
@@ -240,8 +242,9 @@ public partial class SettingsPage : UserControl
         AccountTabContent.Visibility = Visibility.Visible;
         VoiceTabContent.Visibility = Visibility.Collapsed;
         OverlayTabContent.Visibility = Visibility.Collapsed;
+        AppearanceTabContent.Visibility = Visibility.Collapsed;
         UpdateTabContent.Visibility = Visibility.Collapsed;
-        SetActiveTab(AccountTabButton, VoiceTabButton, OverlayTabButton, UpdateTabButton);
+        SetActiveTab(AccountTabButton, VoiceTabButton, OverlayTabButton, AppearanceTabButton, UpdateTabButton);
     }
 
     private void ShowVoiceTab()
@@ -249,8 +252,9 @@ public partial class SettingsPage : UserControl
         AccountTabContent.Visibility = Visibility.Collapsed;
         VoiceTabContent.Visibility = Visibility.Visible;
         OverlayTabContent.Visibility = Visibility.Collapsed;
+        AppearanceTabContent.Visibility = Visibility.Collapsed;
         UpdateTabContent.Visibility = Visibility.Collapsed;
-        SetActiveTab(VoiceTabButton, AccountTabButton, OverlayTabButton, UpdateTabButton);
+        SetActiveTab(VoiceTabButton, AccountTabButton, OverlayTabButton, AppearanceTabButton, UpdateTabButton);
     }
 
     private void ShowOverlayTab()
@@ -258,8 +262,19 @@ public partial class SettingsPage : UserControl
         AccountTabContent.Visibility = Visibility.Collapsed;
         VoiceTabContent.Visibility = Visibility.Collapsed;
         OverlayTabContent.Visibility = Visibility.Visible;
+        AppearanceTabContent.Visibility = Visibility.Collapsed;
         UpdateTabContent.Visibility = Visibility.Collapsed;
-        SetActiveTab(OverlayTabButton, AccountTabButton, VoiceTabButton, UpdateTabButton);
+        SetActiveTab(OverlayTabButton, AccountTabButton, VoiceTabButton, AppearanceTabButton, UpdateTabButton);
+    }
+
+    private void ShowAppearanceTab()
+    {
+        AccountTabContent.Visibility = Visibility.Collapsed;
+        VoiceTabContent.Visibility = Visibility.Collapsed;
+        OverlayTabContent.Visibility = Visibility.Collapsed;
+        AppearanceTabContent.Visibility = Visibility.Visible;
+        UpdateTabContent.Visibility = Visibility.Collapsed;
+        SetActiveTab(AppearanceTabButton, AccountTabButton, VoiceTabButton, OverlayTabButton, UpdateTabButton);
     }
 
     private void ShowUpdateTab()
@@ -267,8 +282,57 @@ public partial class SettingsPage : UserControl
         AccountTabContent.Visibility = Visibility.Collapsed;
         VoiceTabContent.Visibility = Visibility.Collapsed;
         OverlayTabContent.Visibility = Visibility.Collapsed;
+        AppearanceTabContent.Visibility = Visibility.Collapsed;
         UpdateTabContent.Visibility = Visibility.Visible;
-        SetActiveTab(UpdateTabButton, AccountTabButton, VoiceTabButton, OverlayTabButton);
+        SetActiveTab(UpdateTabButton, AccountTabButton, VoiceTabButton, OverlayTabButton, AppearanceTabButton);
+    }
+
+    // Preset accent colors offered on the Appearance tab - the first is the
+    // app's built-in default, so picking it clears the saved override
+    // entirely (see AccentSwatch_Click) rather than storing a redundant
+    // hex that just happens to match the default.
+    private static readonly (string Name, string Hex)[] AccentPresets =
+    [
+        ("Blurple (Default)", "#5865F2"),
+        ("Signal Blue", "#4DA9FF"),
+        ("Violet", "#9B59F6"),
+        ("Emerald", "#2ECC71"),
+        ("Amber", "#F2994A"),
+        ("Rose", "#F2478C"),
+    ];
+
+    private void BuildAccentSwatches()
+    {
+        foreach (var (name, hex) in AccentPresets)
+        {
+            var swatch = new Border
+            {
+                Width = 36,
+                Height = 36,
+                Margin = new Thickness(0, 0, 10, 10),
+                CornerRadius = new CornerRadius(18),
+                Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex)),
+                BorderBrush = (Brush)FindResource("TextNormal"),
+                BorderThickness = new Thickness(2),
+                Cursor = Cursors.Hand,
+                Tag = hex,
+                ToolTip = name
+            };
+            swatch.MouseLeftButtonUp += AccentSwatch_Click;
+            AccentSwatchList.Items.Add(swatch);
+        }
+    }
+
+    private void AccentSwatch_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not Border { Tag: string hex }) return;
+
+        // Picking the default preset clears the override rather than
+        // storing "#5865F2" - keeps ApplySavedAccentColor's null-check a
+        // true "nothing customized" signal.
+        var isDefault = hex.Equals(AccentPresets[0].Hex, StringComparison.OrdinalIgnoreCase);
+        ThemeSettingsStorage.Save(new SavedThemeSettings(isDefault ? null : hex));
+        AccentRestartNoticeText.Visibility = Visibility.Visible;
     }
 
     private void SetActiveTab(Button active, params Button[] inactive)

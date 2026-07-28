@@ -674,7 +674,7 @@ public partial class MainWindow
         if (_api.CurrentUserId is null) return;
         var item = FindVoiceChannelItem(channelId);
         var self = item?.Members.FirstOrDefault(m => m.UserId == _api.CurrentUserId);
-        if (item is not null && self is not null) item.Members.Remove(self);
+        if (item is not null && self is not null) AnimateAndRemoveMember(item, self);
     }
 
     // UserVolumeStorage stores the 1.0-scale multiplier (matching
@@ -724,7 +724,7 @@ public partial class MainWindow
         {
             var item = FindVoiceChannelItem(channelId);
             var existing = item?.Members.FirstOrDefault(m => m.UserId == userId);
-            if (item is not null && existing is not null) item.Members.Remove(existing);
+            if (item is not null && existing is not null) AnimateAndRemoveMember(item, existing);
 
             if (channelId == _currentVoiceChannelId && userId != _api.CurrentUserId && !IsActive)
             {
@@ -732,6 +732,20 @@ public partial class MainWindow
                 NotificationService.ShowToast("Voice", $"{username} left voice");
             }
         });
+    }
+
+    // Sets IsLeaving (drives the row's fade+slide-out DataTrigger in
+    // MainWindow.xaml), then waits for that animation to finish before the
+    // real ObservableCollection.Remove - see the IsLeaving property's own
+    // comment on VoiceMemberItem for why this two-step dance exists instead
+    // of a plain Members.Remove. Fire-and-forget by design: both call sites
+    // are already inside a Dispatcher.Invoke on the UI thread, and nothing
+    // downstream needs to await the removal completing.
+    private static async void AnimateAndRemoveMember(ChannelListItem item, VoiceMemberItem member)
+    {
+        member.IsLeaving = true;
+        await Task.Delay(200);
+        item.Members.Remove(member);
     }
 
     private void OnUserSpeaking(int userId, int channelId, bool isSpeaking)
@@ -768,6 +782,22 @@ public partial class MainWindow
         {
             scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
             scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+        }
+    }
+
+    // Same forcibly-removed-container problem as SpeakingRing_Unloaded above,
+    // for the sound-bar scan's 7 looping (RepeatBehavior="Forever")
+    // per-bar Opacity animations - detach all of them on Unloaded so a
+    // recycled/torn-down row's clocks don't keep firing against bars that
+    // no longer belong to a live member.
+    private void SoundBar_Unloaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.Grid grid || grid.Children.Count == 0) return;
+        if (grid.Children[0] is not System.Windows.Controls.StackPanel bars) return;
+        foreach (var child in bars.Children)
+        {
+            if (child is System.Windows.Controls.Border border)
+                border.BeginAnimation(UIElement.OpacityProperty, null);
         }
     }
 

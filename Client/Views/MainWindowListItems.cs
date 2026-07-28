@@ -66,6 +66,23 @@ public class VoiceMemberItem : INotifyPropertyChanged
 
     public Visibility SpeakingDotVisibility => IsSpeaking ? Visibility.Visible : Visibility.Collapsed;
 
+    // Set right before removal (see MainWindow.Voice.cs's AnimateAndRemoveMember)
+    // to drive the row's IsLeaving DataTrigger (fade+slide-out) in
+    // MainWindow.xaml, then the actual ObservableCollection.Remove is
+    // delayed to let that animation finish - an instant Remove tears the
+    // container down immediately with no exit-animation hook.
+    private bool _isLeaving;
+    public bool IsLeaving
+    {
+        get => _isLeaving;
+        set
+        {
+            if (_isLeaving == value) return;
+            _isLeaving = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsLeaving)));
+        }
+    }
+
     // Set only on the local user's own row, only while their LiveKit
     // connection is still spinning up (see VoiceChannelButton_Click). Other
     // clients never see this - they aren't told about the join at all until

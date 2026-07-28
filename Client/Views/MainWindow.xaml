@@ -400,12 +400,141 @@
                                     <ItemsControl ItemsSource="{Binding Members}" Margin="34,0,8,4" Focusable="False">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
+                                                <!-- Declared on the DataTemplate itself (not nested inside a
+                                                     child's Style) specifically so Storyboard.TargetName can
+                                                     reach the SoundBar0..6 elements below - a Style's own
+                                                     Style.Triggers has no NameScope reaching outside itself
+                                                     (MC4011 if attempted), but DataTemplate.Triggers shares the
+                                                     whole template instance's NameScope. -->
+                                                <DataTemplate.Triggers>
+                                                    <DataTrigger Binding="{Binding IsSpeaking}" Value="True">
+                                                        <DataTrigger.EnterActions>
+                                                            <BeginStoryboard x:Name="SoundBarScan">
+                                                                <Storyboard RepeatBehavior="Forever">
+                                                                    <DoubleAnimationUsingKeyFrames Storyboard.TargetName="SoundBar0" Storyboard.TargetProperty="Opacity">
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.000" Value="1.0"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.090" Value="0.65"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.180" Value="0.3"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.270" Value="0.25"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.360" Value="0.25"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.450" Value="0.25"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.540" Value="0.25"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.630" Value="0.25"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.720" Value="0.25"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.810" Value="0.25"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.900" Value="0.3"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.990" Value="0.65"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:1.080" Value="1.0"/>
+                                                                    </DoubleAnimationUsingKeyFrames>
+                                                                    <DoubleAnimationUsingKeyFrames Storyboard.TargetName="SoundBar1" Storyboard.TargetProperty="Opacity">
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.000" Value="0.65"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.090" Value="1.0"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.180" Value="0.65"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.270" Value="0.3"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.360" Value="0.25"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.450" Value="0.25"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.540" Value="0.25"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.630" Value="0.25"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.720" Value="0.25"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.810" Value="0.3"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.900" Value="0.65"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.990" Value="1.0"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:1.080" Value="0.65"/>
+                                                                    </DoubleAnimationUsingKeyFrames>
+                                                                    <DoubleAnimationUsingKeyFrames Storyboard.TargetName="SoundBar2" Storyboard.TargetProperty="Opacity">
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.000" Value="0.3"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.090" Value="0.65"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.180" Value="1.0"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.270" Value="0.65"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.360" Value="0.3"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.450" Value="0.25"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.540" Value="0.25"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.630" Value="0.25"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.720" Value="0.3"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.810" Value="0.65"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.900" Value="1.0"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.990" Value="0.65"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:1.080" Value="0.3"/>
+                                                                    </DoubleAnimationUsingKeyFrames>
+                                                                    <DoubleAnimationUsingKeyFrames Storyboard.TargetName="SoundBar3" Storyboard.TargetProperty="Opacity">
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.000" Value="0.25"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.090" Value="0.3"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.180" Value="0.65"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.270" Value="1.0"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.360" Value="0.65"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.450" Value="0.3"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.540" Value="0.25"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.630" Value="0.3"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.720" Value="0.65"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.810" Value="1.0"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.900" Value="0.65"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.990" Value="0.3"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:1.080" Value="0.25"/>
+                                                                    </DoubleAnimationUsingKeyFrames>
+                                                                    <DoubleAnimationUsingKeyFrames Storyboard.TargetName="SoundBar4" Storyboard.TargetProperty="Opacity">
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.000" Value="0.25"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.090" Value="0.25"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.180" Value="0.3"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.270" Value="0.65"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.360" Value="1.0"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.450" Value="0.65"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.540" Value="0.3"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.630" Value="0.65"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.720" Value="1.0"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.810" Value="0.65"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.900" Value="0.3"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.990" Value="0.25"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:1.080" Value="0.25"/>
+                                                                    </DoubleAnimationUsingKeyFrames>
+                                                                    <DoubleAnimationUsingKeyFrames Storyboard.TargetName="SoundBar5" Storyboard.TargetProperty="Opacity">
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.000" Value="0.25"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.090" Value="0.25"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.180" Value="0.25"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.270" Value="0.3"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.360" Value="0.65"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.450" Value="1.0"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.540" Value="0.65"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.630" Value="1.0"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.720" Value="0.65"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.810" Value="0.3"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.900" Value="0.25"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.990" Value="0.25"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:1.080" Value="0.25"/>
+                                                                    </DoubleAnimationUsingKeyFrames>
+                                                                    <DoubleAnimationUsingKeyFrames Storyboard.TargetName="SoundBar6" Storyboard.TargetProperty="Opacity">
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.000" Value="0.25"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.090" Value="0.25"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.180" Value="0.25"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.270" Value="0.25"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.360" Value="0.3"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.450" Value="0.65"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.540" Value="1.0"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.630" Value="0.65"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.720" Value="0.3"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.810" Value="0.25"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.900" Value="0.25"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:0.990" Value="0.25"/>
+                                                                        <LinearDoubleKeyFrame KeyTime="0:0:1.080" Value="0.25"/>
+                                                                    </DoubleAnimationUsingKeyFrames>
+                                                                </Storyboard>
+                                                            </BeginStoryboard>
+                                                        </DataTrigger.EnterActions>
+                                                        <DataTrigger.ExitActions>
+                                                            <StopStoryboard BeginStoryboardName="SoundBarScan"/>
+                                                        </DataTrigger.ExitActions>
+                                                    </DataTrigger>
+                                                </DataTemplate.Triggers>
                                                 <StackPanel Orientation="Horizontal" Margin="0,2,0,2"
                                                             Opacity="0" RenderTransformOrigin="0.5,0.5">
-                                                    <!-- Entrance-only (WPF's ItemsControl removes containers
-                                                         immediately on unbind, so there's no reliable hook for
-                                                         an exit animation here without a heavier behavior) -
-                                                         same fade+slide-up as the message list entrance below. -->
+                                                    <!-- Entrance fade+slide-up plays via the Loaded EventTrigger
+                                                         below. Exit is a real animation too now (unlike the message
+                                                         list's entrance-only note this used to match): the IsLeaving
+                                                         DataTrigger below fades+slides this row back out, and
+                                                         MainWindow.Voice.cs's AnimateAndRemoveMember sets IsLeaving
+                                                         and delays the actual ObservableCollection.Remove to match -
+                                                         WPF's ItemsControl gives no "about to be removed" hook, so
+                                                         this fakes one by controlling exactly when the real removal
+                                                         happens. -->
                                                     <StackPanel.RenderTransform>
                                                         <TranslateTransform Y="8"/>
                                                     </StackPanel.RenderTransform>
@@ -421,11 +550,60 @@
                                                                             <QuadraticEase EasingMode="EaseOut"/>
                                                                         </DoubleAnimation.EasingFunction>
                                                                     </DoubleAnimation>
+                                                                    <!-- Join ripple: an expanding, fading ring behind
+                                                                         the avatar (JoinRippleRing, declared inside the
+                                                                         avatar Grid below) - purely decorative, runs
+                                                                         once alongside the fade+slide above. -->
+                                                                    <DoubleAnimation Storyboard.TargetName="JoinRippleRing" Storyboard.TargetProperty="Opacity"
+                                                                                     From="0.55" To="0" Duration="0:0:0.45"/>
+                                                                    <DoubleAnimation Storyboard.TargetName="JoinRippleRing"
+                                                                                     Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
+                                                                                     From="0.6" To="2.2" Duration="0:0:0.45">
+                                                                        <DoubleAnimation.EasingFunction>
+                                                                            <QuadraticEase EasingMode="EaseOut"/>
+                                                                        </DoubleAnimation.EasingFunction>
+                                                                    </DoubleAnimation>
+                                                                    <DoubleAnimation Storyboard.TargetName="JoinRippleRing"
+                                                                                     Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)"
+                                                                                     From="0.6" To="2.2" Duration="0:0:0.45">
+                                                                        <DoubleAnimation.EasingFunction>
+                                                                            <QuadraticEase EasingMode="EaseOut"/>
+                                                                        </DoubleAnimation.EasingFunction>
+                                                                    </DoubleAnimation>
                                                                 </Storyboard>
                                                             </BeginStoryboard>
                                                         </EventTrigger>
                                                     </StackPanel.Triggers>
+                                                    <StackPanel.Style>
+                                                        <Style TargetType="StackPanel">
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsLeaving}" Value="True">
+                                                                    <DataTrigger.EnterActions>
+                                                                        <BeginStoryboard>
+                                                                            <Storyboard>
+                                                                                <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                                                                 To="0" Duration="0:0:0.18"/>
+                                                                                <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.Y)"
+                                                                                                 To="8" Duration="0:0:0.18">
+                                                                                    <DoubleAnimation.EasingFunction>
+                                                                                        <QuadraticEase EasingMode="EaseIn"/>
+                                                                                    </DoubleAnimation.EasingFunction>
+                                                                                </DoubleAnimation>
+                                                                            </Storyboard>
+                                                                        </BeginStoryboard>
+                                                                    </DataTrigger.EnterActions>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </StackPanel.Style>
                                                     <Grid Width="20" Height="20" Margin="0,0,4,0" VerticalAlignment="Center">
+                                                        <Ellipse x:Name="JoinRippleRing" Width="20" Height="20" Stroke="{StaticResource AccentBlurple}"
+                                                                 StrokeThickness="1.5" Fill="Transparent" Opacity="0" IsHitTestVisible="False"
+                                                                 RenderTransformOrigin="0.5,0.5">
+                                                            <Ellipse.RenderTransform>
+                                                                <ScaleTransform ScaleX="0.6" ScaleY="0.6"/>
+                                                            </Ellipse.RenderTransform>
+                                                        </Ellipse>
                                                         <!-- Blurple speaking ring around the avatar (app accent
                                                              color), pulsing while IsSpeaking - the same indicator
                                                              the in-game overlay uses, so both surfaces show
@@ -479,6 +657,32 @@
                                                     <TextBlock Text="{Binding Username}" FontSize="12" VerticalAlignment="Center"
                                                                Foreground="{Binding UsernameForeground}"
                                                                ToolTip="{Binding JoiningTooltip}"/>
+                                                    <!-- Fixed-width sound-bar speaking indicator, docked right after
+                                                         the username. Always visible (not collapsed when silent) so
+                                                         the row's layout never shifts as someone starts/stops
+                                                         talking - only the bars' brightness animates. While
+                                                         IsSpeaking, a soft highlight scans 1->7 then bounces back
+                                                         7->1 in a loop (see SoundBarScan below); at rest every bar
+                                                         just sits at its dim baseline opacity. -->
+                                                    <Grid Width="34" Height="12" Margin="6,0,0,0" VerticalAlignment="Center"
+                                                          Unloaded="SoundBar_Unloaded">
+                                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                            <Border x:Name="SoundBar0" Width="2" Height="6" Margin="0,0,2,0" CornerRadius="1"
+                                                                    Background="{StaticResource AccentBlurple}" Opacity="0.25"/>
+                                                            <Border x:Name="SoundBar1" Width="2" Height="8" Margin="0,0,2,0" CornerRadius="1"
+                                                                    Background="{StaticResource AccentBlurple}" Opacity="0.25"/>
+                                                            <Border x:Name="SoundBar2" Width="2" Height="10" Margin="0,0,2,0" CornerRadius="1"
+                                                                    Background="{StaticResource AccentBlurple}" Opacity="0.25"/>
+                                                            <Border x:Name="SoundBar3" Width="2" Height="12" Margin="0,0,2,0" CornerRadius="1"
+                                                                    Background="{StaticResource AccentBlurple}" Opacity="0.25"/>
+                                                            <Border x:Name="SoundBar4" Width="2" Height="10" Margin="0,0,2,0" CornerRadius="1"
+                                                                    Background="{StaticResource AccentBlurple}" Opacity="0.25"/>
+                                                            <Border x:Name="SoundBar5" Width="2" Height="8" Margin="0,0,2,0" CornerRadius="1"
+                                                                    Background="{StaticResource AccentBlurple}" Opacity="0.25"/>
+                                                            <Border x:Name="SoundBar6" Width="2" Height="6" CornerRadius="1"
+                                                                    Background="{StaticResource AccentBlurple}" Opacity="0.25"/>
+                                                        </StackPanel>
+                                                    </Grid>
                                                     <Image Source="/Assets/Icons/mic-mute.png" Width="12" Height="12" Margin="4,0,0,0" VerticalAlignment="Center"
                                                            Visibility="{Binding MutedIconVisibility}" ToolTip="Muted"/>
                                                     <Image Source="/Assets/Icons/deafen-on.png" Width="12" Height="12" Margin="4,0,0,0" VerticalAlignment="Center"

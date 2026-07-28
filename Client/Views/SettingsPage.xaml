@@ -20,6 +20,9 @@
                 <Button x:Name="OverlayTabButton" Content="Game Overlay" Height="40" Margin="0,0,0,4"
                         Click="OverlayTabButton_Click" HorizontalContentAlignment="Left" Padding="12,0" FontWeight="Bold"
                         BorderThickness="0"/>
+                <Button x:Name="AppearanceTabButton" Content="Appearance" Height="40" Margin="0,0,0,4"
+                        Click="AppearanceTabButton_Click" HorizontalContentAlignment="Left" Padding="12,0" FontWeight="Bold"
+                        BorderThickness="0"/>
                 <Button x:Name="UpdateTabButton" Content="Version" Height="40"
                         Click="UpdateTabButton_Click" HorizontalContentAlignment="Left" Padding="12,0" FontWeight="Bold"
                         BorderThickness="0"/>
@@ -148,6 +151,25 @@
                             Background="{StaticResource BgDarker}" Foreground="{StaticResource TextNormal}" BorderThickness="0"/>
                     <TextBlock Text="Press this key any time to show or hide the overlay. A function key (e.g. F8) is safest so it won't clash with in-game controls."
                                FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}" Margin="0,4,0,0"/>
+                </StackPanel>
+            </ScrollViewer>
+
+            <ScrollViewer x:Name="AppearanceTabContent" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+                <StackPanel MaxWidth="500" HorizontalAlignment="Left">
+                    <TextBlock Text="ACCENT COLOR" FontSize="11" FontWeight="Bold"
+                               Foreground="{StaticResource TextMuted}" Margin="0,0,0,8"/>
+                    <TextBlock Text="Pick a color for buttons, links, and highlights throughout the app."
+                               FontSize="12" TextWrapping="Wrap" Foreground="{StaticResource TextMuted}" Margin="0,0,0,12"/>
+                    <ItemsControl x:Name="AccentSwatchList">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <WrapPanel Orientation="Horizontal"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                    </ItemsControl>
+                    <TextBlock x:Name="AccentRestartNoticeText" FontSize="12" TextWrapping="Wrap"
+                               Foreground="{StaticResource TextJoining}" Margin="0,14,0,0" Visibility="Collapsed"
+                               Text="Restart Voiceover for the new accent color to take effect."/>
                 </StackPanel>
             </ScrollViewer>
 

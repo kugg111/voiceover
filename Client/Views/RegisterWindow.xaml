@@ -4,12 +4,35 @@
         xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
         Title="Voiceover - Register" Height="450" Width="360"
         WindowStartupLocation="CenterScreen"
-        Background="{StaticResource BgDark}"
         ResizeMode="NoResize"
         Icon="/Assets/AppIcon.png"
         ExtendsContentIntoTitleBar="True"
         WindowBackdropType="Mica"
         WindowCornerPreference="Round">
+    <!-- Same slowly-rotating gradient as LoginWindow - see its own comment
+         for the reasoning. Kept as a separate copy rather than a shared
+         resource since these are two independent top-level windows, each
+         with their own NameScope that Storyboard.TargetName needs. -->
+    <ui:FluentWindow.Background>
+        <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+            <LinearGradientBrush.RelativeTransform>
+                <RotateTransform x:Name="BgGradientRotate" CenterX="0.5" CenterY="0.5" Angle="0"/>
+            </LinearGradientBrush.RelativeTransform>
+            <GradientStop Offset="0.0" Color="#12182B"/>
+            <GradientStop Offset="0.5" Color="#1B2A4A"/>
+            <GradientStop Offset="1.0" Color="#0B0F1C"/>
+        </LinearGradientBrush>
+    </ui:FluentWindow.Background>
+    <ui:FluentWindow.Triggers>
+        <EventTrigger RoutedEvent="FrameworkElement.Loaded">
+            <BeginStoryboard>
+                <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="BgGradientRotate" Storyboard.TargetProperty="Angle"
+                                     From="0" To="360" Duration="0:0:25" RepeatBehavior="Forever"/>
+                </Storyboard>
+            </BeginStoryboard>
+        </EventTrigger>
+    </ui:FluentWindow.Triggers>
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>

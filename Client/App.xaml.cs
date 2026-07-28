@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows;
+using System.Windows.Media;
 using System.Windows.Threading;
 using Voiceover.Client.Services;
 using Voiceover.Client.Views;
@@ -86,6 +87,8 @@ public partial class App : Application
             return;
         }
 
+        ApplySavedAccentColor();
+
         // WPF's default ShutdownMode (OnLastWindowClose) tears the whole
         // app down the instant the update gate window closes, if that
         // happens to be the only open window at that exact moment - which
@@ -139,6 +142,29 @@ public partial class App : Application
 
         new LoginWindow().Show();
         ShutdownMode = ShutdownMode.OnLastWindowClose;
+    }
+
+    // Overrides the AccentBlurple StaticResource with the user's saved
+    // choice (see SettingsPage's Appearance tab / ThemeSettingsStorage),
+    // before any window is constructed - StaticResource is resolved when
+    // each control's template loads, which happens after this runs, so
+    // every window ends up using the new color with no DynamicResource
+    // conversion needed anywhere. A no-op if nothing's been saved yet
+    // (keeps the built-in #5865F2 blurple) or the saved hex fails to parse.
+    private static void ApplySavedAccentColor()
+    {
+        var hex = ThemeSettingsStorage.Load()?.AccentHex;
+        if (string.IsNullOrEmpty(hex)) return;
+
+        try
+        {
+            var color = (Color)ColorConverter.ConvertFromString(hex);
+            Current.Resources["AccentBlurple"] = new SolidColorBrush(color);
+        }
+        catch
+        {
+            // Corrupt/invalid saved hex - fall back to the default accent.
+        }
     }
 
     // Finds the already-running instance's top-level window - whichever one
