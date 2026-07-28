@@ -58,16 +58,6 @@ public class RemoteAudioPlayback : IAsyncDisposable
                 if (PlaybackVolume != 1.0f)
                     ApplyGain(pcm, PlaybackVolume);
 
-                // Records the exact signal about to reach a real speaker so
-                // ScreenAudioCaptureSource can subtract it back out of any
-                // loopback capture of this same audio - see
-                // RenderedVoiceReferenceBuffer for why that fixes the
-                // screen-share-viewer self-echo bug. Safe to record
-                // unconditionally: this only ever runs when Deafened is
-                // false and IsListening is true (see the check above), i.e.
-                // only for audio that's actually about to be rendered.
-                RenderedVoiceReferenceBuffer.AddRendered(pcm);
-
                 var bytes = new byte[pcm.Length * 2];
                 Buffer.BlockCopy(pcm, 0, bytes, 0, bytes.Length);
                 _waveProvider?.AddSamples(bytes, 0, bytes.Length);
