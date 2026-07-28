@@ -42,7 +42,9 @@ public class RedisVoicePresenceStore : IVoicePresenceStore
         var json = await db.StringGetAsync(ConnKey(connectionId));
         if (json.IsNullOrEmpty) return null;
 
-        var entry = JsonSerializer.Deserialize<Entry>(json!)!;
+        // Explicit (string) cast - see RedisCallSignalingStore.GetAsync's
+        // comment on why RedisValue needs disambiguating here now.
+        var entry = JsonSerializer.Deserialize<Entry>((string)json!)!;
         await db.KeyDeleteAsync(ConnKey(connectionId));
         await db.SetRemoveAsync(ChannelMembersKey(entry.ChannelId), connectionId);
         return (entry.ChannelId, entry.ServerId, entry.UserId, entry.Username);
@@ -69,7 +71,7 @@ public class RedisVoicePresenceStore : IVoicePresenceStore
         var jsonValues = await db.StringGetAsync(memberIds.Select(m => (RedisKey)ConnKey(m!)).ToArray());
         return jsonValues
             .Where(v => !v.IsNullOrEmpty)
-            .Select(v => JsonSerializer.Deserialize<Entry>(v!)!)
+            .Select(v => JsonSerializer.Deserialize<Entry>((string)v!)!)
             .Select(e => new VoiceParticipant(e.UserId, e.Username, e.AvatarUrl))
             .ToList();
     }
@@ -86,6 +88,6 @@ public class RedisVoicePresenceStore : IVoicePresenceStore
     private async Task<Entry?> GetEntryAsync(string connectionId)
     {
         var json = await _redis.GetDatabase().StringGetAsync(ConnKey(connectionId));
-        return json.IsNullOrEmpty ? null : JsonSerializer.Deserialize<Entry>(json!);
+        return json.IsNullOrEmpty ? null : JsonSerializer.Deserialize<Entry>((string)json!);
     }
 }

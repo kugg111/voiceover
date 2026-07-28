@@ -15,7 +15,7 @@ namespace Voiceover.Client.Services;
 // COM) needs the same manual QueryInterface/CreateDirect3D11* dance the
 // original sample uses. SharpDX is unmaintained upstream but still a plain
 // managed COM-interop assembly with no .NET Framework-specific behavior, so
-// it works fine on net8.0-windows - kept for parity with the proven-correct
+// it works fine on net10.0-windows - kept for parity with the proven-correct
 // reference implementation rather than hand-adapting to a different (and,
 // for this exact interop path, unverified) D3D11 binding.
 internal static class Direct3D11Interop

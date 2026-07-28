@@ -163,7 +163,7 @@ Client/                  WPF desktop app
 
 ## Running it locally
 
-1. **.NET 8 SDK**, Windows 10/11 (the client uses Windows-only audio/capture
+1. **.NET 10 SDK**, Windows 10/11 (the client uses Windows-only audio/capture
    APIs).
 2. **Database**: a Postgres instance (local, Docker, or any hosted free tier).
    Set the connection string as a standard Postgres URI:
@@ -194,9 +194,9 @@ system-wide, if you haven't already).
 
 ## Tech stack
 
-- **Server**: ASP.NET Core 8, EF Core + Npgsql (Postgres), SignalR, JWT bearer
+- **Server**: ASP.NET Core 10, EF Core + Npgsql (Postgres), SignalR, JWT bearer
   auth, BCrypt, Serilog (console + Postgres sink)
-- **Client**: WPF (.NET 8), WPF-UI (Fluent Design), NAudio (device/loopback
+- **Client**: WPF (.NET 10), WPF-UI (Fluent Design), NAudio (device/loopback
   capture), LiveKit's .NET client SDK, Windows.Graphics.Capture (screen share)
 - **Voice/video**: self-hosted LiveKit SFU; RNNoise / NSNet2 (ONNX Runtime,
   NSNet2 optionally DirectML GPU-accelerated) for noise suppression, with a

@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <UseWPF>true</UseWPF>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -92,7 +92,7 @@
          means garbled audio, not an obvious crash. -->
     <PackageReference Include="MathNet.Numerics" Version="5.0.0" />
     <!-- Screen sharing: captures a monitor/window via Windows.Graphics.Capture
-         (built into the SDK for this net8.0-windows10.0.19041.0 TFM, no
+         (built into the SDK for this net10.0-windows10.0.19041.0 TFM, no
          package needed) and reads the captured GPU texture back to CPU-side
          BGRA bytes for VideoSource.CaptureFrame - see ScreenCaptureSource
          and Direct3D11Interop. SharpDX is unmaintained upstream but is the

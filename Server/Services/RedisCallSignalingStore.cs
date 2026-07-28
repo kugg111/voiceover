@@ -58,7 +58,12 @@ public class RedisCallSignalingStore : ICallSignalingStore
     public async Task<CallSession?> GetAsync(string callId)
     {
         var json = await _redis.GetDatabase().StringGetAsync(CallKey(callId));
-        return json.IsNullOrEmpty ? null : JsonSerializer.Deserialize<CallSession>(json!);
+        // Explicit (string) cast, not just json! - RedisValue has implicit
+        // conversions to both string and byte[]/ReadOnlySpan<byte>, and a
+        // newer JsonSerializer.Deserialize overload set (added after the
+        // .NET 8 -> 10 upgrade) makes the call ambiguous (CS0121) without
+        // picking one explicitly.
+        return json.IsNullOrEmpty ? null : JsonSerializer.Deserialize<CallSession>((string)json!);
     }
 
     public async Task<CallSession?> AcceptAsync(string callId)

@@ -9,7 +9,7 @@ on:
 
 jobs:
   build-and-test:
-    # Client/Client.Tests target net8.0-windows (WPF) and need the Windows
+    # Client/Client.Tests target net10.0-windows (WPF) and need the Windows
     # Desktop workload, which only windows-latest runners have preinstalled.
     runs-on: windows-latest
 
@@ -22,7 +22,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: 10.0.x
 
       - name: Restore
         run: dotnet restore Voiceover.sln
