@@ -604,66 +604,33 @@
                                                                 <ScaleTransform ScaleX="0.6" ScaleY="0.6"/>
                                                             </Ellipse.RenderTransform>
                                                         </Ellipse>
-                                                        <!-- Blurple speaking ring around the avatar (app accent
-                                                             color), pulsing while IsSpeaking - the same indicator
-                                                             the in-game overlay uses, so both surfaces show
-                                                             "speaking" identically. -->
-                                                        <Ellipse Width="20" Height="20" Stroke="{StaticResource AccentBlurple}" StrokeThickness="2"
-                                                                 Fill="Transparent" Visibility="{Binding SpeakingDotVisibility}"
-                                                                 RenderTransformOrigin="0.5,0.5" Unloaded="SpeakingRing_Unloaded">
-                                                            <Ellipse.CacheMode>
-                                                                <!-- Caches the ring as a GPU texture so the pulse is a cheap
-                                                                     composition-thread scale of that texture, decoupled from
-                                                                     MainWindow's busy UI thread and heavier per-frame
-                                                                     compositing (which was stuttering the pulse here even
-                                                                     though the identical animation is smooth in the
-                                                                     lightweight overlay). RenderAtScale keeps the stroke
-                                                                     crisp when scaled up. -->
-                                                                <BitmapCache RenderAtScale="2"/>
-                                                            </Ellipse.CacheMode>
-                                                            <Ellipse.RenderTransform>
-                                                                <ScaleTransform ScaleX="1" ScaleY="1"/>
-                                                            </Ellipse.RenderTransform>
-                                                            <Ellipse.Style>
-                                                                <Style TargetType="Ellipse">
-                                                                    <Style.Triggers>
-                                                                        <DataTrigger Binding="{Binding IsSpeaking}" Value="True">
-                                                                            <DataTrigger.EnterActions>
-                                                                                <BeginStoryboard x:Name="SidebarSpeakingPulse">
-                                                                                    <!-- No DesiredFrameRate here on purpose: setting it
-                                                                                         forces the animation onto the UI thread, which
-                                                                                         the busy MainWindow then starves (stutter). Left
-                                                                                         as a composition-thread animation, smoothed via
-                                                                                         the ring's BitmapCache above. -->
-                                                                                    <Storyboard RepeatBehavior="Forever" AutoReverse="True">
-                                                                                        <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
-                                                                                                         To="1.2" Duration="0:0:0.5"/>
-                                                                                        <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)"
-                                                                                                         To="1.2" Duration="0:0:0.5"/>
-                                                                                    </Storyboard>
-                                                                                </BeginStoryboard>
-                                                                            </DataTrigger.EnterActions>
-                                                                            <DataTrigger.ExitActions>
-                                                                                <StopStoryboard BeginStoryboardName="SidebarSpeakingPulse"/>
-                                                                            </DataTrigger.ExitActions>
-                                                                        </DataTrigger>
-                                                                    </Style.Triggers>
-                                                                </Style>
-                                                            </Ellipse.Style>
-                                                        </Ellipse>
                                                         <local:AvatarView Size="16" HorizontalAlignment="Center" VerticalAlignment="Center"
                                                                           DisplayName="{Binding Username}" ImageUrl="{Binding AvatarUrl}"/>
                                                     </Grid>
                                                     <TextBlock Text="{Binding Username}" FontSize="12" VerticalAlignment="Center"
                                                                Foreground="{Binding UsernameForeground}"
                                                                ToolTip="{Binding JoiningTooltip}"/>
-                                                    <!-- Fixed-width sound-bar speaking indicator, docked right after
-                                                         the username. Always visible (not collapsed when silent) so
-                                                         the row's layout never shifts as someone starts/stops
-                                                         talking - only the bars' brightness animates. While
-                                                         IsSpeaking, a soft highlight scans 1->7 then bounces back
-                                                         7->1 in a loop (see SoundBarScan below); at rest every bar
-                                                         just sits at its dim baseline opacity. -->
+                                                    <Image Source="/Assets/Icons/mic-mute.png" Width="12" Height="12" Margin="4,0,0,0" VerticalAlignment="Center"
+                                                           Visibility="{Binding MutedIconVisibility}" ToolTip="Muted"/>
+                                                    <Image Source="/Assets/Icons/deafen-on.png" Width="12" Height="12" Margin="4,0,0,0" VerticalAlignment="Center"
+                                                           Visibility="{Binding DeafenedIconVisibility}" ToolTip="Deafened"/>
+                                                    <Border Cursor="Hand" Margin="4,0,0,0" VerticalAlignment="Center"
+                                                            Visibility="{Binding ScreenSharingIconVisibility}"
+                                                            ToolTip="Sharing screen - click to view" Tag="{Binding UserId}"
+                                                            MouseLeftButtonUp="ScreenShareIcon_MouseLeftButtonUp">
+                                                        <Image Source="/Assets/Icons/screen-share.png" Width="14" Height="14"/>
+                                                    </Border>
+                                                    <!-- Fixed-width sound-bar speaking indicator, always the
+                                                         rightmost element in the row (after mute/deafen/screenshare)
+                                                         so it never shifts position as those icons toggle on and
+                                                         off - it's the only speaking indicator now (replaces the
+                                                         old pulsing ring around the avatar). Always visible (not
+                                                         collapsed when silent) so the row's layout never shifts as
+                                                         someone starts/stops talking either - only the bars'
+                                                         brightness animates. While IsSpeaking, a soft highlight
+                                                         scans 1->7 then bounces back 7->1 in a loop (see
+                                                         SoundBarScan in DataTemplate.Triggers above); at rest every
+                                                         bar just sits at its dim baseline opacity. -->
                                                     <Grid Width="34" Height="12" Margin="6,0,0,0" VerticalAlignment="Center"
                                                           Unloaded="SoundBar_Unloaded">
                                                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
@@ -683,16 +650,6 @@
                                                                     Background="{StaticResource AccentBlurple}" Opacity="0.25"/>
                                                         </StackPanel>
                                                     </Grid>
-                                                    <Image Source="/Assets/Icons/mic-mute.png" Width="12" Height="12" Margin="4,0,0,0" VerticalAlignment="Center"
-                                                           Visibility="{Binding MutedIconVisibility}" ToolTip="Muted"/>
-                                                    <Image Source="/Assets/Icons/deafen-on.png" Width="12" Height="12" Margin="4,0,0,0" VerticalAlignment="Center"
-                                                           Visibility="{Binding DeafenedIconVisibility}" ToolTip="Deafened"/>
-                                                    <Border Cursor="Hand" Margin="4,0,0,0" VerticalAlignment="Center"
-                                                            Visibility="{Binding ScreenSharingIconVisibility}"
-                                                            ToolTip="Sharing screen - click to view" Tag="{Binding UserId}"
-                                                            MouseLeftButtonUp="ScreenShareIcon_MouseLeftButtonUp">
-                                                        <Image Source="/Assets/Icons/screen-share.png" Width="14" Height="14"/>
-                                                    </Border>
                                                     <StackPanel.ContextMenu>
                                                         <ContextMenu>
                                                             <MenuItem Header="{Binding Username}" IsEnabled="False" FontWeight="Bold"

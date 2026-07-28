@@ -218,7 +218,12 @@ public partial class MainWindow
 
         MuteMicIcon.Source = _voice.IsMicMuted ? IconImages.MicMute : IconImages.Mic;
         MuteMicButton.ToolTip = _voice.IsMicMuted ? "Unmute Mic" : "Mute Mic";
-        MuteMicButton.Background = _voice.IsMicMuted ? ThemeBrushes.Danger : System.Windows.Media.Brushes.Transparent;
+        // A red ring, not a full-fill background - same pattern
+        // UpdateScreenShareButtonVisual already uses, so the button's
+        // resting look (transparent, icon-only) doesn't change, only a
+        // ring appears around it.
+        MuteMicButton.BorderBrush = ThemeBrushes.Danger;
+        MuteMicButton.BorderThickness = new Thickness(_voice.IsMicMuted ? 2 : 0);
     }
 
     private void DeafenButton_Click(object sender, RoutedEventArgs e)
@@ -238,7 +243,8 @@ public partial class MainWindow
 
         DeafenIcon.Source = _voice.IsDeafened ? IconImages.DeafenOn : IconImages.DeafenOff;
         DeafenButton.ToolTip = _voice.IsDeafened ? "Undeafen" : "Deafen";
-        DeafenButton.Background = _voice.IsDeafened ? ThemeBrushes.Danger : System.Windows.Media.Brushes.Transparent;
+        DeafenButton.BorderBrush = ThemeBrushes.Danger;
+        DeafenButton.BorderThickness = new Thickness(_voice.IsDeafened ? 2 : 0);
     }
 
     private void VoiceMemberVolumeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -758,35 +764,9 @@ public partial class MainWindow
         });
     }
 
-    // The speaking ring's pulse (MainWindow.xaml, the "SidebarSpeakingPulse"
-    // BeginStoryboard) is RepeatBehavior="Forever" - if the member it
-    // belongs to leaves the voice channel while still mid-speech, the row's
-    // container gets torn down and removed from the visual tree, but
-    // there's no guarantee WPF runs the DataTrigger's ExitActions
-    // (StopStoryboard) first - a forcibly-removed container isn't the same
-    // as the bound property naturally flipping IsSpeaking back to false.
-    // The still-ticking "Forever" clock then keeps trying to apply its next
-    // value to this Ellipse's RenderTransform after the container's local
-    // value has already been torn down, which throws "Cannot animate ...
-    // on an immutable object instance" on every tick - explains the
-    // cascade of repeated error dialogs on join-then-leave. Explicitly
-    // detaching the animation here, on Unloaded, guarantees the clock stops
-    // regardless of whether the trigger's own ExitActions ran.
-    private void SpeakingRing_Unloaded(object sender, RoutedEventArgs e)
-    {
-        // A recycled virtualized container can already have RenderTransform
-        // reset to WPF's shared frozen default Transform by the time Unloaded
-        // fires - BeginAnimation on that shared singleton throws "sealed or
-        // frozen", so only touch it while it's still our own live instance.
-        if (sender is System.Windows.Shapes.Ellipse { RenderTransform: ScaleTransform { IsFrozen: false } scale })
-        {
-            scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
-            scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
-        }
-    }
-
-    // Same forcibly-removed-container problem as SpeakingRing_Unloaded above,
-    // for the sound-bar scan's 7 looping (RepeatBehavior="Forever")
+    // Same forcibly-removed-container problem the old pulsing speaking ring
+    // had (now removed - the sound bar below is the only speaking indicator
+    // in this row), for the sound-bar scan's 7 looping (RepeatBehavior="Forever")
     // per-bar Opacity animations - detach all of them on Unloaded so a
     // recycled/torn-down row's clocks don't keep firing against bars that
     // no longer belong to a live member.
