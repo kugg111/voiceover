@@ -15,9 +15,31 @@ namespace Voiceover.Client.Services;
 // device in use elsewhere), and that must never block starting a screen
 // share - it just means the share goes out video-only, same as before this
 // feature existed.
+//
+// WasapiLoopbackCapture taps the default render endpoint's *entire* mix -
+// not just game/media audio, but also everything RemoteAudioPlayback is
+// currently sending to that same device (every other participant's voice,
+// including - once a viewer opens this share - their own, round-tripped
+// back to them). See RenderedVoiceReferenceBuffer for the fix: since this
+// is a digital tap of a signal the app itself already knows exactly (not
+// acoustic mic pickup), that known reference gets subtracted out of the
+// capture before publishing, sample for sample.
 public class ScreenAudioCaptureSource : IDisposable
 {
     private const int FrameDurationMs = 20;
+
+    // How far back to look in RenderedVoiceReferenceBuffer for the audio
+    // that corresponds to a just-captured loopback block - covers the
+    // render buffer + loopback capture round trip through WASAPI's shared-
+    // mode audio engine, which isn't directly measurable from NAudio's API
+    // and varies a little by device/driver. Chosen as a reasonable default
+    // rather than an exact measurement (unlike NSNet2's delay compensation,
+    // which is a fixed algorithmic delay - this one is hardware-dependent);
+    // live-test against a real device and adjust if cancellation sounds
+    // early/late (a residual pre-echo or post-echo "flutter" on your own
+    // voice, rather than the loud direct echo this fixes, indicates a
+    // misalignment worth retuning).
+    private const int DelayCompensationMs = 40;
 
     public AudioSource Source { get; }
 
@@ -61,11 +83,34 @@ public class ScreenAudioCaptureSource : IDisposable
         // regardless of the device's own bit depth - convert to the 16-bit
         // interleaved PCM AudioFrame expects.
         int floatCount = args.BytesRecorded / 4;
+        int frameCount = floatCount / _channels;
+
+        // Echo-cancellation reference - see RenderedVoiceReferenceBuffer and
+        // this class's own header comment. Only meaningful at 48kHz, the
+        // fixed rate that buffer is kept in (matching LiveKit's own
+        // AudioStream format) - on the rare device whose mix format isn't
+        // 48kHz, this comes back all zeros and subtraction below is a no-op,
+        // same "best effort, never block the feature" fallback as a failed
+        // WasapiLoopbackCapture construction above.
+        var reference = _sampleRate == 48000
+            ? RenderedVoiceReferenceBuffer.TakeReference(frameCount, DelayCompensationMs)
+            : new short[frameCount];
+
         var incoming = new short[floatCount];
-        for (int i = 0; i < floatCount; i++)
+        for (int frame = 0; frame < frameCount; frame++)
         {
-            float sample = BitConverter.ToSingle(args.Buffer, i * 4);
-            incoming[i] = (short)Math.Clamp(sample * short.MaxValue, short.MinValue, short.MaxValue);
+            for (int ch = 0; ch < _channels; ch++)
+            {
+                int i = frame * _channels + ch;
+                float sample = BitConverter.ToSingle(args.Buffer, i * 4);
+                short pcm = (short)Math.Clamp(sample * short.MaxValue, short.MinValue, short.MaxValue);
+                // Same mono reference subtracted from every channel - this
+                // app's own voice playback was itself upmixed identically
+                // to every channel by the shared-mode audio engine on the
+                // way out (WaveOutEvent publishes a mono WaveFormat; see
+                // RemoteAudioPlayback), so that's the correct match here too.
+                incoming[i] = (short)Math.Clamp(pcm - reference[frame], short.MinValue, short.MaxValue);
+            }
         }
         _accumulator.AddRange(incoming);
 
