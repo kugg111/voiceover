@@ -74,6 +74,14 @@
          real-time features can't work at all without. -->
     <PackageReference Include="StackExchange.Redis" Version="2.8.16" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" Version="8.0.10" />
+    <!-- SignalR.StackExchangeRedis above pulls in MessagePack 2.5.108
+         transitively, which has several disclosed CVEs (moderate/high,
+         e.g. GHSA-hv8m-jj95-wg3x - an AccessViolationException from bad
+         input during LZ4 decompression) all fixed by 2.5.301. An explicit
+         PackageReference here overrides that transitive version. Pinned to
+         the 2.5.x line, not the 3.x line SignalR.StackExchangeRedis 8.0.10
+         wasn't built/tested against. -->
+    <PackageReference Include="MessagePack" Version="2.5.302" />
   </ItemGroup>
 
   <ItemGroup>

@@ -35,3 +35,20 @@ jobs:
 
       - name: Test Client.Tests
         run: dotnet test Client.Tests/Client.Tests.csproj --configuration Release --no-build --verbosity normal
+
+  build-server-image:
+    # Separate job, not a step in build-and-test above - that job needs
+    # windows-latest for the WPF client, but the Dockerfile below only
+    # needs a Linux Docker daemon, which ubuntu-latest already has
+    # preinstalled. Catches a broken Dockerfile (bad base image tag, a
+    # restore/publish failure inside the container, a missing file) here
+    # instead of the first time `railway up` builds it against production -
+    # this workflow builds the image but doesn't push or deploy it anywhere.
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build server Docker image
+        run: docker build -f Server/Dockerfile Server
