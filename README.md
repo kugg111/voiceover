@@ -6,10 +6,6 @@ channels, direct messages, friends, file/voice-message attachments, custom
 emoji, voice channels, private 1:1 calls with screen sharing, and
 end-to-end encrypted messaging.
 
-**Live app:** [voiceover-app.hu](https://www.voiceover-app.hu/) (or the
-[Railway subdomain](https://voiceover-production-c32a.up.railway.app/)) —
-grab the Windows installer or a portable ZIP from the
-[download page](https://www.voiceover-app.hu/download.html).
 
 ## Features
 
